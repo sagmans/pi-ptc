@@ -1,0 +1,60 @@
+{
+	"name": "pi-ptc",
+	"version": "0.1.0",
+	"description": "Programmatic Tool Call presentation for Pi core tools",
+	"license": "MIT",
+	"files": [
+		"index.ts",
+		"src",
+		"config.json",
+		"docs",
+		"CHANGELOG.md",
+		"CONTEXT.md",
+		"SECURITY.md"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/sagmans/pi-ptc.git"
+	},
+	"homepage": "https://github.com/sagmans/pi-ptc#readme",
+	"bugs": "https://github.com/sagmans/pi-ptc/issues",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-extension",
+		"ptc",
+		"programmatic-tool-calling"
+	],
+	"type": "module",
+	"exports": {
+		".": "./index.ts"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"scripts": {
+		"test": "node --test test/*.test.ts",
+		"typecheck": "tsc --noEmit",
+		"check": "biome check .",
+		"check:fix": "biome check --write .",
+		"audit": "npm audit --audit-level=moderate",
+		"verify": "npm run check && npm run typecheck && npm test",
+		"verify:ci": "npm run audit && npm run verify"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.10",
+		"@earendil-works/pi-coding-agent": "0.84.3",
+		"@types/node": "26.2.0",
+		"typebox": "1.3.3",
+		"typescript": "7.0.2"
+	}
+}
