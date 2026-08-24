@@ -7,7 +7,7 @@ import test from "node:test";
 import { createCoreBindings, createOfficialExecutor } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { createScheduler } from "../src/scheduler.ts";
-import { createPtcTool } from "../src/transport.ts";
+import { createPtcTool, type PtcPartialResult } from "../src/transport.ts";
 
 function tempDir(): string {
 	return mkdtempSync(join(tmpdir(), "pi-ptc-dogfood-"));
@@ -23,6 +23,7 @@ function toolFor() {
 				execute: createOfficialExecutor(ctx.cwd, ctx.signal),
 				scheduler: createScheduler(SHIPPED_PTC_CONFIG.maxParallelDispatches),
 				signal: ctx.signal,
+				reportDispatch: ctx.reportDispatch,
 			}),
 	});
 }
@@ -31,6 +32,7 @@ test("one program can read two files and return both names", async () => {
 	const cwd = tempDir();
 	writeFileSync(join(cwd, "package.json"), '{"name":"alpha"}\n');
 	writeFileSync(join(cwd, "tsconfig.json"), '{"name":"beta"}\n');
+	const updates: PtcPartialResult[] = [];
 	const result = await toolFor().execute(
 		"dogfood-read",
 		{
@@ -44,13 +46,19 @@ return { pkg: JSON.parse(pkg.text).name, ts: JSON.parse(ts.text).name };
 			description: "Read both names",
 		},
 		undefined,
-		undefined,
+		(partial) => {
+			updates.push(partial);
+		},
 		{ cwd },
 	);
 	assert.deepEqual(JSON.parse(result.content[0]?.text ?? ""), {
 		logs: [],
 		result: { pkg: "alpha", ts: "beta" },
 	});
+	assert.ok(updates.some((update) => update.content[0]?.text.includes("read … package.json")));
+	assert.ok(updates.some((update) => update.content[0]?.text.includes("read … tsconfig.json")));
+	assert.equal(result.details.dispatches.filter((entry) => entry.status === "ok").length, 2);
+	assert.equal(JSON.stringify(updates).includes("alpha"), false);
 });
 
 test("a failing bash dispatch is catchable as ToolCallError", async () => {

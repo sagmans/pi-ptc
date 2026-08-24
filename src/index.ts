@@ -81,6 +81,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 					emit: (name, payload) => {
 						pi.events.emit(name, payload);
 					},
+					reportDispatch: ctx.reportDispatch,
 				}),
 		}),
 	);

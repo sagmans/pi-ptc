@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createCoreBindings, createOfficialExecutor } from "../src/bridge.ts";
+import { createCoreBindings, createOfficialExecutor, formatDispatchLine } from "../src/bridge.ts";
 import { ToolCallError } from "../src/canonical.ts";
 import { DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "../src/config.ts";
 import { createScheduler } from "../src/scheduler.ts";
@@ -124,4 +124,51 @@ test("official executor reads a real file through the factory", async () => {
 		scheduler: createScheduler(2),
 	});
 	assert.deepEqual(await bindings.read({ path: "note.txt" }), { text: "factory-ok\n" });
+});
+
+test("bridge reports start before factory execute and ok after", async () => {
+	const order: string[] = [];
+	const bindings = createCoreBindings({
+		execute: async () => {
+			order.push("execute");
+			return { content: [{ type: "text", text: "hello" }] };
+		},
+		scheduler: createScheduler(2),
+		reportDispatch: (progress) => {
+			order.push(progress.status);
+		},
+	});
+	await bindings.read({ path: "a.txt" });
+	assert.deepEqual(order, ["start", "execute", "ok"]);
+});
+
+test("bridge reports err after factory failure", async () => {
+	const statuses: string[] = [];
+	const bindings = createCoreBindings({
+		execute: async () => {
+			throw new Error("missing");
+		},
+		scheduler: createScheduler(2),
+		reportDispatch: (progress) => {
+			statuses.push(progress.status);
+		},
+	});
+	await assert.rejects(() => bindings.read({ path: "gone.txt" }), ToolCallError);
+	assert.deepEqual(statuses, ["start", "err"]);
+});
+
+test("formatDispatchLine names the tool, status, and target", () => {
+	assert.equal(
+		formatDispatchLine({ name: "read", args: { path: "a.txt" }, status: "start" }),
+		"read … a.txt",
+	);
+	assert.equal(
+		formatDispatchLine({ name: "read", args: { path: "a.txt" }, status: "ok" }),
+		"read ok a.txt",
+	);
+	assert.equal(
+		formatDispatchLine({ name: "bash", args: { command: "true" }, status: "err" }),
+		"bash err true",
+	);
+	assert.equal(formatDispatchLine({ name: "ls", args: {}, status: "start" }), "ls …");
 });

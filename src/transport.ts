@@ -2,6 +2,7 @@
 
 import { Type } from "typebox";
 
+import { type DispatchProgress, formatDispatchLine } from "./bridge.ts";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
 	OUTER_OVERFLOW_BYTES_MESSAGE,
@@ -20,11 +21,19 @@ export type PtcParams = {
 export type PtcExecuteContext = {
 	cwd: string;
 	signal?: AbortSignal;
+	reportDispatch?: (progress: DispatchProgress) => void;
 };
+
+export type PtcPartialResult = {
+	content: Array<{ type: "text"; text: string }>;
+	details: { description: string; dispatches: DispatchProgress[] };
+};
+
+export type PtcOnUpdate = (partial: PtcPartialResult) => void;
 
 export type PtcToolResult = {
 	content: Array<{ type: "text"; text: string }>;
-	details: { description: string };
+	details: { description: string; dispatches: DispatchProgress[] };
 };
 
 const PTC_PARAMETERS = Type.Object({
@@ -54,25 +63,37 @@ export function createPtcTool(options: {
 			_toolCallId: string,
 			params: PtcParams,
 			signal: AbortSignal | undefined,
-			_onUpdate: unknown,
+			onUpdate: PtcOnUpdate | undefined,
 			ctx: PtcExecuteContext,
 		): Promise<PtcToolResult> {
 			if (params.description.trim().length === 0) {
 				throw new Error(EMPTY_DESCRIPTION_MESSAGE);
 			}
 			const abortSignal = signal ?? ctx.signal;
+			const dispatches: DispatchProgress[] = [];
+			const reportDispatch = (progress: DispatchProgress) => {
+				dispatches.push(progress);
+				onUpdate?.({
+					content: [{ type: "text", text: dispatches.map(formatDispatchLine).join("\n") }],
+					details: { description: params.description, dispatches: [...dispatches] },
+				});
+			};
 			const outcome = await run({
 				program: params.code,
 				bindings: {
 					global: "tools",
-					functions: options.createBindings({ cwd: ctx.cwd, signal: abortSignal }),
+					functions: options.createBindings({
+						cwd: ctx.cwd,
+						signal: abortSignal,
+						reportDispatch,
+					}),
 				},
 				signal: abortSignal,
 				timeoutMs: options.timeoutMs,
 			});
 			return {
 				content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
-				details: { description: params.description },
+				details: { description: params.description, dispatches },
 			};
 		},
 	};
