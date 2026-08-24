@@ -34,6 +34,7 @@ test("runCode calls host bindings and returns their JSON value", async () => {
 				echo: async (args) => args,
 			},
 		},
+		timeoutMs: 1500,
 	});
 	assert.deepEqual(outcome, { logs: [], result: { n: 3 } });
 });

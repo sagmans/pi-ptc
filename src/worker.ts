@@ -72,20 +72,23 @@ const emitLog = (args: unknown[]): void => {
 	port.postMessage({ type: "log", text: args.map(String).join(" ") });
 };
 
-try {
-	const create = new Function(`${boot.program}\nreturn ${PROGRAM_WRAPPER_NAME};`) as () => (
-		tools: unknown,
-		toolCallError: unknown,
-		console: unknown,
-	) => Promise<unknown>;
-	const value = await create()(tools, ToolCallError, consoleShim);
-	if (value === undefined) {
-		port.postMessage({ type: "done" });
-	} else {
-		port.postMessage({ type: "done", value: snapshotJsonValue(value) });
+// Bun does not pump worker parentPort replies during top-level await.
+void (async () => {
+	try {
+		const create = new Function(`${boot.program}\nreturn ${PROGRAM_WRAPPER_NAME};`) as () => (
+			tools: unknown,
+			toolCallError: unknown,
+			console: unknown,
+		) => Promise<unknown>;
+		const value = await create()(tools, ToolCallError, consoleShim);
+		if (value === undefined) {
+			port.postMessage({ type: "done" });
+		} else {
+			port.postMessage({ type: "done", value: snapshotJsonValue(value) });
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const kind = message.includes("lossless JSON") ? "invalid-output" : "throw";
+		port.postMessage({ type: "fail", kind, message });
 	}
-} catch (error) {
-	const message = error instanceof Error ? error.message : String(error);
-	const kind = message.includes("lossless JSON") ? "invalid-output" : "throw";
-	port.postMessage({ type: "fail", kind, message });
-}
+})();
