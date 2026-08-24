@@ -1,11 +1,11 @@
 // Host-side code runtime. The worker is a containment isolate, not a sandbox.
 
-import { stripTypeScriptTypes } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME, SHIPPED_PTC_CONFIG } from "./config.ts";
 import { type JsonValue, snapshotJsonValue } from "./json.ts";
+import { stripProgram } from "./strip.ts";
 
 const WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));
 
@@ -72,7 +72,7 @@ export async function runCode(request: CodeRunRequest): Promise<CodeRunResult> {
 	let program: string;
 	try {
 		// Strip a function wrapper so top-level return/await stay legal.
-		program = stripTypeScriptTypes(
+		program = stripProgram(
 			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, console) {
 ${request.program}
 }`,

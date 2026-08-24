@@ -24,6 +24,8 @@ export const TRUST_COPY =
 export const OUTER_OVERFLOW_BYTES_MESSAGE = "outer result exceeds maxOutputBytes";
 export const OUTER_OVERFLOW_LINES_MESSAGE = "outer result exceeds maxOutputLines";
 export const EMPTY_DESCRIPTION_MESSAGE = "description must be non-empty";
+export const STRIP_UNAVAILABLE_MESSAGE = "no TypeScript stripper available";
+export const TYPESCRIPT_LOADER = "ts";
 
 export const CORE_TOOL_NAMES = Object.freeze([
 	"bash",
