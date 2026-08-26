@@ -161,6 +161,8 @@ export type FactoryToolSet = Record<CoreToolName, FactoryTool>;
 export type CoreBindings = Record<CoreToolName, BindingFn>;
 
 const CALL_ID_PREFIX = "ptc";
+const OPERATION_ABORTED_MESSAGE = "Operation aborted";
+const NATIVE_ABORT_DRAINING_TOOL_NAMES = new Set<CoreToolName>(["bash", "edit", "write"]);
 
 export function createFactoryExecutor(
 	tools: FactoryToolSet,
@@ -170,12 +172,27 @@ export function createFactoryExecutor(
 	return async (name, args, dispatchSignal, onUpdate) => {
 		const id = nextId;
 		nextId += 1;
-		return await tools[name].execute(
-			`${CALL_ID_PREFIX}:${name}:${id}`,
-			args,
-			dispatchSignal ?? signal,
-			onUpdate,
-		);
+		const invocationSignal = dispatchSignal ?? signal;
+		if (invocationSignal?.aborted) throw new Error(OPERATION_ABORTED_MESSAGE);
+		// Pi 0.84.3 read/list/search promises can reject before owned I/O exits, so drain them naturally.
+		const nativeSignal = NATIVE_ABORT_DRAINING_TOOL_NAMES.has(name) ? invocationSignal : undefined;
+		try {
+			const result = await tools[name].execute(
+				`${CALL_ID_PREFIX}:${name}:${id}`,
+				args,
+				nativeSignal,
+				onUpdate,
+			);
+			if (nativeSignal === undefined && invocationSignal?.aborted) {
+				throw new Error(OPERATION_ABORTED_MESSAGE);
+			}
+			return result;
+		} catch (error) {
+			if (nativeSignal === undefined && invocationSignal?.aborted) {
+				throw new Error(OPERATION_ABORTED_MESSAGE);
+			}
+			throw error;
+		}
 	};
 }
 

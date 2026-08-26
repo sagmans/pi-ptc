@@ -20,6 +20,11 @@ const BINDING_SIGNAL = new AbortController().signal;
 const QUEUED_ABORT_FIRST_PATH = "first.txt";
 const QUEUED_ABORT_SECOND_PATH = "second.txt";
 const SCHEDULER_ABORT_MESSAGE = /Operation aborted/;
+const EARLY_NATIVE_ABORT_MESSAGE = "native aborted before owned work settled";
+
+async function nextTurn(): Promise<void> {
+	await new Promise<void>((resolve) => setImmediate(resolve));
+}
 
 test("bridge snapshots args, returns canonical JSON, and records dispatch", async () => {
 	const logs: unknown[] = [];
@@ -188,6 +193,79 @@ test("official executor reads a real file through the factory", async () => {
 function fakeFactoryTools(execute: FactoryToolSet["read"]["execute"]): FactoryToolSet {
 	return Object.fromEntries(CORE_TOOL_NAMES.map((name) => [name, { execute }])) as FactoryToolSet;
 }
+
+test("factory executor drains native read work before surfacing abort", async () => {
+	let markStarted!: () => void;
+	let releaseOwnedWork!: () => void;
+	const started = new Promise<void>((resolve) => {
+		markStarted = resolve;
+	});
+	const ownedWork = new Promise<void>((resolve) => {
+		releaseOwnedWork = resolve;
+	});
+	let ownedWorkSettled = false;
+	let executorReturned = false;
+	const controller = new AbortController();
+	const execute = createFactoryExecutor(
+		fakeFactoryTools(async (_id, _args, signal) => {
+			markStarted();
+			if (signal) {
+				return await new Promise((_resolve, reject) => {
+					signal.addEventListener(
+						"abort",
+						() => {
+							reject(new Error(EARLY_NATIVE_ABORT_MESSAGE));
+							void ownedWork.then(() => {
+								ownedWorkSettled = true;
+							});
+						},
+						{ once: true },
+					);
+				});
+			}
+			await ownedWork;
+			ownedWorkSettled = true;
+			return { content: [{ type: "text", text: "done" }] };
+		}),
+	);
+	const pending = execute("read", { path: "a.txt" }, controller.signal);
+	void pending.then(
+		() => {
+			executorReturned = true;
+		},
+		() => {
+			executorReturned = true;
+		},
+	);
+
+	await started;
+	controller.abort();
+	await nextTurn();
+	const returnedBeforeOwnedWork = executorReturned;
+	const settledBeforeRelease = ownedWorkSettled;
+	releaseOwnedWork();
+	await ownedWork;
+
+	await assert.rejects(pending, SCHEDULER_ABORT_MESSAGE);
+	assert.equal(returnedBeforeOwnedWork, false);
+	assert.equal(settledBeforeRelease, false);
+	assert.equal(ownedWorkSettled, true);
+});
+
+test("factory executor forwards abort to natively draining tools", async () => {
+	const controller = new AbortController();
+	let receivedSignal: AbortSignal | undefined;
+	const execute = createFactoryExecutor(
+		fakeFactoryTools(async (_id, _args, signal) => {
+			receivedSignal = signal;
+			return { content: [] };
+		}),
+	);
+
+	await execute("bash", { command: "true" }, controller.signal);
+
+	assert.equal(receivedSignal, controller.signal);
+});
 
 test("factory executor reserves unique IDs before concurrent calls settle", async () => {
 	const ids: string[] = [];
