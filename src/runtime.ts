@@ -12,6 +12,7 @@ const LOG_SEPARATOR_BYTES = 1;
 const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
 const INVALID_WORKER_CALL_ID_MESSAGE =
 	"worker call id must be a positive safe integer that strictly increases";
+const INVALID_WORKER_MESSAGE = "worker emitted an invalid protocol message";
 
 // Required internal contract: bindings must settle after abort because host work cannot be abandoned safely.
 export type BindingFn = (args: JsonValue, signal: AbortSignal) => Promise<JsonValue>;
@@ -63,8 +64,10 @@ function logicalLineCount(text: string): number {
 	return text.split(/\r\n|\r|\n/).length;
 }
 
-function parseWorkerMessage(value: unknown): WorkerToHost | undefined {
-	if (!isRecord(value) || typeof value.type !== "string") return undefined;
+function parseWorkerMessage(value: unknown): WorkerToHost {
+	if (!isRecord(value) || typeof value.type !== "string") {
+		throw new Error(INVALID_WORKER_MESSAGE);
+	}
 	if (value.type === "log" && typeof value.text === "string") {
 		return { type: "log", text: value.text };
 	}
@@ -83,7 +86,7 @@ function parseWorkerMessage(value: unknown): WorkerToHost | undefined {
 	) {
 		return { type: "fail", kind: value.kind, message: value.message };
 	}
-	return undefined;
+	throw new Error(INVALID_WORKER_MESSAGE);
 }
 
 export async function runCode(request: CodeRunRequest): Promise<CodeRunResult> {
@@ -177,9 +180,7 @@ ${request.program}
 			if (closing) return;
 			let message: WorkerToHost;
 			try {
-				const parsed = parseWorkerMessage(raw);
-				if (!parsed) return;
-				message = parsed;
+				message = parseWorkerMessage(raw);
 			} catch (error) {
 				finish(
 					{

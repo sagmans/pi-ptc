@@ -22,6 +22,15 @@ const INVALID_WORKER_CALL_ID_CASES = [
 		expectedBindingCalls: 1,
 	},
 ] as const;
+const MALFORMED_WORKER_MESSAGES = [
+	{ type: "call", id: "1", name: HOSTILE_BINDING_NAME, args: null },
+	{ type: "call", id: FIRST_WORKER_CALL_ID, name: 1, args: null },
+	{ type: "call", id: FIRST_WORKER_CALL_ID, name: HOSTILE_BINDING_NAME },
+	{ type: "fail", kind: "unknown", message: "bad failure kind" },
+	{ type: "unknown" },
+] as const;
+const ACTIVE_BINDING_CALL_LIMIT = 1;
+const ACTIVE_LIMIT_PROGRAM = "void tools.first(null); void tools.second(null); return null;";
 
 function deferred<T = void>(): {
 	promise: Promise<T>;
@@ -66,6 +75,14 @@ const { parentPort } = await import("node:worker_threads");
 for (const id of ${JSON.stringify(ids)}) {
   parentPort.postMessage({ type: "call", id, name: "${HOSTILE_BINDING_NAME}", args: id });
 }
+return null;
+`;
+}
+
+function hostileWorkerMessageProgram(message: unknown): string {
+	return `
+const { parentPort } = await import("node:worker_threads");
+parentPort.postMessage(${JSON.stringify(message)});
 return null;
 `;
 }
@@ -139,6 +156,17 @@ try {
 			message: "denied",
 		},
 	});
+});
+
+test("runCode fails closed on malformed worker protocol messages", async () => {
+	for (const message of MALFORMED_WORKER_MESSAGES) {
+		const outcome = await runCode({
+			program: hostileWorkerMessageProgram(message),
+			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		});
+
+		assert.equal(outcome.error?.kind, "invalid-output", JSON.stringify(message));
+	}
 });
 
 test("runCode rejects worker call IDs that are not positive, safe, and increasing", async () => {
@@ -343,6 +371,51 @@ return "unreachable";
 	});
 
 	assert.equal(bindingCalls, SHIPPED_PTC_CONFIG.maxDispatches);
+	assert.deepEqual(outcome.error, { kind: "dispatch-limit" });
+});
+
+test("runCode aborts and drains active work when an override limit is exceeded", async () => {
+	const firstStarted = deferred();
+	const firstAbortObserved = deferred();
+	const allowFirstToSettle = deferred();
+	let firstSettled = false;
+	let secondBindingCalls = 0;
+	const pending = runCode({
+		program: ACTIVE_LIMIT_PROGRAM,
+		bindings: {
+			global: "tools",
+			functions: {
+				first: async (_args, signal) => {
+					firstStarted.resolve();
+					if (!signal.aborted) {
+						await new Promise<void>((resolve) => {
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					}
+					firstAbortObserved.resolve();
+					await allowFirstToSettle.promise;
+					firstSettled = true;
+					return null;
+				},
+				second: async () => {
+					secondBindingCalls += 1;
+					return null;
+				},
+			},
+		},
+		maxBindingCalls: ACTIVE_BINDING_CALL_LIMIT,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+
+	await firstStarted.promise;
+	await firstAbortObserved.promise;
+	const returnedBeforeDrain = await settledWithinDrainObservation(pending);
+	allowFirstToSettle.resolve();
+	const outcome = await pending;
+
+	assert.equal(returnedBeforeDrain, false);
+	assert.equal(firstSettled, true);
+	assert.equal(secondBindingCalls, 0);
 	assert.deepEqual(outcome.error, { kind: "dispatch-limit" });
 });
 
