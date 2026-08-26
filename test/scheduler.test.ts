@@ -95,6 +95,31 @@ test("exclusive dispatch waits for the pool to drain and runs alone", async () =
 	assert.deepEqual(started, ["parallel", "exclusive", "later"]);
 });
 
+test("aborting queued work rejects it without starting it", async () => {
+	const scheduler = createScheduler(1);
+	const exclusiveGate = deferred();
+	const controller = new AbortController();
+	let queuedStarted = false;
+
+	const exclusive = scheduler.run("exclusive", async () => {
+		await exclusiveGate.promise;
+	});
+	await Promise.resolve();
+	const queued = scheduler.run(
+		"parallel",
+		async () => {
+			queuedStarted = true;
+		},
+		controller.signal,
+	);
+
+	const queuedRejection = assert.rejects(queued, /Operation aborted/);
+	controller.abort();
+	exclusiveGate.resolve();
+	await Promise.all([exclusive, queuedRejection]);
+	assert.equal(queuedStarted, false);
+});
+
 test("two exclusive dispatches never overlap", async () => {
 	const scheduler = createScheduler(2);
 	let inFlight = 0;
