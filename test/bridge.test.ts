@@ -97,9 +97,9 @@ test("bridge terminalizes cancelled partial work before binding rejection settle
 	});
 	const bindings = createCoreBindings({
 		execute: async (_name, _args, signal, onUpdate) => {
+			markExecutorStarted();
 			assert.equal(signal, controller.signal);
 			onUpdate?.({ content: [{ type: "text", text: PARTIAL_CANCEL_TEXT }] });
-			markExecutorStarted();
 			await new Promise<void>((_resolve, reject) => {
 				signal?.addEventListener("abort", () => reject(new Error(OPERATION_ABORTED_MESSAGE)), {
 					once: true,
