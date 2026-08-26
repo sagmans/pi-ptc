@@ -38,7 +38,10 @@ const DEFAULT_SHELL_PADDING_X = 1;
 const DEFAULT_SHELL_PADDING_Y = 1;
 const ROW_SPACING = 1;
 const DIAGNOSTIC_MAX_CHARACTERS = 512;
+const DIAGNOSTIC_MAX_LINES = 4;
+const DEFAULT_RENDER_FAILURE_MESSAGE = "display failure";
 const DEFAULT_RENDER_SHELL = "default";
+const DISPLAY_DIAGNOSTIC_NAME = "display";
 
 export type PtcDefinitionRegistry = Partial<Record<CoreToolName, ToolDefinition>>;
 export type PtcDefinitionFactory = (cwd: string) => PtcDefinitionRegistry;
@@ -94,6 +97,7 @@ export function renderPtcResult(
 		invalidate: context.invalidate,
 	});
 	for (const dispatch of details.dispatches) root.updateDispatch(dispatch);
+	root.setCompatibilityError(details.compatibilityError);
 	root.setExecutionError(
 		context.isError ? (details.executionError ?? getOuterExecutionError(result)) : undefined,
 	);
@@ -105,7 +109,9 @@ class SafePtcRoot implements Component {
 	private readonly definitions: PtcDefinitionRegistry;
 	private readonly rows = new Map<number, PtcDispatchRow>();
 	private readonly orderedRows: PtcDispatchRow[] = [];
-	private executionError: PtcExecutionErrorRow | undefined;
+	private compatibilityError: PtcDiagnosticRow | undefined;
+	private containedFailure: string | undefined;
+	private executionError: PtcDiagnosticRow | undefined;
 	private view: PtcRowView;
 
 	constructor(
@@ -123,65 +129,105 @@ class SafePtcRoot implements Component {
 	private readonly toolCallId: string;
 
 	setView(view: PtcRowView): void {
-		const visualStateChanged =
-			this.view.expanded !== view.expanded ||
-			this.view.showImages !== view.showImages ||
-			this.view.theme !== view.theme;
-		this.view.expanded = view.expanded;
-		this.view.showImages = view.showImages;
-		this.view.theme = view.theme;
-		this.view.invalidate = view.invalidate;
-		if (!visualStateChanged) return;
-		for (const row of this.orderedRows) row.setView(this.view);
-		this.executionError?.setView(this.view);
+		try {
+			const visualStateChanged =
+				this.view.expanded !== view.expanded ||
+				this.view.showImages !== view.showImages ||
+				this.view.theme !== view.theme;
+			this.view.expanded = view.expanded;
+			this.view.showImages = view.showImages;
+			this.view.theme = view.theme;
+			this.view.invalidate = view.invalidate;
+			if (!visualStateChanged) return;
+			for (const row of this.orderedRows) row.setView(this.view);
+			this.compatibilityError?.setView(this.view);
+			this.executionError?.setView(this.view);
+		} catch (error) {
+			this.contain(error);
+		}
 	}
 
 	updateDispatch(dispatch: PtcPersistedDispatch): void {
-		let row = this.rows.get(dispatch.id);
-		if (!row) {
-			row = new PtcDispatchRow({
-				cwd: this.cwd,
-				definition: this.definitions[dispatch.name],
-				dispatch,
-				toolCallId: `${this.toolCallId}${NESTED_TOOL_CALL_SEPARATOR}${dispatch.id}`,
-				view: this.view,
-			});
-			this.rows.set(dispatch.id, row);
-			const lastRow = this.orderedRows.at(-1);
-			if (!lastRow || lastRow.id < dispatch.id) {
-				this.orderedRows.push(row);
-			} else {
-				this.orderedRows.splice(findRowInsertionIndex(this.orderedRows, dispatch.id), 0, row);
+		try {
+			let row = this.rows.get(dispatch.id);
+			if (!row) {
+				row = new PtcDispatchRow({
+					cwd: this.cwd,
+					definition: this.definitions[dispatch.name],
+					dispatch,
+					toolCallId: `${this.toolCallId}${NESTED_TOOL_CALL_SEPARATOR}${dispatch.id}`,
+					view: this.view,
+				});
+				this.rows.set(dispatch.id, row);
+				const lastRow = this.orderedRows.at(-1);
+				if (!lastRow || lastRow.id < dispatch.id) {
+					this.orderedRows.push(row);
+				} else {
+					this.orderedRows.splice(findRowInsertionIndex(this.orderedRows, dispatch.id), 0, row);
+				}
+				return;
 			}
-			return;
+			row.update(dispatch);
+		} catch (error) {
+			this.contain(error);
 		}
-		row.update(dispatch);
+	}
+
+	setCompatibilityError(message: string | undefined): void {
+		this.compatibilityError = this.updateDiagnostic(
+			this.compatibilityError,
+			DISPLAY_DIAGNOSTIC_NAME,
+			message,
+		);
 	}
 
 	setExecutionError(message: string | undefined): void {
-		if (message === undefined) {
-			this.executionError = undefined;
-			return;
-		}
-		if (!this.executionError) {
-			this.executionError = new PtcExecutionErrorRow(this.view);
-		}
-		this.executionError.setMessage(message);
+		this.executionError = this.updateDiagnostic(this.executionError, EXECUTION_TOOL_NAME, message);
+	}
+
+	contain(error: unknown): void {
+		this.containedFailure = sanitizeDiagnostic(errorMessage(error));
 	}
 
 	invalidate(): void {
-		for (const row of this.orderedRows) row.invalidate();
-		this.executionError?.invalidate();
+		try {
+			for (const row of this.orderedRows) row.invalidate();
+			this.compatibilityError?.invalidate();
+			this.executionError?.invalidate();
+		} catch (error) {
+			this.contain(error);
+		}
 	}
 
 	render(width: number): string[] {
+		if (this.containedFailure) {
+			return renderRootFailure(this.containedFailure, width, this.view.theme);
+		}
 		try {
 			const lines: string[] = [];
 			for (const row of this.orderedRows) lines.push(...row.render(width));
+			if (this.compatibilityError) lines.push(...this.compatibilityError.render(width));
 			if (this.executionError) lines.push(...this.executionError.render(width));
 			return lines;
 		} catch (error) {
+			this.contain(error);
 			return renderRootFailure(error, width, this.view.theme);
+		}
+	}
+
+	private updateDiagnostic(
+		current: PtcDiagnosticRow | undefined,
+		label: string,
+		message: string | undefined,
+	): PtcDiagnosticRow | undefined {
+		try {
+			if (message === undefined) return undefined;
+			const diagnostic = current ?? new PtcDiagnosticRow(label, this.view);
+			diagnostic.setMessage(message);
+			return diagnostic;
+		} catch (error) {
+			this.contain(error);
+			return undefined;
 		}
 	}
 }
@@ -236,17 +282,24 @@ class PtcDispatchRow implements Component {
 	}
 
 	invalidate(): void {
-		this.callContainer.invalidate();
-		this.callComponent?.invalidate();
-		this.resultComponent?.invalidate();
+		try {
+			this.callContainer.invalidate();
+		} catch (error) {
+			this.contain(error);
+		}
 	}
 
 	render(width: number): string[] {
 		if (this.renderFailure) {
 			return renderRowFailure(this.renderFailure, width, this.view.theme);
 		}
-		const content = this.callContainer.render(width);
-		return content.length === 0 ? [] : [...new Spacer(ROW_SPACING).render(width), ...content];
+		try {
+			const content = this.callContainer.render(width);
+			return content.length === 0 ? [] : [...new Spacer(ROW_SPACING).render(width), ...content];
+		} catch (error) {
+			this.contain(error);
+			return renderRowFailure(errorMessage(error), width, this.view.theme);
+		}
 	}
 
 	private rebuild(force: boolean): void {
@@ -274,9 +327,7 @@ class PtcDispatchRow implements Component {
 			this.resultComponent = result ? this.renderResult(result) : undefined;
 			if (this.resultComponent) this.callContainer.addChild(this.resultComponent);
 		} catch (error) {
-			this.renderFailure = errorMessage(error);
-			this.callContainer.clear();
-			this.callContainer.addChild(createDiagnosticText(this.renderFailure, this.view.theme));
+			this.contain(error);
 		}
 	}
 
@@ -321,7 +372,11 @@ class PtcDispatchRow implements Component {
 			invalidate: () => {
 				if (generation !== this.generation) return;
 				this.invalidate();
-				this.view.invalidate();
+				try {
+					this.view.invalidate();
+				} catch (error) {
+					this.contain(error);
+				}
 			},
 			lastComponent,
 			state: this.rendererState,
@@ -335,6 +390,14 @@ class PtcDispatchRow implements Component {
 		};
 	}
 
+	private contain(error: unknown): void {
+		this.renderFailure = sanitizeDiagnostic(errorMessage(error));
+		try {
+			this.callContainer.clear();
+			this.callContainer.addChild(createDiagnosticText(this.renderFailure, this.view.theme));
+		} catch {}
+	}
+
 	private getBackground(): (text: string) => string {
 		const color =
 			this.dispatch.status === "start"
@@ -346,23 +409,25 @@ class PtcDispatchRow implements Component {
 	}
 }
 
-class PtcExecutionErrorRow implements Component {
+class PtcDiagnosticRow implements Component {
 	private readonly box: Box;
+	private readonly label: string;
 	private readonly text = new Text("", 0, 0);
 	private message = EMPTY_VALUE_LABEL;
 	private view: PtcRowView;
 
-	constructor(view: PtcRowView) {
+	constructor(label: string, view: PtcRowView) {
+		this.label = label;
 		this.view = view;
 		this.box = new Box(DEFAULT_SHELL_PADDING_X, DEFAULT_SHELL_PADDING_Y, (text) =>
-			this.view.theme.bg("toolErrorBg", text),
+			safeBackground(this.view.theme, text),
 		);
 		this.box.addChild(this.text);
 	}
 
 	setView(view: PtcRowView): void {
 		this.view = view;
-		this.box.setBgFn((text) => this.view.theme.bg("toolErrorBg", text));
+		this.box.setBgFn((text) => safeBackground(this.view.theme, text));
 		this.updateText();
 	}
 
@@ -372,17 +437,26 @@ class PtcExecutionErrorRow implements Component {
 	}
 
 	invalidate(): void {
-		this.box.invalidate();
+		try {
+			this.box.invalidate();
+		} catch {}
 	}
 
 	render(width: number): string[] {
-		return [...new Spacer(ROW_SPACING).render(width), ...this.box.render(width)];
+		try {
+			return [...new Spacer(ROW_SPACING).render(width), ...this.box.render(width)];
+		} catch {
+			return ["", `${this.label}: ${this.message}`];
+		}
 	}
 
 	private updateText(): void {
-		this.text.setText(
-			`${this.view.theme.fg("toolTitle", this.view.theme.bold(EXECUTION_TOOL_NAME))}\n${this.view.theme.fg("error", this.message)}`,
+		const title = safeForeground(
+			this.view.theme,
+			"toolTitle",
+			safeBold(this.view.theme, this.label),
 		);
+		this.text.setText(`${title}\n${safeForeground(this.view.theme, "error", this.message)}`);
 	}
 }
 
@@ -406,12 +480,15 @@ function getRoot(context: PtcRenderContext, theme: Theme): SafePtcRoot {
 		theme,
 		invalidate: context.invalidate,
 	};
-	const root = new SafePtcRoot(
-		context.cwd,
-		context.toolCallId,
-		view,
-		(context.createDefinitions ?? createNativeDefinitions)(context.cwd),
-	);
+	let definitions: PtcDefinitionRegistry = {};
+	let constructionFailure: unknown;
+	try {
+		definitions = (context.createDefinitions ?? createNativeDefinitions)(context.cwd);
+	} catch (error) {
+		constructionFailure = error;
+	}
+	const root = new SafePtcRoot(context.cwd, context.toolCallId, view, definitions);
+	if (constructionFailure !== undefined) root.contain(constructionFailure);
 	context.state.root = root;
 	return root;
 }
@@ -449,7 +526,7 @@ function getTextContent(result: PtcPartialResult | PtcToolResult): string {
 }
 
 function renderRootFailure(error: unknown, width: number, theme: Theme): string[] {
-	const diagnostic = new PtcExecutionErrorRow({
+	const diagnostic = new PtcDiagnosticRow(EXECUTION_TOOL_NAME, {
 		expanded: false,
 		showImages: false,
 		theme,
@@ -460,25 +537,58 @@ function renderRootFailure(error: unknown, width: number, theme: Theme): string[
 }
 
 function renderRowFailure(message: string, width: number, theme: Theme): string[] {
-	const box = new Box(DEFAULT_SHELL_PADDING_X, DEFAULT_SHELL_PADDING_Y, (text) =>
-		theme.bg("toolErrorBg", text),
-	);
-	box.addChild(createDiagnosticText(message, theme));
-	return [...new Spacer(ROW_SPACING).render(width), ...box.render(width)];
+	try {
+		const box = new Box(DEFAULT_SHELL_PADDING_X, DEFAULT_SHELL_PADDING_Y, (text) =>
+			safeBackground(theme, text),
+		);
+		box.addChild(createDiagnosticText(message, theme));
+		return [...new Spacer(ROW_SPACING).render(width), ...box.render(width)];
+	} catch {
+		return ["", `${EXECUTION_TOOL_NAME}: ${sanitizeDiagnostic(message)}`];
+	}
 }
 
 function createDiagnosticText(message: string, theme: Theme): Text {
-	return new Text(
-		`${theme.fg("toolTitle", theme.bold(EXECUTION_TOOL_NAME))}\n${theme.fg("error", sanitizeDiagnostic(message))}`,
-		0,
-		0,
-	);
+	const title = safeForeground(theme, "toolTitle", safeBold(theme, EXECUTION_TOOL_NAME));
+	return new Text(`${title}\n${safeForeground(theme, "error", sanitizeDiagnostic(message))}`, 0, 0);
 }
 
 function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	try {
+		return error instanceof Error ? error.message : String(error);
+	} catch {
+		return DEFAULT_RENDER_FAILURE_MESSAGE;
+	}
 }
 
 function sanitizeDiagnostic(message: string): string {
-	return stripTerminalSequences(message).slice(0, DIAGNOSTIC_MAX_CHARACTERS);
+	return stripTerminalSequences(message)
+		.slice(0, DIAGNOSTIC_MAX_CHARACTERS)
+		.split(/\r?\n/)
+		.slice(0, DIAGNOSTIC_MAX_LINES)
+		.join("\n");
+}
+
+function safeBold(theme: Theme, text: string): string {
+	try {
+		return theme.bold(text);
+	} catch {
+		return text;
+	}
+}
+
+function safeForeground(theme: Theme, color: Parameters<Theme["fg"]>[0], text: string): string {
+	try {
+		return theme.fg(color, text);
+	} catch {
+		return text;
+	}
+}
+
+function safeBackground(theme: Theme, text: string): string {
+	try {
+		return theme.bg("toolErrorBg", text);
+	} catch {
+		return text;
+	}
 }

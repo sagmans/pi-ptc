@@ -4,9 +4,10 @@ import test from "node:test";
 import {
 	initTheme,
 	type Theme,
+	ToolExecutionComponent,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
+import { type Component, stripTerminalSequences, Text, type TUI } from "@earendil-works/pi-tui";
 
 import type { DispatchProgress } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
@@ -33,6 +34,22 @@ const NATIVE_READ_CONTENT = "NATIVE_READ_CONTENT";
 const OMITTED_READ_CONTENT = "OMITTED_READ_CONTENT";
 const OMITTED_RENDER_BUDGET_BYTES = 1;
 const CHILD_RENDER_FAILURE = "child render failure";
+const CONSTRUCTOR_FAILURE = "constructor failure";
+const INVALIDATE_FAILURE = "invalidate failure";
+const OUTER_INVALIDATE_FAILURE = "outer invalidate failure";
+const OUTER_FALLBACK_MARKER = "OUTER_PROGRAM_MARKER";
+const RAW_VISIBLE_PREFIX = "before";
+const RAW_VISIBLE_SUFFIX = "after";
+const RAW_VISIBLE_TEXT = `${RAW_VISIBLE_PREFIX}${RAW_VISIBLE_SUFFIX}`;
+const CALL_RENDER_FAILURE = `${RAW_VISIBLE_PREFIX}\u001b[2J${RAW_VISIBLE_SUFFIX}`;
+const RESULT_RENDER_FAILURE = `${RAW_VISIBLE_PREFIX}\u001b]0;unsafe\u0007${RAW_VISIBLE_SUFFIX}`;
+const RAW_CONTROL_SEQUENCES = [
+	"\u001b[2J",
+	"\u001b[H",
+	"\u001b]0;unsafe-title\u0007",
+	"\u001b]8;;https://unsafe.invalid\u0007\u001b]8;;\u0007",
+	"\u001b_pi:unsafe\u0007",
+] as const;
 const LIMITS = {
 	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
@@ -47,6 +64,8 @@ const THEME = {
 } as Theme;
 
 initTheme(undefined, false);
+
+type HostToolDefinition = NonNullable<ConstructorParameters<typeof ToolExecutionComponent>[4]>;
 
 type RenderableTool = ReturnType<typeof createPtcTool> & {
 	renderShell: "self";
@@ -85,6 +104,10 @@ function render(component: Component, width = RENDER_WIDTH): string {
 		.map((line) => stripTerminalSequences(line).trim())
 		.filter((line) => line.length > 0)
 		.join("\n");
+}
+
+function renderRaw(component: Component, width = RENDER_WIDTH): string {
+	return component.render(width).join("\n");
 }
 
 function resultWith(dispatches: PtcToolResult["details"]["dispatches"]): PtcToolResult {
@@ -513,6 +536,207 @@ test("ptc root contains child rendering failures", () => {
 	assert.match(output, /execution/);
 	assert.match(output, new RegExp(CHILD_RENDER_FAILURE));
 	assert.doesNotMatch(output, /unsafe\.txt/);
+});
+
+test("ptc sanitizes raw CSI, OSC, and APC across every display channel", () => {
+	const tool = createTool();
+	for (const control of RAW_CONTROL_SEQUENCES) {
+		const controlled = `${RAW_VISIBLE_PREFIX}${control}${RAW_VISIBLE_SUFFIX}`;
+		const context = createRenderContext(false, true);
+		const output = renderRaw(
+			tool.renderResult(
+				{
+					content: [{ type: "text", text: "ignored" }],
+					details: {
+						schemaVersion: 2,
+						description: DESCRIPTION,
+						mode: "snapshot",
+						dispatches: [
+							{
+								id: 1,
+								name: "read",
+								args: { path: controlled },
+								status: "err",
+								preview: controlled,
+							},
+						],
+						compatibilityError: controlled,
+						executionError: controlled,
+					},
+				},
+				{ expanded: false, isPartial: false },
+				THEME,
+				context,
+			),
+		);
+
+		assert.equal(output.includes(control), false, JSON.stringify(output));
+		assert.doesNotMatch(output, /unsafe-title|unsafe\.invalid|pi:unsafe/);
+		assert.match(output, new RegExp(RAW_VISIBLE_TEXT));
+	}
+});
+
+test("constructor failures stay inside the real outer tool renderer", () => {
+	const tool = createTool();
+	const hostileTool = {
+		...tool,
+		renderResult(
+			result: PtcPartialResult | PtcToolResult,
+			options: ToolRenderResultOptions,
+			theme: Theme,
+			context: PtcRenderContext,
+		) {
+			return tool.renderResult(result, options, theme, {
+				...context,
+				createDefinitions: () => {
+					throw new Error(CONSTRUCTOR_FAILURE);
+				},
+			});
+		},
+	};
+	const outer = new ToolExecutionComponent(
+		"ptc",
+		RENDER_TOOL_CALL_ID,
+		{ code: OUTER_FALLBACK_MARKER, description: DESCRIPTION },
+		{ showImages: false },
+		hostileTool as unknown as HostToolDefinition,
+		{ requestRender: () => undefined } as TUI,
+		process.cwd(),
+	);
+	outer.markExecutionStarted();
+	outer.setArgsComplete();
+	outer.updateResult(
+		{
+			content: [{ type: "text", text: OUTER_FALLBACK_MARKER }],
+			details: createSnapshotDetails(DESCRIPTION, [
+				{ id: 1, name: "read", args: { path: "safe.txt" }, status: "start" },
+			]),
+			isError: false,
+		},
+		false,
+	);
+	const output = render(outer);
+
+	assert.match(output, new RegExp(CONSTRUCTOR_FAILURE));
+	assert.doesNotMatch(output, new RegExp(OUTER_FALLBACK_MARKER));
+});
+
+test("call and result slot failures become sanitized diagnostics", () => {
+	const tool = createTool();
+	for (const stage of ["call", "result"] as const) {
+		const context = createRenderContext(false);
+		const failure = stage === "call" ? CALL_RENDER_FAILURE : RESULT_RENDER_FAILURE;
+		Object.assign(context, {
+			createDefinitions: () => ({
+				read: {
+					name: "read",
+					renderCall: () => {
+						if (stage === "call") throw new Error(failure);
+						return new Text("safe", 0, 0);
+					},
+					renderResult: () => {
+						throw new Error(failure);
+					},
+				},
+			}),
+		});
+		const output = renderRaw(
+			tool.renderResult(
+				{
+					content: [{ type: "text", text: "ignored" }],
+					details: createDeltaDetails(DESCRIPTION, {
+						id: 1,
+						name: "read",
+						args: { path: "safe.txt" },
+						status: "ok",
+						preview: "done",
+					}),
+				},
+				{ expanded: false, isPartial: false },
+				THEME,
+				context,
+			),
+		);
+
+		assert.match(output, /execution/);
+		assert.match(output, new RegExp(RAW_VISIBLE_TEXT));
+		assert.equal(output.includes("\u001b"), false);
+		assert.equal(output.includes("\u0007"), false);
+	}
+});
+
+test("slot and invalidate failures become bounded diagnostics", () => {
+	const tool = createTool();
+	let nestedInvalidate: (() => void) | undefined;
+	const context = createRenderContext(false);
+	Object.assign(context, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: (_args: unknown, _theme: Theme, slot: { invalidate(): void }) => {
+					nestedInvalidate = slot.invalidate;
+					return {
+						invalidate: () => {
+							throw new Error(INVALIDATE_FAILURE);
+						},
+						render: () => ["safe"],
+					};
+				},
+			},
+		}),
+	});
+	const root = tool.renderResult(
+		{
+			content: [{ type: "text", text: "ignored" }],
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "safe.txt" },
+				status: "start",
+			}),
+		},
+		{ expanded: false, isPartial: true },
+		THEME,
+		context,
+	);
+
+	assert.doesNotThrow(() => nestedInvalidate?.());
+	assert.match(render(root), new RegExp(INVALIDATE_FAILURE));
+
+	let outerInvalidate: (() => void) | undefined;
+	const outerContext = {
+		...createRenderContext(false),
+		invalidate: () => {
+			throw new Error(OUTER_INVALIDATE_FAILURE);
+		},
+	};
+	Object.assign(outerContext, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: (_args: unknown, _theme: Theme, slot: { invalidate(): void }) => {
+					outerInvalidate = slot.invalidate;
+					return new Text("safe", 0, 0);
+				},
+			},
+		}),
+	});
+	const outerRoot = tool.renderResult(
+		{
+			content: [{ type: "text", text: "ignored" }],
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "safe.txt" },
+				status: "start",
+			}),
+		},
+		{ expanded: false, isPartial: true },
+		THEME,
+		outerContext,
+	);
+	assert.doesNotThrow(() => outerInvalidate?.());
+	assert.match(render(outerRoot), new RegExp(OUTER_INVALIDATE_FAILURE));
 });
 
 test("ptc renders nested and outer failures independently", () => {
