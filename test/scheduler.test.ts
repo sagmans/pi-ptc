@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { createScheduler } from "../src/scheduler.ts";
 
+const OPERATION_ABORTED_MESSAGE = "Operation aborted";
+
 function deferred<T = void>(): {
 	promise: Promise<T>;
 	resolve: (value: T | PromiseLike<T>) => void;
@@ -95,29 +97,91 @@ test("exclusive dispatch waits for the pool to drain and runs alone", async () =
 	assert.deepEqual(started, ["parallel", "exclusive", "later"]);
 });
 
-test("aborting queued work rejects it without starting it", async () => {
+test("aborting a queued waiter rejects immediately and preserves surviving FIFO", async () => {
 	const scheduler = createScheduler(1);
-	const exclusiveGate = deferred();
+	const blockerGate = deferred();
+	const firstGate = deferred();
 	const controller = new AbortController();
-	let queuedStarted = false;
+	const started: string[] = [];
 
-	const exclusive = scheduler.run("exclusive", async () => {
-		await exclusiveGate.promise;
+	const blocker = scheduler.run("exclusive", async () => {
+		started.push("blocker");
+		await blockerGate.promise;
 	});
 	await Promise.resolve();
-	const queued = scheduler.run(
+	const first = scheduler.run("parallel", async () => {
+		started.push("first");
+		await firstGate.promise;
+	});
+	const aborted = scheduler.run(
 		"parallel",
 		async () => {
-			queuedStarted = true;
+			started.push("aborted");
 		},
 		controller.signal,
 	);
+	const last = scheduler.run("parallel", async () => {
+		started.push("last");
+	});
 
-	const queuedRejection = assert.rejects(queued, /Operation aborted/);
 	controller.abort();
-	exclusiveGate.resolve();
-	await Promise.all([exclusive, queuedRejection]);
-	assert.equal(queuedStarted, false);
+	await assert.rejects(aborted, {
+		name: "Error",
+		message: OPERATION_ABORTED_MESSAGE,
+	});
+	assert.deepEqual(started, ["blocker"]);
+
+	blockerGate.resolve();
+	await blocker;
+	await Promise.resolve();
+	assert.deepEqual(started, ["blocker", "first"]);
+
+	firstGate.resolve();
+	await first;
+	await last;
+	assert.deepEqual(started, ["blocker", "first", "last"]);
+
+	await scheduler.run("parallel", async () => {
+		started.push("reused");
+	});
+	assert.deepEqual(started, ["blocker", "first", "last", "reused"]);
+});
+
+test("removing an aborted queue head pumps the next compatible waiter", async () => {
+	const scheduler = createScheduler(2);
+	const heldGate = deferred();
+	const controller = new AbortController();
+	let exclusiveStarted = false;
+	let survivorStarted = false;
+
+	const held = scheduler.run("parallel", async () => {
+		await heldGate.promise;
+	});
+	await Promise.resolve();
+	const abortedExclusive = scheduler.run(
+		"exclusive",
+		async () => {
+			exclusiveStarted = true;
+		},
+		controller.signal,
+	);
+	const survivor = scheduler.run("parallel", async () => {
+		survivorStarted = true;
+	});
+	await Promise.resolve();
+	assert.equal(survivorStarted, false);
+
+	controller.abort();
+	await assert.rejects(abortedExclusive, {
+		name: "Error",
+		message: OPERATION_ABORTED_MESSAGE,
+	});
+	await Promise.resolve();
+	assert.equal(exclusiveStarted, false);
+	assert.equal(survivorStarted, true);
+
+	heldGate.resolve();
+	await Promise.all([held, survivor]);
 });
 
 test("two exclusive dispatches never overlap", async () => {
