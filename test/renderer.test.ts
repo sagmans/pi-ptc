@@ -4,14 +4,13 @@ import test from "node:test";
 import {
 	initTheme,
 	type Theme,
-	ToolExecutionComponent,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
+import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 
 import type { DispatchProgress } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
-import { createSnapshotDetails } from "../src/dispatch-details.ts";
+import { createDeltaDetails, createSnapshotDetails } from "../src/dispatch-details.ts";
 import { attachPtcRenderDispatches, type PtcRenderContext } from "../src/renderer.ts";
 import {
 	createPtcTool,
@@ -27,9 +26,13 @@ const PROGRAM = "return 1;";
 const RENDER_TOOL_CALL_ID = "render-call";
 const RENDER_WIDTH = 120;
 const EXPECTED_SINGLE_RENDER_COUNT = 1;
+const RENDERER_SOURCE = await import("node:fs").then(({ readFileSync }) =>
+	readFileSync(new URL("../src/renderer.ts", import.meta.url), "utf8"),
+);
 const NATIVE_READ_CONTENT = "NATIVE_READ_CONTENT";
 const OMITTED_READ_CONTENT = "OMITTED_READ_CONTENT";
 const OMITTED_RENDER_BUDGET_BYTES = 1;
+const CHILD_RENDER_FAILURE = "child render failure";
 const LIMITS = {
 	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
@@ -39,12 +42,11 @@ const LIMITS = {
 
 const THEME = {
 	fg: (_color: string, text: string) => text,
+	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 } as Theme;
 
 initTheme(undefined, false);
-
-type HostToolDefinition = NonNullable<ConstructorParameters<typeof ToolExecutionComponent>[4]>;
 
 type RenderableTool = ReturnType<typeof createPtcTool> & {
 	renderShell: "self";
@@ -370,36 +372,179 @@ test("ptc preserves the failed native tool row when the outer execution fails", 
 	assert.doesNotMatch(output, /Execution failed/);
 });
 
-test("ptc does not re-enter the outer renderer when a nested row requests display", () => {
-	const tool = createTool();
-	const dispatch: DispatchProgress = {
-		id: 1,
-		name: "read",
-		args: { path: "package.json" },
-		status: "ok",
-		result: {
-			content: [{ type: "text", text: "nested content" }],
-			details: undefined,
-			isError: false,
-		},
-	};
-	const result = resultWith([{ id: 1, name: "read", args: dispatch.args, status: "ok" }]);
-	attachPtcRenderDispatches(result.details, [dispatch]);
-	const outer = new ToolExecutionComponent(
-		"ptc",
-		RENDER_TOOL_CALL_ID,
-		{ code: PROGRAM, description: DESCRIPTION },
-		{ showImages: false },
-		tool as unknown as HostToolDefinition,
-		{ requestRender: () => undefined } as TUI,
-		process.cwd(),
-	);
-	outer.markExecutionStarted();
-	outer.setArgsComplete();
-	outer.updateResult({ ...result, isError: false }, false);
+test("ptc renderer owns public-contract rows without nested host components", () => {
+	assert.doesNotMatch(RENDERER_SOURCE, /ToolExecutionComponent/);
+	assert.doesNotMatch(RENDERER_SOURCE, /\bas TUI\b/);
+});
 
-	const matches = render(outer).match(/read package\.json/g);
-	assert.equal(matches?.length, EXPECTED_SINGLE_RENDER_COUNT);
+test("ptc keeps stable rows across interleaved deltas, expansion, and resize", () => {
+	const tool = createTool();
+	const context = createRenderContext(false);
+	const second = tool.renderResult(
+		{
+			content: [{ type: "text", text: "ignored" }],
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 2,
+				name: "bash",
+				args: { command: "npm test" },
+				status: "start",
+			}),
+		},
+		{ expanded: false, isPartial: true },
+		THEME,
+		context,
+	);
+	const first = tool.renderResult(
+		{
+			content: [{ type: "text", text: "ignored" }],
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "package.json" },
+				status: "start",
+			}),
+		},
+		{ expanded: false, isPartial: true },
+		THEME,
+		context,
+	);
+
+	assert.equal(first, second);
+	const collapsed = render(first, 80);
+	assert.ok(collapsed.indexOf("read package.json") < collapsed.indexOf("$ npm test"));
+	context.expanded = true;
+	const expanded = tool.renderResult(
+		{
+			content: [{ type: "text", text: "ignored" }],
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "package.json" },
+				status: "start",
+			}),
+		},
+		{ expanded: true, isPartial: true },
+		THEME,
+		context,
+	);
+	assert.equal(expanded, first);
+	assert.match(render(expanded, 60), /read package\.json/);
+	assert.match(render(expanded, 140), /read package\.json/);
+});
+
+test("unchanged deltas and width-only renders do not rebuild native slots", () => {
+	const tool = createTool();
+	const context = createRenderContext(false);
+	let callRenders = 0;
+	let resultRenders = 0;
+	Object.assign(context, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: (_args: unknown, _theme: Theme, slot: { lastComponent?: Component }) => {
+					callRenders += 1;
+					return slot.lastComponent ?? new Text("read stable.txt", 0, 0);
+				},
+				renderResult: (
+					_result: unknown,
+					_options: unknown,
+					_theme: Theme,
+					slot: { lastComponent?: Component },
+				) => {
+					resultRenders += 1;
+					return slot.lastComponent ?? new Text("done", 0, 0);
+				},
+			},
+		}),
+	});
+	const update: PtcPartialResult = {
+		content: [{ type: "text", text: "ignored" }],
+		details: createDeltaDetails(DESCRIPTION, {
+			id: 1,
+			name: "read",
+			args: { path: "stable.txt" },
+			status: "ok",
+			preview: "done",
+		}),
+	};
+
+	const root = tool.renderResult(update, { expanded: false, isPartial: false }, THEME, context);
+	tool.renderResult(update, { expanded: false, isPartial: false }, THEME, context);
+	render(root, 60);
+	render(root, 140);
+
+	assert.equal(callRenders, EXPECTED_SINGLE_RENDER_COUNT);
+	assert.equal(resultRenders, EXPECTED_SINGLE_RENDER_COUNT);
+});
+
+test("ptc root contains child rendering failures", () => {
+	const tool = createTool();
+	const context = createRenderContext(false);
+	Object.assign(context, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: () => ({
+					invalidate: () => undefined,
+					render: () => {
+						throw new Error(CHILD_RENDER_FAILURE);
+					},
+				}),
+			},
+		}),
+	});
+	const output = render(
+		tool.renderResult(
+			{
+				content: [{ type: "text", text: "ignored" }],
+				details: createDeltaDetails(DESCRIPTION, {
+					id: 1,
+					name: "read",
+					args: { path: "unsafe.txt" },
+					status: "start",
+				}),
+			},
+			{ expanded: false, isPartial: true },
+			THEME,
+			context,
+		),
+	);
+
+	assert.match(output, /execution/);
+	assert.match(output, new RegExp(CHILD_RENDER_FAILURE));
+	assert.doesNotMatch(output, /unsafe\.txt/);
+});
+
+test("ptc renders nested and outer failures independently", () => {
+	const tool = createTool();
+	const context = createRenderContext(false, true);
+	const output = render(
+		tool.renderResult(
+			{
+				content: [{ type: "text", text: "ptc failed (runtime): outer failure" }],
+				details: createSnapshotDetails(
+					DESCRIPTION,
+					[
+						{
+							id: 1,
+							name: "bash",
+							args: { command: "false" },
+							status: "err",
+							preview: "nested failure",
+						},
+					],
+					"outer failure",
+				),
+			},
+			{ expanded: false, isPartial: false },
+			THEME,
+			context,
+		),
+	);
+
+	assert.match(output, /nested failure/);
+	assert.match(output, /outer failure/);
+	assert.match(output, /execution/);
 });
 
 test("ptc strips terminal controls from nested args, previews, and execution errors", () => {
