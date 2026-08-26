@@ -9,6 +9,8 @@ const FAILED_DISPATCH_MESSAGE = "tool failed";
 export type FactoryContentBlock = {
 	type: string;
 	text?: string;
+	data?: string;
+	mimeType?: string;
 };
 
 export type FactoryResult = {

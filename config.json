@@ -2,6 +2,7 @@
 	"presentation": "code",
 	"timeoutMs": 120000,
 	"maxParallelDispatches": 10,
-	"maxOutputBytes": 51200,
-	"maxOutputLines": 2000
+	"maxOutputBytes": 256000,
+	"maxOutputLines": 10000,
+	"workerMaxOldGenerationSizeMb": 128
 }

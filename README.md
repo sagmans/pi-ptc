@@ -46,6 +46,13 @@ Slash command:
 
 Project `.pi/ptc.json` wins over `~/.pi/agent/ptc.json`.
 
+## Display
+
+Nested core dispatches reuse Pi's native tool components, including read ranges,
+streaming output, edit diffs, expansion, and error states. The outer `ptc` shell,
+program, and curated return stay hidden. Full nested results reach the renderer
+through in-memory state and are not serialized into model-visible dispatch details.
+
 ## Coexistence
 
 Keep `pi-mcp-adapter`. `mcp` and `mcpScript` stay native.

@@ -48,6 +48,7 @@ export type PtcConfig = {
 	readonly maxParallelDispatches: number;
 	readonly maxOutputBytes: number;
 	readonly maxOutputLines: number;
+	readonly workerMaxOldGenerationSizeMb: number;
 };
 
 const PRESENTATIONS = new Set<Presentation>(["code", "both", "native"]);
@@ -80,6 +81,10 @@ function parseShippedConfig(value: unknown): PtcConfig {
 		),
 		maxOutputBytes: requiredPositiveInteger(value.maxOutputBytes, "maxOutputBytes"),
 		maxOutputLines: requiredPositiveInteger(value.maxOutputLines, "maxOutputLines"),
+		workerMaxOldGenerationSizeMb: requiredPositiveInteger(
+			value.workerMaxOldGenerationSizeMb,
+			"workerMaxOldGenerationSizeMb",
+		),
 	};
 }
 

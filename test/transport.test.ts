@@ -62,6 +62,31 @@ test("ptc rejects an oversized outer result", async () => {
 	);
 });
 
+test("ptc forwards output limits into the runtime seam", async () => {
+	let captured: { maxOutputBytes?: number; maxOutputLines?: number } | undefined;
+	const tool = createPtcTool({
+		timeoutMs: 2000,
+		maxOutputBytes: 1234,
+		maxOutputLines: 56,
+		createBindings: () => ({}),
+		run: async (request) => {
+			captured = request;
+			return { logs: [], result: null };
+		},
+	});
+
+	await tool.execute(
+		"call-limits",
+		{ code: "return null;", description: "check limits" },
+		undefined,
+		undefined,
+		{ cwd: process.cwd() },
+	);
+
+	assert.equal(captured?.maxOutputBytes, 1234);
+	assert.equal(captured?.maxOutputLines, 56);
+});
+
 test("ptc aborts the worker when the call signal fires", async () => {
 	const tool = createPtcTool({
 		...LIMITS,
@@ -133,8 +158,10 @@ test("ptc streams dispatch start then ok through onUpdate", async () => {
 		result: secret.length,
 	});
 	assert.deepEqual(result.details.dispatches, [
-		{ name: "read", args: { path: "note.txt" }, status: "start" },
-		{ name: "read", args: { path: "note.txt" }, status: "ok" },
+		{ id: 1, name: "read", args: { path: "note.txt" }, status: "ok" },
 	]);
-	assert.equal(updates.at(-1)?.content[0]?.text, "read … note.txt\nread ok note.txt");
+	assert.deepEqual(updates.at(-1)?.details.dispatches, [
+		{ id: 1, name: "read", args: { path: "note.txt" }, status: "ok" },
+	]);
+	assert.equal(updates.at(-1)?.content[0]?.text, "read ok note.txt");
 });

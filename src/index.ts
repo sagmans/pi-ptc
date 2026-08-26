@@ -22,7 +22,7 @@ import {
 	TRANSPORT_NAME,
 } from "./config.ts";
 import type { ExtensionAPI, ExtensionContext } from "./host.ts";
-import { applyPresentation, hasCompetingOwner, resolveActiveTools } from "./presentation.ts";
+import { hasCompetingOwner, resolveActiveTools } from "./presentation.ts";
 import { createScheduler } from "./scheduler.ts";
 import { renderSdkPrompt, renderSkillsPrompt, type SkillPromptInput } from "./sdk.ts";
 import { createPtcTool } from "./transport.ts";
@@ -45,16 +45,19 @@ export function defaultPathResolver(cwd: string): { projectFile: string; userFil
 export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions = {}): void {
 	const resolvePaths = options.resolvePaths ?? defaultPathResolver;
 	const shipped = SHIPPED_PTC_CONFIG;
-	let recorded: string[] = [];
+	let recordedCore: string[] = [];
 	let presentation: Presentation = shipped.presentation;
 	let inert = false;
 
 	const apply = (ctx: ExtensionContext): void => {
 		if (inert) return;
 		const registered = pi.getAllTools().map((tool) => tool.name);
+		const liveForeign = pi
+			.getActiveTools()
+			.filter((name) => name !== TRANSPORT_NAME && !isCoreToolName(name));
 		const resolved = resolveActiveTools({
 			presentation,
-			recorded,
+			recorded: [...recordedCore, ...liveForeign],
 			registered,
 		});
 		if (resolved.missingTransport) {
@@ -119,10 +122,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 			userFile: paths.userFile,
 			fallback: shipped.presentation,
 		});
-		recorded = pi.getActiveTools().filter((name) => name !== TRANSPORT_NAME);
-		if (recorded.length === 0) {
-			recorded = applyPresentation({ presentation: "native", recorded: registered });
-		}
+		recordedCore = pi.getActiveTools().filter(isCoreToolName);
 		apply(ctx);
 	});
 

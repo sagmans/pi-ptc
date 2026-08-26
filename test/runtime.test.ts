@@ -104,3 +104,29 @@ test("runCode times out a hanging program", async () => {
 	});
 	assert.deepEqual(outcome.error, { kind: "timeout" });
 });
+
+test("runCode terminates when serialized logs exceed the byte limit", async () => {
+	const outcome = await runCode({
+		program: 'console.log("12345"); return 1;',
+		maxOutputBytes: 17,
+		maxOutputLines: 2000,
+	});
+	assert.deepEqual(outcome, { logs: [], error: { kind: "output-limit" } });
+});
+
+test("runCode terminates when logs exceed the logical line limit", async () => {
+	const outcome = await runCode({
+		program: 'console.log("one"); console.log("two"); console.log("three"); return 1;',
+		maxOutputBytes: 51200,
+		maxOutputLines: 2,
+	});
+	assert.deepEqual(outcome, {
+		logs: ["one", "two"],
+		error: { kind: "output-limit" },
+	});
+});
+
+test("runCode starts workers with an empty environment", async () => {
+	const outcome = await runCode({ program: "return Object.keys(process.env);" });
+	assert.deepEqual(outcome, { logs: [], result: [] });
+});

@@ -11,7 +11,10 @@ import installPtc from "../src/index.ts";
 type CommandHandler = (args: string, ctx: ExtensionContext) => Promise<void> | void;
 type EventHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
-function createFakePi(active: string[]): {
+function createFakePi(
+	active: string[],
+	available: string[] = active,
+): {
 	pi: ExtensionAPI;
 	tools: Map<string, { name: string }>;
 	commands: Map<string, { handler: CommandHandler }>;
@@ -26,7 +29,7 @@ function createFakePi(active: string[]): {
 	const notifications: string[] = [];
 	const statuses: string[] = [];
 	let current = [...active];
-	const registered = [...active];
+	const registered = [...available];
 	const ctx: ExtensionContext = {
 		cwd: "/tmp",
 		ui: {
@@ -100,6 +103,27 @@ test("session_start hides core tools and keeps foreign tools", () => {
 	handlers.get("session_start")?.({}, ctx);
 	assert.deepEqual(pi.getActiveTools(), ["mcp", "mcpScript", "ptc"]);
 	assert.deepEqual(statuses, ["ptc: code"]);
+});
+
+test("session_start preserves an intentionally empty active set", () => {
+	const { pi, handlers, ctx } = createFakePi([], ["read", "bash", "mcp"]);
+	installPtc(pi, { resolvePaths: tempPaths });
+	handlers.get("session_start")?.({}, ctx);
+	assert.deepEqual(pi.getActiveTools(), ["ptc"]);
+});
+
+test("turn_start preserves live foreign tool activation and removal", () => {
+	const { pi, handlers, ctx } = createFakePi(["read", "bash", "mcp"]);
+	installPtc(pi, { resolvePaths: tempPaths });
+	handlers.get("session_start")?.({}, ctx);
+
+	pi.setActiveTools([...pi.getActiveTools(), "web_search"]);
+	handlers.get("turn_start")?.({}, ctx);
+	assert.deepEqual(pi.getActiveTools(), ["mcp", "web_search", "ptc"]);
+
+	pi.setActiveTools(["web_search", "ptc"]);
+	handlers.get("turn_start")?.({}, ctx);
+	assert.deepEqual(pi.getActiveTools(), ["web_search", "ptc"]);
 });
 
 test("competing owner stays inert", () => {

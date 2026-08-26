@@ -4,9 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createCoreBindings, createOfficialExecutor, formatDispatchLine } from "../src/bridge.ts";
+import {
+	createCoreBindings,
+	createFactoryExecutor,
+	createOfficialExecutor,
+	type DispatchProgress,
+	type FactoryToolSet,
+	formatDispatchLine,
+} from "../src/bridge.ts";
 import { ToolCallError } from "../src/canonical.ts";
-import { DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "../src/config.ts";
+import { CORE_TOOL_NAMES, DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "../src/config.ts";
 import { createScheduler } from "../src/scheduler.ts";
 
 test("bridge snapshots args, returns canonical JSON, and records dispatch", async () => {
@@ -126,8 +133,49 @@ test("official executor reads a real file through the factory", async () => {
 	assert.deepEqual(await bindings.read({ path: "note.txt" }), { text: "factory-ok\n" });
 });
 
-test("bridge reports start before factory execute and ok after", async () => {
+function fakeFactoryTools(execute: FactoryToolSet["read"]["execute"]): FactoryToolSet {
+	return Object.fromEntries(CORE_TOOL_NAMES.map((name) => [name, { execute }])) as FactoryToolSet;
+}
+
+test("factory executor reserves unique IDs before concurrent calls settle", async () => {
+	const ids: string[] = [];
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const execute = createFactoryExecutor(
+		fakeFactoryTools(async (id) => {
+			ids.push(id);
+			if (ids.length === 1) await gate;
+			return { content: [{ type: "text", text: "ok" }] };
+		}),
+	);
+
+	const first = execute("read", { path: "a.txt" });
+	const second = execute("read", { path: "b.txt" });
+	assert.deepEqual(ids, ["ptc:read:1", "ptc:read:2"]);
+	release();
+	await Promise.all([first, second]);
+});
+
+test("factory executor does not reuse an ID after failure", async () => {
+	const ids: string[] = [];
+	const execute = createFactoryExecutor(
+		fakeFactoryTools(async (id) => {
+			ids.push(id);
+			if (ids.length === 1) throw new Error("failed");
+			return { content: [{ type: "text", text: "ok" }] };
+		}),
+	);
+
+	await assert.rejects(() => execute("read", { path: "a.txt" }), /failed/);
+	await execute("read", { path: "b.txt" });
+	assert.deepEqual(ids, ["ptc:read:1", "ptc:read:2"]);
+});
+
+test("bridge reports one stable dispatch record with its native result", async () => {
 	const order: string[] = [];
+	const reported: DispatchProgress[] = [];
 	const bindings = createCoreBindings({
 		execute: async () => {
 			order.push("execute");
@@ -136,10 +184,65 @@ test("bridge reports start before factory execute and ok after", async () => {
 		scheduler: createScheduler(2),
 		reportDispatch: (progress) => {
 			order.push(progress.status);
+			reported.push(progress);
 		},
 	});
 	await bindings.read({ path: "a.txt" });
 	assert.deepEqual(order, ["start", "execute", "ok"]);
+	assert.deepEqual(reported, [
+		{ id: 1, name: "read", args: { path: "a.txt" }, status: "start" },
+		{
+			id: 1,
+			name: "read",
+			args: { path: "a.txt" },
+			status: "ok",
+			result: {
+				content: [{ type: "text", text: "hello" }],
+				details: undefined,
+				isError: false,
+			},
+		},
+	]);
+});
+
+test("bridge keeps bounded tail and head previews for native-like rows", async () => {
+	const lines = Array.from({ length: 10 }, (_, index) => `line-${index + 1}`).join("\n");
+	const reported: DispatchProgress[] = [];
+	const bindings = createCoreBindings({
+		execute: async () => ({ content: [{ type: "text", text: lines }] }),
+		scheduler: createScheduler(2),
+		reportDispatch: (progress) => {
+			reported.push(progress);
+		},
+	});
+
+	await bindings.bash({ command: "printf lines" });
+	await bindings.grep({ pattern: "line", path: "src" });
+
+	const settled = reported.filter((progress) => progress.status === "ok");
+	assert.deepEqual(
+		settled.map(({ result: _result, ...progress }) => progress),
+		[
+			{
+				id: 1,
+				name: "bash",
+				args: { command: "printf lines" },
+				status: "ok",
+				preview: "…\nline-3\nline-4\nline-5\nline-6\nline-7\nline-8\nline-9\nline-10",
+			},
+			{
+				id: 2,
+				name: "grep",
+				args: { pattern: "line", path: "src" },
+				status: "ok",
+				preview: "line-1\nline-2\nline-3\nline-4\nline-5\nline-6\nline-7\nline-8\n…",
+			},
+		],
+	);
+	assert.deepEqual(
+		settled.map((progress) => progress.result?.content[0]?.text),
+		[lines, lines],
+	);
 });
 
 test("bridge reports err after factory failure", async () => {

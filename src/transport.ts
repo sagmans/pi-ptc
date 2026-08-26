@@ -2,7 +2,12 @@
 
 import { Type } from "typebox";
 
-import { type DispatchProgress, formatDispatchLine } from "./bridge.ts";
+import {
+	type DispatchProgress,
+	type DispatchSummary,
+	formatDispatchLine,
+	summarizeDispatchProgress,
+} from "./bridge.ts";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
 	OUTER_OVERFLOW_BYTES_MESSAGE,
@@ -11,6 +16,7 @@ import {
 	TRUST_COPY,
 } from "./config.ts";
 import type { JsonValue } from "./json.ts";
+import { attachPtcRenderDispatches, renderPtcCall, renderPtcResult } from "./renderer.ts";
 import { type BindingFn, type CodeRunResult, runCode } from "./runtime.ts";
 
 export type PtcParams = {
@@ -26,14 +32,14 @@ export type PtcExecuteContext = {
 
 export type PtcPartialResult = {
 	content: Array<{ type: "text"; text: string }>;
-	details: { description: string; dispatches: DispatchProgress[] };
+	details: { description: string; dispatches: DispatchSummary[] };
 };
 
 export type PtcOnUpdate = (partial: PtcPartialResult) => void;
 
 export type PtcToolResult = {
 	content: Array<{ type: "text"; text: string }>;
-	details: { description: string; dispatches: DispatchProgress[] };
+	details: { description: string; dispatches: DispatchSummary[] };
 };
 
 const PTC_PARAMETERS = Type.Object({
@@ -59,6 +65,9 @@ export function createPtcTool(options: {
 		description: `Execute a TypeScript program against core tools. ${TRUST_COPY}`,
 		promptSnippet: "Run a program against core tools",
 		parameters: PTC_PARAMETERS,
+		renderShell: "self" as const,
+		renderCall: renderPtcCall,
+		renderResult: renderPtcResult,
 		async execute(
 			_toolCallId: string,
 			params: PtcParams,
@@ -72,10 +81,15 @@ export function createPtcTool(options: {
 			const abortSignal = signal ?? ctx.signal;
 			const dispatches: DispatchProgress[] = [];
 			const reportDispatch = (progress: DispatchProgress) => {
-				dispatches.push(progress);
+				const index = dispatches.findIndex((dispatch) => dispatch.id === progress.id);
+				if (index === -1) dispatches.push(progress);
+				else dispatches[index] = progress;
+				const summaries = dispatches.map(summarizeDispatchProgress);
+				const details = { description: params.description, dispatches: summaries };
+				attachPtcRenderDispatches(details, dispatches);
 				onUpdate?.({
-					content: [{ type: "text", text: dispatches.map(formatDispatchLine).join("\n") }],
-					details: { description: params.description, dispatches: [...dispatches] },
+					content: [{ type: "text", text: summaries.map(formatDispatchLine).join("\n") }],
+					details,
 				});
 			};
 			const outcome = await run({
@@ -90,10 +104,17 @@ export function createPtcTool(options: {
 				},
 				signal: abortSignal,
 				timeoutMs: options.timeoutMs,
+				maxOutputBytes: options.maxOutputBytes,
+				maxOutputLines: options.maxOutputLines,
 			});
+			const details = {
+				description: params.description,
+				dispatches: dispatches.map(summarizeDispatchProgress),
+			};
+			attachPtcRenderDispatches(details, dispatches);
 			return {
 				content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
-				details: { description: params.description, dispatches },
+				details,
 			};
 		},
 	};

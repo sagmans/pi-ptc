@@ -8,6 +8,8 @@ import { type JsonValue, snapshotJsonValue } from "./json.ts";
 import { stripProgram } from "./strip.ts";
 
 const WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));
+const LOG_SEPARATOR_BYTES = 1;
+const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
 
 export type BindingFn = (args: JsonValue) => Promise<JsonValue>;
 
@@ -27,6 +29,8 @@ export type CodeRunRequest = {
 	};
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	maxOutputBytes?: number;
+	maxOutputLines?: number;
 };
 
 export type CodeRunResult = {
@@ -41,8 +45,16 @@ type WorkerToHost =
 	| { type: "done"; value?: JsonValue }
 	| { type: "fail"; kind: "throw" | "invalid-output"; message: string };
 
+type HostToWorker =
+	| { type: "reply"; id: number; ok: true; value: JsonValue }
+	| { type: "reply"; id: number; ok: false; toolName: string; message: string };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function logicalLineCount(text: string): number {
+	return text.split(/\r\n|\r|\n/).length;
 }
 
 function parseWorkerMessage(value: unknown): WorkerToHost | undefined {
@@ -86,8 +98,16 @@ ${request.program}
 
 	const functions = request.bindings?.functions ?? {};
 	const timeoutMs = request.timeoutMs ?? SHIPPED_PTC_CONFIG.timeoutMs;
+	const maxOutputBytes = request.maxOutputBytes ?? SHIPPED_PTC_CONFIG.maxOutputBytes;
+	const maxOutputLines = request.maxOutputLines ?? SHIPPED_PTC_CONFIG.maxOutputLines;
 	const logs: string[] = [];
+	let logOutputBytes = EMPTY_LOGS_SERIALIZED_BYTES;
+	let logOutputLines = 0;
 	const worker = new Worker(WORKER_PATH, {
+		env: {},
+		resourceLimits: {
+			maxOldGenerationSizeMb: SHIPPED_PTC_CONFIG.workerMaxOldGenerationSizeMb,
+		},
 		workerData: {
 			program,
 			bindingNames: Object.keys(functions),
@@ -107,6 +127,22 @@ ${request.program}
 			worker.off("exit", onExit);
 			void worker.terminate();
 			resolve(outcome);
+		};
+
+		const postReply = (message: HostToWorker): void => {
+			// Binding promises can outlive host ownership after abort or timeout.
+			if (settled) return;
+			try {
+				worker.postMessage(message);
+			} catch (error) {
+				finish({
+					logs: [...logs],
+					error: {
+						kind: "worker-exit",
+						message: error instanceof Error ? error.message : String(error),
+					},
+				});
+			}
 		};
 
 		const onAbort = () => {
@@ -138,13 +174,23 @@ ${request.program}
 				return;
 			}
 			if (message.type === "log") {
+				const separatorBytes = logs.length === 0 ? 0 : LOG_SEPARATOR_BYTES;
+				const nextBytes =
+					logOutputBytes + separatorBytes + Buffer.byteLength(JSON.stringify(message.text), "utf8");
+				const nextLines = logOutputLines + logicalLineCount(message.text);
+				if (nextBytes > maxOutputBytes || nextLines > maxOutputLines) {
+					finish({ logs: [...logs], error: { kind: "output-limit" } });
+					return;
+				}
+				logOutputBytes = nextBytes;
+				logOutputLines = nextLines;
 				logs.push(message.text);
 				return;
 			}
 			if (message.type === "call") {
 				const binding = functions[message.name];
 				if (!binding) {
-					worker.postMessage({
+					postReply({
 						type: "reply",
 						id: message.id,
 						ok: false,
@@ -156,7 +202,7 @@ ${request.program}
 				void Promise.resolve()
 					.then(() => binding(message.args))
 					.then((value) => {
-						worker.postMessage({
+						postReply({
 							type: "reply",
 							id: message.id,
 							ok: true,
@@ -169,7 +215,7 @@ ${request.program}
 								? error.toolName
 								: message.name;
 						const errorMessage = error instanceof Error ? error.message : String(error);
-						worker.postMessage({
+						postReply({
 							type: "reply",
 							id: message.id,
 							ok: false,
