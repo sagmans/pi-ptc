@@ -71,13 +71,13 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	pi.registerTool(
 		createPtcTool({
 			timeoutMs: shipped.timeoutMs,
+			maxDispatches: shipped.maxDispatches,
 			maxOutputBytes: shipped.maxOutputBytes,
 			maxOutputLines: shipped.maxOutputLines,
 			createBindings: (ctx) =>
 				createCoreBindings({
-					execute: createOfficialExecutor(ctx.cwd, ctx.signal),
+					execute: createOfficialExecutor(ctx.cwd),
 					scheduler: createScheduler(shipped.maxParallelDispatches),
-					signal: ctx.signal,
 					appendLog: (entry: DispatchLogEntry) => {
 						pi.appendEntry(DISPATCH_LOG_TYPE, entry);
 					},

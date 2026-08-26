@@ -16,13 +16,13 @@ function tempDir(): string {
 function toolFor() {
 	return createPtcTool({
 		timeoutMs: SHIPPED_PTC_CONFIG.timeoutMs,
+		maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
 		maxOutputBytes: SHIPPED_PTC_CONFIG.maxOutputBytes,
 		maxOutputLines: SHIPPED_PTC_CONFIG.maxOutputLines,
 		createBindings: (ctx) =>
 			createCoreBindings({
-				execute: createOfficialExecutor(ctx.cwd, ctx.signal),
+				execute: createOfficialExecutor(ctx.cwd),
 				scheduler: createScheduler(SHIPPED_PTC_CONFIG.maxParallelDispatches),
-				signal: ctx.signal,
 				reportDispatch: ctx.reportDispatch,
 			}),
 	});

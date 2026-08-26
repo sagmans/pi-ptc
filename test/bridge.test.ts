@@ -19,8 +19,10 @@ import { createScheduler } from "../src/scheduler.ts";
 const BINDING_SIGNAL = new AbortController().signal;
 const QUEUED_ABORT_FIRST_PATH = "first.txt";
 const QUEUED_ABORT_SECOND_PATH = "second.txt";
-const SCHEDULER_ABORT_MESSAGE = /Operation aborted/;
+const OPERATION_ABORTED_MESSAGE = "Operation aborted";
+const SCHEDULER_ABORT_MESSAGE = new RegExp(OPERATION_ABORTED_MESSAGE);
 const EARLY_NATIVE_ABORT_MESSAGE = "native aborted before owned work settled";
+const PARTIAL_CANCEL_TEXT = "partial output";
 
 async function nextTurn(): Promise<void> {
 	await new Promise<void>((resolve) => setImmediate(resolve));
@@ -69,8 +71,7 @@ test("bridge snapshots args, returns canonical JSON, and records dispatch", asyn
 	]);
 });
 
-test("bridge forwards the invocation signal to factory execution", async () => {
-	const fallbackSignal = new AbortController().signal;
+test("bridge forwards the runtime invocation signal to factory execution", async () => {
 	const invocationSignal = new AbortController().signal;
 	let receivedSignal: AbortSignal | undefined;
 	const bindings = createCoreBindings({
@@ -79,12 +80,64 @@ test("bridge forwards the invocation signal to factory execution", async () => {
 			return { content: [] };
 		},
 		scheduler: createScheduler(2),
-		signal: fallbackSignal,
 	});
 
 	await bindings.read({ path: "a.txt" }, invocationSignal);
 
 	assert.equal(receivedSignal, invocationSignal);
+});
+
+test("bridge terminalizes cancelled partial work before binding rejection settles", async () => {
+	const controller = new AbortController();
+	const order: string[] = [];
+	const reported: DispatchProgress[] = [];
+	let markExecutorStarted!: () => void;
+	const executorStarted = new Promise<void>((resolve) => {
+		markExecutorStarted = resolve;
+	});
+	const bindings = createCoreBindings({
+		execute: async (_name, _args, signal, onUpdate) => {
+			assert.equal(signal, controller.signal);
+			onUpdate?.({ content: [{ type: "text", text: PARTIAL_CANCEL_TEXT }] });
+			markExecutorStarted();
+			await new Promise<void>((_resolve, reject) => {
+				signal?.addEventListener("abort", () => reject(new Error(OPERATION_ABORTED_MESSAGE)), {
+					once: true,
+				});
+			});
+			return { content: [] };
+		},
+		scheduler: createScheduler(2),
+		reportDispatch: (progress) => {
+			reported.push(progress);
+			order.push(
+				progress.status === "start" && progress.result ? "partial-start" : progress.status,
+			);
+		},
+	});
+
+	const pending = bindings.read({ path: "a.txt" }, controller.signal);
+	const settlementObserved = pending.then(
+		() => {
+			order.push("settled");
+		},
+		() => {
+			order.push("settled");
+		},
+	);
+	await executorStarted;
+	controller.abort();
+	await assert.rejects(pending, SCHEDULER_ABORT_MESSAGE);
+	await settlementObserved;
+
+	assert.deepEqual(order, ["start", "partial-start", "err", "settled"]);
+	assert.deepEqual(
+		reported.map((progress) => progress.status),
+		["start", "start", "err"],
+	);
+	assert.equal(reported[1]?.result?.content[0]?.text, PARTIAL_CANCEL_TEXT);
+	assert.equal(reported.filter((progress) => progress.status === "err").length, 1);
+	assert.equal(reported.at(-1)?.status, "err");
 });
 
 test("bridge removes an aborted queued dispatch before factory execution", async () => {
@@ -175,6 +228,10 @@ test("bridge classifies exclusive work so bash waits for reads", async () => {
 	releaseRead();
 	await Promise.all([read, bash]);
 	assert.deepEqual(started, ["read", "bash"]);
+});
+
+test("official executor accepts only cwd so it cannot capture an invocation signal", () => {
+	assert.equal(createOfficialExecutor.length, 1);
 });
 
 test("official executor reads a real file through the factory", async () => {

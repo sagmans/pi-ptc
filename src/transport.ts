@@ -53,6 +53,7 @@ const PTC_PARAMETERS = Type.Object({
 
 export function createPtcTool(options: {
 	timeoutMs: number;
+	maxDispatches: number;
 	maxOutputBytes: number;
 	maxOutputLines: number;
 	createBindings: (ctx: PtcExecuteContext) => Record<string, BindingFn>;
@@ -104,6 +105,7 @@ export function createPtcTool(options: {
 				},
 				signal: abortSignal,
 				timeoutMs: options.timeoutMs,
+				maxBindingCalls: options.maxDispatches,
 				maxOutputBytes: options.maxOutputBytes,
 				maxOutputLines: options.maxOutputLines,
 			});

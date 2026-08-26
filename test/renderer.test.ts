@@ -10,6 +10,7 @@ import {
 import { type Component, stripTerminalSequences, type TUI } from "@earendil-works/pi-tui";
 
 import type { DispatchProgress } from "../src/bridge.ts";
+import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { attachPtcRenderDispatches, type PtcRenderContext } from "../src/renderer.ts";
 import {
 	createPtcTool,
@@ -27,6 +28,7 @@ const RENDER_WIDTH = 120;
 const EXPECTED_SINGLE_RENDER_COUNT = 1;
 const LIMITS = {
 	timeoutMs: 2000,
+	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
 	maxOutputBytes: 51200,
 	maxOutputLines: 2000,
 };

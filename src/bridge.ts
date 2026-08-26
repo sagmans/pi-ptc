@@ -196,7 +196,7 @@ export function createFactoryExecutor(
 	};
 }
 
-export function createOfficialExecutor(cwd: string, signal?: AbortSignal): FactoryExecutor {
+export function createOfficialExecutor(cwd: string): FactoryExecutor {
 	const tools = {
 		bash: createBashTool(cwd),
 		edit: createEditTool(cwd),
@@ -206,13 +206,12 @@ export function createOfficialExecutor(cwd: string, signal?: AbortSignal): Facto
 		read: createReadTool(cwd),
 		write: createWriteTool(cwd),
 	} as unknown as FactoryToolSet;
-	return createFactoryExecutor(tools, signal);
+	return createFactoryExecutor(tools);
 }
 
 export function createCoreBindings(input: {
 	execute: FactoryExecutor;
 	scheduler: Scheduler;
-	signal?: AbortSignal;
 	appendLog?: (entry: DispatchLogEntry) => void;
 	emit?: (name: string, payload: unknown) => void;
 	reportDispatch?: (progress: DispatchProgress) => void;
@@ -220,12 +219,11 @@ export function createCoreBindings(input: {
 	const bindings = Object.create(null) as CoreBindings;
 	let nextDispatchId = 1;
 	for (const name of CORE_TOOL_NAMES) {
-		bindings[name] = async (rawArgs, invocationSignal) => {
+		bindings[name] = async (rawArgs, signal) => {
 			const id = nextDispatchId;
 			nextDispatchId += 1;
 			const args = snapshotJsonValue(rawArgs);
 			const kind = isExclusiveToolName(name) ? "exclusive" : "parallel";
-			const signal = invocationSignal ?? input.signal;
 			return await input.scheduler.run(
 				kind,
 				async () => {

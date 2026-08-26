@@ -2,12 +2,17 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 
 import { createCoreBindings } from "../src/bridge.ts";
-import { TRUST_COPY } from "../src/config.ts";
+import { SHIPPED_PTC_CONFIG, TRUST_COPY } from "../src/config.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import { createPtcTool } from "../src/transport.ts";
 
+const CUSTOM_MAX_DISPATCHES = 37;
+const CUSTOM_MAX_OUTPUT_BYTES = 1234;
+const CUSTOM_MAX_OUTPUT_LINES = 56;
+
 const LIMITS = {
 	timeoutMs: 2000,
+	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
 	maxOutputBytes: 51200,
 	maxOutputLines: 2000,
 };
@@ -44,7 +49,8 @@ test("ptc returns logs and a curated result", async () => {
 
 test("ptc rejects an oversized outer result", async () => {
 	const tool = createPtcTool({
-		timeoutMs: 2000,
+		timeoutMs: LIMITS.timeoutMs,
+		maxDispatches: LIMITS.maxDispatches,
 		maxOutputBytes: 16,
 		maxOutputLines: 2000,
 		createBindings: () => ({}),
@@ -62,12 +68,15 @@ test("ptc rejects an oversized outer result", async () => {
 	);
 });
 
-test("ptc forwards output limits into the runtime seam", async () => {
-	let captured: { maxOutputBytes?: number; maxOutputLines?: number } | undefined;
+test("ptc forwards output and dispatch limits into the runtime seam", async () => {
+	let captured:
+		| { maxBindingCalls?: number; maxOutputBytes?: number; maxOutputLines?: number }
+		| undefined;
 	const tool = createPtcTool({
-		timeoutMs: 2000,
-		maxOutputBytes: 1234,
-		maxOutputLines: 56,
+		timeoutMs: LIMITS.timeoutMs,
+		maxDispatches: CUSTOM_MAX_DISPATCHES,
+		maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES,
+		maxOutputLines: CUSTOM_MAX_OUTPUT_LINES,
 		createBindings: () => ({}),
 		run: async (request) => {
 			captured = request;
@@ -83,8 +92,9 @@ test("ptc forwards output limits into the runtime seam", async () => {
 		{ cwd: process.cwd() },
 	);
 
-	assert.equal(captured?.maxOutputBytes, 1234);
-	assert.equal(captured?.maxOutputLines, 56);
+	assert.equal(captured?.maxBindingCalls, CUSTOM_MAX_DISPATCHES);
+	assert.equal(captured?.maxOutputBytes, CUSTOM_MAX_OUTPUT_BYTES);
+	assert.equal(captured?.maxOutputLines, CUSTOM_MAX_OUTPUT_LINES);
 });
 
 test("ptc abort reaches an active core executor before settlement", async () => {
