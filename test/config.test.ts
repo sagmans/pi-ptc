@@ -10,6 +10,8 @@ test("shipped presentation is code", () => {
 test("shipped limits come from config.json", () => {
 	assert.equal(SHIPPED_PTC_CONFIG.timeoutMs, 120000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxParallelDispatches, 10);
+	assert.equal(SHIPPED_PTC_CONFIG.maxDispatches, 100);
+	assert.equal(SHIPPED_PTC_CONFIG.maxRenderDetailsBytes, 2_000_000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxOutputBytes, 256000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxOutputLines, 10000);
 	assert.equal(SHIPPED_PTC_CONFIG.workerMaxOldGenerationSizeMb, 128);

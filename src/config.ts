@@ -46,6 +46,8 @@ export type PtcConfig = {
 	readonly presentation: Presentation;
 	readonly timeoutMs: number;
 	readonly maxParallelDispatches: number;
+	readonly maxDispatches: number;
+	readonly maxRenderDetailsBytes: number;
 	readonly maxOutputBytes: number;
 	readonly maxOutputLines: number;
 	readonly workerMaxOldGenerationSizeMb: number;
@@ -78,6 +80,11 @@ function parseShippedConfig(value: unknown): PtcConfig {
 		maxParallelDispatches: requiredPositiveInteger(
 			value.maxParallelDispatches,
 			"maxParallelDispatches",
+		),
+		maxDispatches: requiredPositiveInteger(value.maxDispatches, "maxDispatches"),
+		maxRenderDetailsBytes: requiredPositiveInteger(
+			value.maxRenderDetailsBytes,
+			"maxRenderDetailsBytes",
 		),
 		maxOutputBytes: requiredPositiveInteger(value.maxOutputBytes, "maxOutputBytes"),
 		maxOutputLines: requiredPositiveInteger(value.maxOutputLines, "maxOutputLines"),
