@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import type { DispatchRenderResult } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import {
 	createDeltaDetails,
@@ -17,9 +18,36 @@ const SANITIZED_COMMAND = "beforeafter";
 const COMPATIBILITY_ERROR_MAX_CHARACTERS = 256;
 const LONG_EXECUTION_ERROR = "failure ".repeat(COMPATIBILITY_ERROR_MAX_CHARACTERS);
 const HOSTILE_DETAILS_ERROR = "hostile details";
+const HOSTILE_RESULT_ERROR = "hostile result";
 const PROTOTYPE_KEY = "__proto__";
 const PROTOTYPE_PATH = "spoofed";
 const PROTOTYPE_JSON = `{"${PROTOTYPE_KEY}":{"path":"${PROTOTYPE_PATH}"}}`;
+const FULL_RENDER_TEXT = "complete text result";
+const FULL_RENDER_DATA = "aW1hZ2UtYnl0ZXM=";
+const OMITTED_RENDER_TEXT = "omitted text result";
+const OMITTED_RENDER_DATA = "b21pdHRlZC1pbWFnZS1ieXRlcw==";
+const FULL_RENDER_RESULT = {
+	content: [
+		{ type: "text", text: FULL_RENDER_TEXT },
+		{ type: "image", data: FULL_RENDER_DATA, mimeType: "image/png" },
+	],
+	details: { path: "complete.png" },
+	isError: false,
+} satisfies DispatchRenderResult;
+const OMITTED_RENDER_RESULT = {
+	content: [
+		{ type: "text", text: OMITTED_RENDER_TEXT },
+		{ type: "image", data: OMITTED_RENDER_DATA, mimeType: "image/png" },
+	],
+	details: { path: "omitted.png" },
+	isError: false,
+} satisfies DispatchRenderResult;
+const RENDER_DETAILS_BUDGET_BYTES = Buffer.byteLength(JSON.stringify(FULL_RENDER_RESULT), "utf8");
+const PREFLIGHT_RENDER_BUDGET_BYTES = 64;
+const OVERSIZED_RENDER_VALUE = "x".repeat(PREFLIGHT_RENDER_BUDGET_BYTES + 1);
+const INCOMPATIBLE_RENDER_VALUE = 42;
+const CONTROLLED_RESULT_KEY = `key${CONTROLLED_COMMAND}`;
+const SANITIZED_RESULT_KEY = `key${SANITIZED_COMMAND}`;
 
 const START_DISPATCH = {
 	id: 2,
@@ -74,6 +102,217 @@ test("version 2 snapshot orders sanitized dispatches by id", () => {
 		mode: "snapshot",
 		dispatches: [FINAL_DISPATCH, START_DISPATCH],
 	});
+});
+
+test("snapshot render projections omit whole results after the byte budget is exhausted", () => {
+	const details = createSnapshotDetails(
+		DESCRIPTION,
+		[
+			{ ...FINAL_DISPATCH, result: FULL_RENDER_RESULT },
+			{
+				...START_DISPATCH,
+				status: "ok",
+				preview: "omitted preview",
+				result: OMITTED_RENDER_RESULT,
+			},
+			{
+				...START_DISPATCH,
+				id: 3,
+				status: "ok",
+				preview: "later preview",
+				result: { content: [], isError: false },
+			},
+		],
+		undefined,
+		RENDER_DETAILS_BUDGET_BYTES,
+	);
+
+	assert.deepEqual(details.dispatches, [
+		{ ...FINAL_DISPATCH, result: FULL_RENDER_RESULT },
+		{
+			...START_DISPATCH,
+			status: "ok",
+			preview: "omitted preview",
+			renderOmitted: "budget",
+		},
+		{
+			...START_DISPATCH,
+			id: 3,
+			status: "ok",
+			preview: "later preview",
+			renderOmitted: "budget",
+		},
+	]);
+	const serialized = JSON.stringify(details);
+	assert.equal(serialized.includes(OMITTED_RENDER_TEXT), false);
+	assert.equal(serialized.includes(OMITTED_RENDER_DATA), false);
+	assert.deepEqual(parseDispatchDetails(JSON.parse(serialized)), details);
+});
+
+test("render projection accepts explicit undefined fields and sanitizes controls recursively", () => {
+	const details = createDeltaDetails(DESCRIPTION, {
+		...FINAL_DISPATCH,
+		result: {
+			content: [
+				{
+					type: `text${CONTROLLED_COMMAND}`,
+					text: undefined,
+					data: undefined,
+					mimeType: undefined,
+				},
+			],
+			details: {
+				[CONTROLLED_RESULT_KEY]: [CONTROLLED_COMMAND],
+			},
+			isError: false,
+		},
+	});
+
+	assert.deepEqual(details.dispatches, [
+		{
+			...FINAL_DISPATCH,
+			result: {
+				content: [{ type: `text${SANITIZED_COMMAND}` }],
+				details: { [SANITIZED_RESULT_KEY]: [SANITIZED_COMMAND] },
+				isError: false,
+			},
+		},
+	]);
+	assert.equal(details.compatibilityError, undefined);
+});
+
+test("render projection omits only hostile or incompatible results", () => {
+	const cyclicDetails: { self?: unknown } = {};
+	cyclicDetails.self = cyclicDetails;
+	const hostileDetails = new Proxy(
+		{},
+		{
+			ownKeys: () => {
+				throw new Error(HOSTILE_DETAILS_ERROR);
+			},
+		},
+	);
+	const results = [
+		{ content: [], details: cyclicDetails, isError: false },
+		{ content: [], details: hostileDetails, isError: false },
+		{
+			content: [{ type: "text", text: INCOMPATIBLE_RENDER_VALUE }],
+			isError: false,
+		},
+	] as unknown as DispatchRenderResult[];
+
+	for (const result of results) {
+		let details: ReturnType<typeof createDeltaDetails> | undefined;
+		assert.doesNotThrow(() => {
+			details = createDeltaDetails(DESCRIPTION, { ...FINAL_DISPATCH, result });
+		});
+		assert.deepEqual(details?.dispatches, [{ ...FINAL_DISPATCH, renderOmitted: "incompatible" }]);
+		assert.ok((details?.compatibilityError?.length ?? 0) > 0);
+		assert.ok((details?.compatibilityError?.length ?? 0) <= COMPATIBILITY_ERROR_MAX_CHARACTERS);
+	}
+});
+
+test("a hostile live result accessor omits only the render projection", () => {
+	const dispatch = Object.defineProperty({ ...FINAL_DISPATCH }, "result", {
+		enumerable: true,
+		get() {
+			throw new Error(HOSTILE_RESULT_ERROR);
+		},
+	}) as unknown as Parameters<typeof createDeltaDetails>[1];
+	let details: ReturnType<typeof createDeltaDetails> | undefined;
+
+	assert.doesNotThrow(() => {
+		details = createDeltaDetails(DESCRIPTION, dispatch);
+	});
+	assert.deepEqual(details?.dispatches, [{ ...FINAL_DISPATCH, renderOmitted: "incompatible" }]);
+	assert.ok((details?.compatibilityError?.length ?? 0) > 0);
+});
+
+test("a hostile persisted result accessor preserves the base dispatch", () => {
+	const dispatch = Object.defineProperty({ ...FINAL_DISPATCH }, "result", {
+		enumerable: true,
+		get() {
+			throw new Error(HOSTILE_RESULT_ERROR);
+		},
+	});
+	const parsed = parseDispatchDetails({
+		schemaVersion: PTC_DETAIL_SCHEMA_VERSION,
+		description: DESCRIPTION,
+		mode: "snapshot",
+		dispatches: [dispatch],
+	});
+
+	assert.deepEqual(parsed.dispatches, [{ ...FINAL_DISPATCH, renderOmitted: "incompatible" }]);
+	assert.ok((parsed.compatibilityError?.length ?? 0) > 0);
+});
+
+test("oversized render payloads stop before later hostile data is accessed", () => {
+	for (const field of ["text", "data"] as const) {
+		let detailsReads = 0;
+		const result = {
+			content: [{ type: field === "text" ? "text" : "image", [field]: OVERSIZED_RENDER_VALUE }],
+			get details() {
+				detailsReads += 1;
+				throw new Error(HOSTILE_DETAILS_ERROR);
+			},
+			isError: false,
+		} as DispatchRenderResult;
+
+		const details = createDeltaDetails(
+			DESCRIPTION,
+			{ ...FINAL_DISPATCH, result },
+			PREFLIGHT_RENDER_BUDGET_BYTES,
+		);
+
+		assert.deepEqual(details.dispatches, [{ ...FINAL_DISPATCH, renderOmitted: "budget" }]);
+		assert.equal(detailsReads, 0);
+	}
+
+	let trailingReads = 0;
+	const rawDetails = Object.defineProperties(
+		{},
+		{
+			first: { enumerable: true, value: OVERSIZED_RENDER_VALUE },
+			second: {
+				enumerable: true,
+				get() {
+					trailingReads += 1;
+					throw new Error(HOSTILE_DETAILS_ERROR);
+				},
+			},
+		},
+	);
+	const details = createDeltaDetails(
+		DESCRIPTION,
+		{
+			...FINAL_DISPATCH,
+			result: { content: [], details: rawDetails, isError: false },
+		},
+		PREFLIGHT_RENDER_BUDGET_BYTES,
+	);
+
+	assert.deepEqual(details.dispatches, [{ ...FINAL_DISPATCH, renderOmitted: "budget" }]);
+	assert.equal(trailingReads, 0);
+});
+
+test("parsing an incompatible persisted result preserves its base dispatch", () => {
+	const parsed = parseDispatchDetails({
+		schemaVersion: PTC_DETAIL_SCHEMA_VERSION,
+		description: DESCRIPTION,
+		mode: "snapshot",
+		dispatches: [
+			{
+				...FINAL_DISPATCH,
+				result: {
+					content: [{ type: "text", text: INCOMPATIBLE_RENDER_VALUE }],
+					isError: false,
+				},
+			},
+		],
+	});
+
+	assert.deepEqual(parsed.dispatches, [{ ...FINAL_DISPATCH, renderOmitted: "incompatible" }]);
+	assert.ok((parsed.compatibilityError?.length ?? 0) > 0);
 });
 
 test("legacy adjacent start and final records collapse to one stable id", () => {

@@ -11,6 +11,7 @@ import { type Component, stripTerminalSequences, type TUI } from "@earendil-work
 
 import type { DispatchProgress } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
+import { createSnapshotDetails } from "../src/dispatch-details.ts";
 import { attachPtcRenderDispatches, type PtcRenderContext } from "../src/renderer.ts";
 import {
 	createPtcTool,
@@ -26,6 +27,9 @@ const PROGRAM = "return 1;";
 const RENDER_TOOL_CALL_ID = "render-call";
 const RENDER_WIDTH = 120;
 const EXPECTED_SINGLE_RENDER_COUNT = 1;
+const NATIVE_READ_CONTENT = "NATIVE_READ_CONTENT";
+const OMITTED_READ_CONTENT = "OMITTED_READ_CONTENT";
+const OMITTED_RENDER_BUDGET_BYTES = 1;
 const LIMITS = {
 	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
@@ -84,7 +88,7 @@ function render(component: Component, width = RENDER_WIDTH): string {
 function resultWith(dispatches: PtcToolResult["details"]["dispatches"]): PtcToolResult {
 	return {
 		content: [{ type: "text", text: JSON.stringify({ logs: [], result: { hidden: true } }) }],
-		details: { description: DESCRIPTION, dispatches },
+		details: createSnapshotDetails(DESCRIPTION, dispatches),
 	};
 }
 
@@ -113,13 +117,10 @@ test("ptc renders each running dispatch as its own native row", () => {
 	const tool = createTool();
 	const partial: PtcPartialResult = {
 		content: [{ type: "text", text: "ignored" }],
-		details: {
-			description: DESCRIPTION,
-			dispatches: [
-				{ id: 1, name: "read", args: { path: "package.json" }, status: "start" },
-				{ id: 2, name: "bash", args: { command: "npm test" }, status: "start" },
-			],
-		},
+		details: createSnapshotDetails(DESCRIPTION, [
+			{ id: 1, name: "read", args: { path: "package.json" }, status: "start" },
+			{ id: 2, name: "bash", args: { command: "npm test" }, status: "start" },
+		]),
 	};
 
 	const output = render(
@@ -231,30 +232,25 @@ test("ptc expanded rows use the native tool output", () => {
 	assert.doesNotMatch(output, /Arguments|Output|✓/);
 });
 
-test("ptc gives native renderers complete results without serializing binding values", () => {
+test("ptc renders persisted native results after a JSON reload without an attachment", () => {
 	const tool = createTool();
-	const secret = "NATIVE_READ_CONTENT";
-	const result = resultWith([
-		{
-			id: 1,
-			name: "read",
-			args: { path: "note.txt" },
-			status: "ok",
-		},
-	]);
-	attachPtcRenderDispatches(result.details, [
+	const details = createSnapshotDetails(DESCRIPTION, [
 		{
 			id: 1,
 			name: "read",
 			args: { path: "note.txt" },
 			status: "ok",
 			result: {
-				content: [{ type: "text", text: secret }],
+				content: [{ type: "text", text: NATIVE_READ_CONTENT }],
 				details: undefined,
 				isError: false,
 			},
 		},
 	]);
+	const result: PtcToolResult = {
+		content: [{ type: "text", text: "ignored" }],
+		details: JSON.parse(JSON.stringify(details)) as PtcToolResult["details"],
+	};
 
 	const output = render(
 		tool.renderResult(
@@ -265,8 +261,52 @@ test("ptc gives native renderers complete results without serializing binding va
 		),
 	);
 
-	assert.match(output, new RegExp(secret));
-	assert.equal(JSON.stringify(result.details).includes(secret), false);
+	assert.match(output, new RegExp(NATIVE_READ_CONTENT));
+});
+
+test("ptc attachments cannot restore a result omitted from persisted details", () => {
+	const tool = createTool();
+	const rawDispatch: DispatchProgress = {
+		id: 1,
+		name: "read",
+		args: { path: "note.txt" },
+		status: "ok",
+		result: {
+			content: [{ type: "text", text: OMITTED_READ_CONTENT }],
+			isError: false,
+		},
+	};
+	const details = createSnapshotDetails(
+		DESCRIPTION,
+		[rawDispatch],
+		undefined,
+		OMITTED_RENDER_BUDGET_BYTES,
+	);
+	attachPtcRenderDispatches(details, [rawDispatch]);
+	const result: PtcToolResult = {
+		content: [{ type: "text", text: "ignored" }],
+		details,
+	};
+
+	const output = render(
+		tool.renderResult(
+			result,
+			{ expanded: true, isPartial: false },
+			THEME,
+			createRenderContext(true),
+		),
+	);
+
+	assert.doesNotMatch(output, new RegExp(OMITTED_READ_CONTENT));
+	assert.deepEqual(details.dispatches, [
+		{
+			id: rawDispatch.id,
+			name: rawDispatch.name,
+			args: rawDispatch.args,
+			status: rawDispatch.status,
+			renderOmitted: "budget",
+		},
+	]);
 });
 
 test("ptc uses Pi native read ranges instead of custom status marks", () => {

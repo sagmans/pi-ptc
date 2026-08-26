@@ -9,6 +9,9 @@ import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import { createPtcTool, type PtcPartialResult } from "../src/transport.ts";
 
+const FIRST_FILE_NAME = "alpha";
+const SECOND_FILE_NAME = "beta";
+
 function tempDir(): string {
 	return mkdtempSync(join(tmpdir(), "pi-ptc-dogfood-"));
 }
@@ -53,12 +56,17 @@ return { pkg: JSON.parse(pkg.text).name, ts: JSON.parse(ts.text).name };
 	);
 	assert.deepEqual(JSON.parse(result.content[0]?.text ?? ""), {
 		logs: [],
-		result: { pkg: "alpha", ts: "beta" },
+		result: { pkg: FIRST_FILE_NAME, ts: SECOND_FILE_NAME },
 	});
 	assert.ok(updates.some((update) => update.content[0]?.text.includes("read … package.json")));
 	assert.ok(updates.some((update) => update.content[0]?.text.includes("read … tsconfig.json")));
 	assert.equal(result.details.dispatches.filter((entry) => entry.status === "ok").length, 2);
-	assert.equal(JSON.stringify(updates).includes("alpha"), false);
+	assert.equal(
+		updates.some((update) =>
+			update.content.some((content) => content.text.includes(FIRST_FILE_NAME)),
+		),
+		false,
+	);
 });
 
 test("a failing bash dispatch is catchable as ToolCallError", async () => {

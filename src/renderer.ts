@@ -12,8 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import type { DispatchProgress } from "./bridge.ts";
-import { isCoreToolName } from "./config.ts";
-import { type JsonValue, snapshotJsonValue } from "./json.ts";
+import { parseDispatchDetails } from "./dispatch-details.ts";
 import type { PtcParams, PtcPartialResult, PtcToolResult } from "./transport.ts";
 
 const EMPTY_VALUE_LABEL = "(empty)";
@@ -48,9 +47,9 @@ export type PtcRenderContext = {
 
 export function attachPtcRenderDispatches(
 	details: object,
-	dispatches: readonly DispatchProgress[],
+	_dispatches: readonly DispatchProgress[],
 ): void {
-	RENDER_DISPATCHES.set(details, [...dispatches]);
+	RENDER_DISPATCHES.set(details, getDispatches(details));
 }
 
 export function renderPtcCall(_args: PtcParams, _theme: Theme, context: PtcRenderContext): Text {
@@ -192,41 +191,5 @@ function getRenderDispatches(details: unknown): DispatchProgress[] {
 }
 
 function getDispatches(details: unknown): DispatchProgress[] {
-	if (!isRecord(details) || !Array.isArray(details.dispatches)) return [];
-	const dispatches: DispatchProgress[] = [];
-	for (const value of details.dispatches) {
-		const dispatch = parseDispatch(value);
-		if (dispatch) dispatches.push(dispatch);
-	}
-	return dispatches;
-}
-
-function parseDispatch(value: unknown): DispatchProgress | undefined {
-	if (
-		!isRecord(value) ||
-		typeof value.id !== "number" ||
-		!Number.isInteger(value.id) ||
-		value.id < 1 ||
-		typeof value.name !== "string" ||
-		!isCoreToolName(value.name)
-	) {
-		return undefined;
-	}
-	if (value.status !== "start" && value.status !== "ok" && value.status !== "err") return undefined;
-	try {
-		const dispatch: DispatchProgress = {
-			id: value.id,
-			name: value.name,
-			args: snapshotJsonValue(value.args),
-			status: value.status,
-		};
-		if (typeof value.preview === "string") dispatch.preview = value.preview;
-		return dispatch;
-	} catch {
-		return undefined;
-	}
-}
-
-function isRecord(value: unknown): value is Record<string, JsonValue> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+	return parseDispatchDetails(details).dispatches;
 }

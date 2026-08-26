@@ -2,21 +2,24 @@
 
 import { Type } from "typebox";
 
-import {
-	type DispatchProgress,
-	type DispatchSummary,
-	formatDispatchLine,
-	summarizeDispatchProgress,
-} from "./bridge.ts";
+import { type DispatchProgress, formatDispatchLine } from "./bridge.ts";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
 	OUTER_OVERFLOW_BYTES_MESSAGE,
 	OUTER_OVERFLOW_LINES_MESSAGE,
+	SHIPPED_PTC_CONFIG,
 	TRANSPORT_NAME,
 	TRUST_COPY,
 } from "./config.ts";
+import {
+	createDeltaDetailsFromProjection,
+	createSnapshotDetailsFromProjections,
+	type PtcDispatchDetails,
+	type PtcDispatchProjection,
+	projectDispatchForRetention,
+} from "./dispatch-details.ts";
 import type { JsonValue } from "./json.ts";
-import { attachPtcRenderDispatches, renderPtcCall, renderPtcResult } from "./renderer.ts";
+import { renderPtcCall, renderPtcResult } from "./renderer.ts";
 import { type BindingFn, type CodeRunResult, runCode } from "./runtime.ts";
 
 export type PtcParams = {
@@ -32,15 +35,40 @@ export type PtcExecuteContext = {
 
 export type PtcPartialResult = {
 	content: Array<{ type: "text"; text: string }>;
-	details: { description: string; dispatches: DispatchSummary[] };
+	details: PtcDispatchDetails;
 };
 
 export type PtcOnUpdate = (partial: PtcPartialResult) => void;
 
 export type PtcToolResult = {
 	content: Array<{ type: "text"; text: string }>;
-	details: { description: string; dispatches: DispatchSummary[] };
+	details: PtcDispatchDetails;
 };
+
+const RENDER_BUDGET_OMISSION = "budget";
+
+export type FailureDetailsStore = {
+	remember(toolCallId: string, details: PtcDispatchDetails): void;
+	consume(toolCallId: string): PtcDispatchDetails | undefined;
+	clear(): void;
+};
+
+export function createFailureDetailsStore(): FailureDetailsStore {
+	const entries = new Map<string, PtcDispatchDetails>();
+	return {
+		remember(toolCallId, details) {
+			entries.set(toolCallId, details);
+		},
+		consume(toolCallId) {
+			const details = entries.get(toolCallId);
+			entries.delete(toolCallId);
+			return details;
+		},
+		clear() {
+			entries.clear();
+		},
+	};
+}
 
 const PTC_PARAMETERS = Type.Object({
 	code: Type.String({
@@ -54,12 +82,17 @@ const PTC_PARAMETERS = Type.Object({
 export function createPtcTool(options: {
 	timeoutMs: number;
 	maxDispatches: number;
+	maxRenderDetailsBytes?: number;
 	maxOutputBytes: number;
 	maxOutputLines: number;
 	createBindings: (ctx: PtcExecuteContext) => Record<string, BindingFn>;
+	failureDetails?: FailureDetailsStore;
 	run?: typeof runCode;
 }) {
 	const run = options.run ?? runCode;
+	const failureDetails = options.failureDetails ?? createFailureDetailsStore();
+	const maxRenderDetailsBytes =
+		options.maxRenderDetailsBytes ?? SHIPPED_PTC_CONFIG.maxRenderDetailsBytes;
 	return {
 		name: TRANSPORT_NAME,
 		label: "PTC",
@@ -70,7 +103,7 @@ export function createPtcTool(options: {
 		renderCall: renderPtcCall,
 		renderResult: renderPtcResult,
 		async execute(
-			_toolCallId: string,
+			toolCallId: string,
 			params: PtcParams,
 			signal: AbortSignal | undefined,
 			onUpdate: PtcOnUpdate | undefined,
@@ -80,44 +113,62 @@ export function createPtcTool(options: {
 				throw new Error(EMPTY_DESCRIPTION_MESSAGE);
 			}
 			const abortSignal = signal ?? ctx.signal;
-			const dispatches: DispatchProgress[] = [];
+			const dispatches = new Map<number, PtcDispatchProjection>();
+			let retainedRenderBytes = 0;
+			let renderBudgetExhausted = false;
 			const reportDispatch = (progress: DispatchProgress) => {
-				const index = dispatches.findIndex((dispatch) => dispatch.id === progress.id);
-				if (index === -1) dispatches.push(progress);
-				else dispatches[index] = progress;
-				const summaries = dispatches.map(summarizeDispatchProgress);
-				const details = { description: params.description, dispatches: summaries };
-				attachPtcRenderDispatches(details, dispatches);
+				const previous = dispatches.get(progress.id);
+				if (previous) retainedRenderBytes -= previous.renderBytes;
+				const projection = projectDispatchForRetention(
+					progress,
+					Math.max(0, maxRenderDetailsBytes - retainedRenderBytes),
+					renderBudgetExhausted,
+				);
+				retainedRenderBytes += projection.renderBytes;
+				if (projection.dispatch.renderOmitted === RENDER_BUDGET_OMISSION) {
+					renderBudgetExhausted = true;
+				}
+				dispatches.set(progress.id, projection);
+				const details = createDeltaDetailsFromProjection(params.description, projection.dispatch);
 				onUpdate?.({
-					content: [{ type: "text", text: summaries.map(formatDispatchLine).join("\n") }],
+					content: [{ type: "text", text: formatDispatchLine(projection.dispatch) }],
 					details,
 				});
 			};
-			const outcome = await run({
-				program: params.code,
-				bindings: {
-					global: "tools",
-					functions: options.createBindings({
-						cwd: ctx.cwd,
-						signal: abortSignal,
-						reportDispatch,
-					}),
-				},
-				signal: abortSignal,
-				timeoutMs: options.timeoutMs,
-				maxBindingCalls: options.maxDispatches,
-				maxOutputBytes: options.maxOutputBytes,
-				maxOutputLines: options.maxOutputLines,
-			});
-			const details = {
-				description: params.description,
-				dispatches: dispatches.map(summarizeDispatchProgress),
-			};
-			attachPtcRenderDispatches(details, dispatches);
-			return {
-				content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
-				details,
-			};
+			try {
+				const outcome = await run({
+					program: params.code,
+					bindings: {
+						global: "tools",
+						functions: options.createBindings({
+							cwd: ctx.cwd,
+							signal: abortSignal,
+							reportDispatch,
+						}),
+					},
+					signal: abortSignal,
+					timeoutMs: options.timeoutMs,
+					maxBindingCalls: options.maxDispatches,
+					maxOutputBytes: options.maxOutputBytes,
+					maxOutputLines: options.maxOutputLines,
+				});
+				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
+				const details = createSnapshotDetailsFromProjections(params.description, progress);
+				return {
+					content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
+					details,
+				};
+			} catch (error) {
+				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
+				const executionError = error instanceof Error ? error.message : String(error);
+				const details = createSnapshotDetailsFromProjections(
+					params.description,
+					progress,
+					executionError,
+				);
+				failureDetails.remember(toolCallId, details);
+				throw error;
+			}
 		},
 	};
 }

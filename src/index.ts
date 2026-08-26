@@ -25,7 +25,7 @@ import type { ExtensionAPI, ExtensionContext } from "./host.ts";
 import { hasCompetingOwner, resolveActiveTools } from "./presentation.ts";
 import { createScheduler } from "./scheduler.ts";
 import { renderSdkPrompt, renderSkillsPrompt, type SkillPromptInput } from "./sdk.ts";
-import { createPtcTool } from "./transport.ts";
+import { createFailureDetailsStore, createPtcTool } from "./transport.ts";
 
 export type PathResolver = (cwd: string) => { projectFile: string; userFile: string };
 
@@ -48,6 +48,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	let recordedCore: string[] = [];
 	let presentation: Presentation = shipped.presentation;
 	let inert = false;
+	const failureDetails = createFailureDetailsStore();
 
 	const apply = (ctx: ExtensionContext): void => {
 		if (inert) return;
@@ -72,8 +73,10 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		createPtcTool({
 			timeoutMs: shipped.timeoutMs,
 			maxDispatches: shipped.maxDispatches,
+			maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,
 			maxOutputBytes: shipped.maxOutputBytes,
 			maxOutputLines: shipped.maxOutputLines,
+			failureDetails,
 			createBindings: (ctx) =>
 				createCoreBindings({
 					execute: createOfficialExecutor(ctx.cwd),
@@ -128,6 +131,17 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 
 	pi.on("turn_start", (_event, rawCtx) => {
 		apply(rawCtx as ExtensionContext);
+	});
+
+	pi.on("tool_result", (rawEvent) => {
+		const event = rawEvent as { toolCallId?: string; toolName?: string };
+		if (event.toolName !== TRANSPORT_NAME || typeof event.toolCallId !== "string") return;
+		const details = failureDetails.consume(event.toolCallId);
+		return details === undefined ? undefined : { details };
+	});
+
+	pi.on("session_shutdown", () => {
+		failureDetails.clear();
 	});
 
 	pi.on("tool_call", (rawEvent) => {
