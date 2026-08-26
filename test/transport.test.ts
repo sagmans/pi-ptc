@@ -87,23 +87,41 @@ test("ptc forwards output limits into the runtime seam", async () => {
 	assert.equal(captured?.maxOutputLines, 56);
 });
 
-test("ptc aborts the worker when the call signal fires", async () => {
+test("ptc abort reaches an active core executor before settlement", async () => {
+	let markExecutorStarted!: () => void;
+	const executorStarted = new Promise<void>((resolve) => {
+		markExecutorStarted = resolve;
+	});
+	let executorSignal: AbortSignal | undefined;
 	const tool = createPtcTool({
 		...LIMITS,
-		createBindings: () => ({
-			hang: () => new Promise(() => undefined),
-		}),
+		createBindings: () =>
+			createCoreBindings({
+				execute: async (_name, _args, signal) => {
+					executorSignal = signal;
+					markExecutorStarted();
+					if (signal && !signal.aborted) {
+						await new Promise<void>((resolve) => {
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					}
+					return { content: [] };
+				},
+				scheduler: createScheduler(1),
+			}),
 	});
 	const controller = new AbortController();
 	const pending = tool.execute(
 		"call-3",
-		{ code: "await tools.hang(null); return 1;", description: "hang" },
+		{ code: 'await tools.read({ path: "note.txt" }); return 1;', description: "hang" },
 		controller.signal,
 		undefined,
 		{ cwd: process.cwd() },
 	);
+	await executorStarted;
 	controller.abort();
 	await assert.rejects(pending, /abort/);
+	assert.equal(executorSignal?.aborted, true);
 });
 
 async function waitForUpdates(updates: unknown[], count: number, timeoutMs = 1000): Promise<void> {

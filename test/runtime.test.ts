@@ -1,7 +1,74 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { runCode } from "../src/runtime.ts";
+
+const ACTIVE_BINDING_TIMEOUT_MS = 1500;
+const RUNTIME_TEST_TIMEOUT_MS = 1500;
+const DRAIN_OBSERVATION_MS = 500;
+const EXCESS_BINDING_CALLS = SHIPPED_PTC_CONFIG.maxDispatches + 1;
+const LATE_BINDING_ERROR = "late binding rejection";
+const FIRST_WORKER_CALL_ID = 1;
+const OUT_OF_ORDER_WORKER_CALL_ID = 2;
+const UNSAFE_WORKER_CALL_ID = Number.MAX_SAFE_INTEGER + 1;
+const HOSTILE_BINDING_NAME = "echo";
+const INVALID_WORKER_CALL_ID_CASES = [
+	{ name: "zero", ids: [0], expectedBindingCalls: 0 },
+	{ name: "unsafe", ids: [UNSAFE_WORKER_CALL_ID], expectedBindingCalls: 0 },
+	{
+		name: "decreasing",
+		ids: [OUT_OF_ORDER_WORKER_CALL_ID, FIRST_WORKER_CALL_ID],
+		expectedBindingCalls: 1,
+	},
+] as const;
+
+function deferred<T = void>(): {
+	promise: Promise<T>;
+	resolve: (value: T | PromiseLike<T>) => void;
+} {
+	let resolve!: (value: T | PromiseLike<T>) => void;
+	const promise = new Promise<T>((next) => {
+		resolve = next;
+	});
+	return { promise, resolve };
+}
+
+async function nextTurn(): Promise<void> {
+	await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+async function settledWithinDrainObservation(promise: Promise<unknown>): Promise<boolean> {
+	return await new Promise<boolean>((resolve) => {
+		let observationEnded = false;
+		const timer = setTimeout(() => {
+			observationEnded = true;
+			resolve(false);
+		}, DRAIN_OBSERVATION_MS);
+		void promise.then(
+			() => {
+				if (observationEnded) return;
+				clearTimeout(timer);
+				resolve(true);
+			},
+			() => {
+				if (observationEnded) return;
+				clearTimeout(timer);
+				resolve(true);
+			},
+		);
+	});
+}
+
+function hostileWorkerCallsProgram(ids: readonly number[]): string {
+	return `
+const { parentPort } = await import("node:worker_threads");
+for (const id of ${JSON.stringify(ids)}) {
+  parentPort.postMessage({ type: "call", id, name: "${HOSTILE_BINDING_NAME}", args: id });
+}
+return null;
+`;
+}
 
 test("runCode returns the program completion value", async () => {
 	const outcome = await runCode({ program: "return 1 + 1;" });
@@ -74,35 +141,246 @@ try {
 	});
 });
 
-test("runCode aborts an in-flight program", async () => {
-	const controller = new AbortController();
+test("runCode rejects worker call IDs that are not positive, safe, and increasing", async () => {
+	for (const testCase of INVALID_WORKER_CALL_ID_CASES) {
+		let bindingCalls = 0;
+		const outcome = await runCode({
+			program: hostileWorkerCallsProgram(testCase.ids),
+			bindings: {
+				global: "tools",
+				functions: {
+					[HOSTILE_BINDING_NAME]: async (args) => {
+						bindingCalls += 1;
+						return args;
+					},
+				},
+			},
+			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		});
+
+		assert.equal(bindingCalls, testCase.expectedBindingCalls, testCase.name);
+		assert.equal(outcome.error?.kind, "invalid-output", testCase.name);
+	}
+});
+
+test("runCode rejects a duplicate worker call ID without replacing an active binding", async () => {
+	const bindingStarted = deferred();
+	const bindingAbortObserved = deferred();
+	const allowBindingToSettle = deferred();
+	let bindingCalls = 0;
+	let bindingSettled = false;
 	const pending = runCode({
-		program: "await tools.hang(null); return 1;",
+		program: `
+const pending = tools.${HOSTILE_BINDING_NAME}("first");
+const { parentPort } = await import("node:worker_threads");
+parentPort.postMessage({
+  type: "call",
+  id: ${FIRST_WORKER_CALL_ID},
+  name: "${HOSTILE_BINDING_NAME}",
+  args: "duplicate",
+});
+void pending;
+return null;
+`,
 		bindings: {
 			global: "tools",
 			functions: {
-				hang: () => new Promise(() => undefined),
+				[HOSTILE_BINDING_NAME]: async (_args, signal) => {
+					bindingCalls += 1;
+					bindingStarted.resolve();
+					if (!signal.aborted) {
+						await new Promise<void>((resolve) => {
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					}
+					bindingAbortObserved.resolve();
+					await allowBindingToSettle.promise;
+					bindingSettled = true;
+					return null;
+				},
 			},
 		},
-		signal: controller.signal,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
-	controller.abort();
+
+	await bindingStarted.promise;
+	await bindingAbortObserved.promise;
+	const returnedBeforeDrain = await settledWithinDrainObservation(pending);
+	const callsBeforeRelease = bindingCalls;
+	allowBindingToSettle.resolve();
 	const outcome = await pending;
-	assert.deepEqual(outcome.error, { kind: "abort" });
+
+	assert.equal(callsBeforeRelease, 1);
+	assert.equal(returnedBeforeDrain, false);
+	assert.equal(bindingSettled, true);
+	assert.equal(outcome.error?.kind, "invalid-output");
 });
 
-test("runCode times out a hanging program", async () => {
+test("runCode aborts an active binding signal on timeout", async () => {
+	let bindingStarted = false;
+	let bindingSignal: AbortSignal | undefined;
+	let bindingSettled = false;
 	const outcome = await runCode({
 		program: "await tools.hang(null); return 1;",
 		bindings: {
 			global: "tools",
 			functions: {
-				hang: () => new Promise(() => undefined),
+				hang: async (_args, signal) => {
+					bindingStarted = true;
+					bindingSignal = signal;
+					await new Promise<void>((resolve) => {
+						signal?.addEventListener("abort", () => resolve(), { once: true });
+					});
+					bindingSettled = true;
+					return null;
+				},
 			},
 		},
-		timeoutMs: 20,
+		timeoutMs: ACTIVE_BINDING_TIMEOUT_MS,
 	});
 	assert.deepEqual(outcome.error, { kind: "timeout" });
+	assert.equal(bindingStarted, true);
+	assert.equal(bindingSignal?.aborted, true);
+	assert.equal(bindingSettled, true);
+});
+
+test("runCode waits for an abort-aware binding after outer abort", async () => {
+	const controller = new AbortController();
+	const bindingStarted = deferred();
+	const bindingAbortObserved = deferred();
+	const allowBindingToSettle = deferred();
+	let bindingSettled = false;
+	const pending = runCode({
+		program: "await tools.hang(null); return 1;",
+		bindings: {
+			global: "tools",
+			functions: {
+				hang: async (_args, signal) => {
+					bindingStarted.resolve();
+					if (!signal.aborted) {
+						await new Promise<void>((resolve) => {
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					}
+					bindingAbortObserved.resolve();
+					await allowBindingToSettle.promise;
+					bindingSettled = true;
+					return null;
+				},
+			},
+		},
+		signal: controller.signal,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+	await bindingStarted.promise;
+	controller.abort();
+	await bindingAbortObserved.promise;
+	const returnedBeforeDrain = await settledWithinDrainObservation(pending);
+	allowBindingToSettle.resolve();
+	const outcome = await pending;
+
+	assert.equal(returnedBeforeDrain, false);
+	assert.equal(bindingSettled, true);
+	assert.deepEqual(outcome.error, { kind: "abort" });
+});
+
+test("runCode reports and drains a dangling fire-and-forget dispatch", async () => {
+	const bindingStarted = deferred();
+	const bindingAbortObserved = deferred();
+	const allowBindingToSettle = deferred();
+	let bindingSettled = false;
+	const pending = runCode({
+		program: "void tools.slow(null); return 1;",
+		bindings: {
+			global: "tools",
+			functions: {
+				slow: async (_args, signal) => {
+					bindingStarted.resolve();
+					if (!signal.aborted) {
+						await new Promise<void>((resolve) => {
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					}
+					bindingAbortObserved.resolve();
+					await allowBindingToSettle.promise;
+					bindingSettled = true;
+					return null;
+				},
+			},
+		},
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+	await bindingStarted.promise;
+	await bindingAbortObserved.promise;
+	const returnedBeforeDrain = await settledWithinDrainObservation(pending);
+	allowBindingToSettle.resolve();
+	const outcome = await pending;
+
+	assert.equal(returnedBeforeDrain, false);
+	assert.equal(bindingSettled, true);
+	assert.deepEqual(outcome.error, { kind: "dangling-dispatch" });
+});
+
+test("runCode uses the shipped maxDispatches default before invoking call 101", async () => {
+	let bindingCalls = 0;
+	const outcome = await runCode({
+		program: `
+for (let index = 0; index < ${EXCESS_BINDING_CALLS}; index += 1) {
+  await tools.echo(index);
+}
+return "unreachable";
+`,
+		bindings: {
+			global: "tools",
+			functions: {
+				echo: async (args) => {
+					bindingCalls += 1;
+					return args;
+				},
+			},
+		},
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+
+	assert.equal(bindingCalls, SHIPPED_PTC_CONFIG.maxDispatches);
+	assert.deepEqual(outcome.error, { kind: "dispatch-limit" });
+});
+
+test("runCode drains a late binding rejection without an unhandled rejection", async () => {
+	const bindingStarted = deferred();
+	const unhandledRejections: unknown[] = [];
+	let rejectBinding!: (error: Error) => void;
+	const onUnhandledRejection = (error: unknown): void => {
+		unhandledRejections.push(error);
+	};
+	process.on("unhandledRejection", onUnhandledRejection);
+	try {
+		const pending = runCode({
+			program: "void tools.late(null); return null;",
+			bindings: {
+				global: "tools",
+				functions: {
+					late: (_args, _signal) => {
+						bindingStarted.resolve();
+						return new Promise<never>((_resolve, reject) => {
+							rejectBinding = reject;
+						});
+					},
+				},
+			},
+			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		});
+		await bindingStarted.promise;
+		await nextTurn();
+		rejectBinding(new Error(LATE_BINDING_ERROR));
+		const outcome = await pending;
+		await nextTurn();
+
+		assert.deepEqual(outcome.error, { kind: "dangling-dispatch" });
+		assert.deepEqual(unhandledRejections, []);
+	} finally {
+		process.removeListener("unhandledRejection", onUnhandledRejection);
+	}
 });
 
 test("runCode terminates when serialized logs exceed the byte limit", async () => {

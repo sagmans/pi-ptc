@@ -203,65 +203,70 @@ export function createCoreBindings(input: {
 	const bindings = Object.create(null) as CoreBindings;
 	let nextDispatchId = 1;
 	for (const name of CORE_TOOL_NAMES) {
-		bindings[name] = async (rawArgs) => {
+		bindings[name] = async (rawArgs, invocationSignal) => {
 			const id = nextDispatchId;
 			nextDispatchId += 1;
 			const args = snapshotJsonValue(rawArgs);
 			const kind = isExclusiveToolName(name) ? "exclusive" : "parallel";
-			return await input.scheduler.run(kind, async () => {
-				let isError = false;
-				let settledResult: DispatchRenderResult | undefined;
-				input.reportDispatch?.({ id, name, args, status: "start" });
-				try {
-					const result = await input.execute(name, args, input.signal, (partial) => {
-						input.reportDispatch?.({
+			const signal = invocationSignal ?? input.signal;
+			return await input.scheduler.run(
+				kind,
+				async () => {
+					let isError = false;
+					let settledResult: DispatchRenderResult | undefined;
+					input.reportDispatch?.({ id, name, args, status: "start" });
+					try {
+						const result = await input.execute(name, args, signal, (partial) => {
+							input.reportDispatch?.({
+								id,
+								name,
+								args,
+								status: "start",
+								result: toDispatchRenderResult(partial, false),
+							});
+						});
+						settledResult = toDispatchRenderResult(result, result.isError === true);
+						const value = toCanonicalValue(name, result);
+						input.appendLog?.({ customType: DISPATCH_LOG_TYPE, name, args, isError });
+						input.emit?.(DISPATCH_EVENT, { name, args, isError });
+						const preview = dispatchPreview(name, textFromContent(result.content), false);
+						const progress: DispatchProgress = {
 							id,
 							name,
 							args,
-							status: "start",
-							result: toDispatchRenderResult(partial, false),
-						});
-					});
-					settledResult = toDispatchRenderResult(result, result.isError === true);
-					const value = toCanonicalValue(name, result);
-					input.appendLog?.({ customType: DISPATCH_LOG_TYPE, name, args, isError });
-					input.emit?.(DISPATCH_EVENT, { name, args, isError });
-					const preview = dispatchPreview(name, textFromContent(result.content), false);
-					const progress: DispatchProgress = {
-						id,
-						name,
-						args,
-						status: "ok",
-						result: settledResult,
-					};
-					if (preview !== undefined) progress.preview = preview;
-					input.reportDispatch?.(progress);
-					return value;
-				} catch (error) {
-					isError = true;
-					input.appendLog?.({ customType: DISPATCH_LOG_TYPE, name, args, isError });
-					input.emit?.(DISPATCH_EVENT, { name, args, isError });
-					const message = error instanceof Error ? error.message : String(error);
-					const preview = dispatchPreview(name, message, true);
-					const progress: DispatchProgress = {
-						id,
-						name,
-						args,
-						status: "err",
-						result:
-							settledResult?.isError === true
-								? settledResult
-								: {
-										content: [{ type: "text", text: message }],
-										isError: true,
-									},
-					};
-					if (preview !== undefined) progress.preview = preview;
-					input.reportDispatch?.(progress);
-					if (error instanceof ToolCallError) throw error;
-					throw new ToolCallError(name, message);
-				}
-			});
+							status: "ok",
+							result: settledResult,
+						};
+						if (preview !== undefined) progress.preview = preview;
+						input.reportDispatch?.(progress);
+						return value;
+					} catch (error) {
+						isError = true;
+						input.appendLog?.({ customType: DISPATCH_LOG_TYPE, name, args, isError });
+						input.emit?.(DISPATCH_EVENT, { name, args, isError });
+						const message = error instanceof Error ? error.message : String(error);
+						const preview = dispatchPreview(name, message, true);
+						const progress: DispatchProgress = {
+							id,
+							name,
+							args,
+							status: "err",
+							result:
+								settledResult?.isError === true
+									? settledResult
+									: {
+											content: [{ type: "text", text: message }],
+											isError: true,
+										},
+						};
+						if (preview !== undefined) progress.preview = preview;
+						input.reportDispatch?.(progress);
+						if (error instanceof ToolCallError) throw error;
+						throw new ToolCallError(name, message);
+					}
+				},
+				signal,
+			);
 		};
 	}
 	return bindings;

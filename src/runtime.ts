@@ -10,8 +10,11 @@ import { stripProgram } from "./strip.ts";
 const WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));
 const LOG_SEPARATOR_BYTES = 1;
 const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
+const INVALID_WORKER_CALL_ID_MESSAGE =
+	"worker call id must be a positive safe integer that strictly increases";
 
-export type BindingFn = (args: JsonValue) => Promise<JsonValue>;
+// Required internal contract: bindings must settle after abort because host work cannot be abandoned safely.
+export type BindingFn = (args: JsonValue, signal: AbortSignal) => Promise<JsonValue>;
 
 export type CodeRunFailure =
 	| { kind: "throw"; message: string }
@@ -19,6 +22,8 @@ export type CodeRunFailure =
 	| { kind: "abort" }
 	| { kind: "invalid-output"; message: string }
 	| { kind: "output-limit" }
+	| { kind: "dispatch-limit" }
+	| { kind: "dangling-dispatch" }
 	| { kind: "worker-exit"; message: string };
 
 export type CodeRunRequest = {
@@ -31,6 +36,7 @@ export type CodeRunRequest = {
 	timeoutMs?: number;
 	maxOutputBytes?: number;
 	maxOutputLines?: number;
+	maxBindingCalls?: number;
 };
 
 export type CodeRunResult = {
@@ -100,9 +106,15 @@ ${request.program}
 	const timeoutMs = request.timeoutMs ?? SHIPPED_PTC_CONFIG.timeoutMs;
 	const maxOutputBytes = request.maxOutputBytes ?? SHIPPED_PTC_CONFIG.maxOutputBytes;
 	const maxOutputLines = request.maxOutputLines ?? SHIPPED_PTC_CONFIG.maxOutputLines;
+	const maxBindingCalls = request.maxBindingCalls ?? SHIPPED_PTC_CONFIG.maxDispatches;
 	const logs: string[] = [];
 	let logOutputBytes = EMPTY_LOGS_SERIALIZED_BYTES;
 	let logOutputLines = 0;
+	const invocation = new AbortController();
+	const activeBindings = new Map<number, Promise<void>>();
+	let acceptedBindingCalls = 0;
+	let lastWorkerCallId = 0;
+	let closing = false;
 	const worker = new Worker(WORKER_PATH, {
 		env: {},
 		resourceLimits: {
@@ -114,63 +126,71 @@ ${request.program}
 		},
 	});
 
-	return await new Promise((resolve) => {
-		let settled = false;
+	return await new Promise<CodeRunResult>((resolve) => {
+		let timer: ReturnType<typeof setTimeout>;
 
-		const finish = (outcome: CodeRunResult) => {
-			if (settled) return;
-			settled = true;
+		const cleanupListeners = (): void => {
 			clearTimeout(timer);
 			request.signal?.removeEventListener("abort", onAbort);
 			worker.off("message", onMessage);
 			worker.off("error", onError);
 			worker.off("exit", onExit);
-			void worker.terminate();
+		};
+
+		const close = async (outcome: CodeRunResult, mustAbort: boolean): Promise<void> => {
+			if (closing) return;
+			closing = true;
+			if (mustAbort) invocation.abort();
+			await Promise.allSettled([...activeBindings.values()]);
+			await worker.terminate().catch(() => undefined);
+			cleanupListeners();
 			resolve(outcome);
 		};
 
+		const finish = (outcome: CodeRunResult, mustAbort: boolean): void => {
+			void close(outcome, mustAbort);
+		};
+
 		const postReply = (message: HostToWorker): void => {
-			// Binding promises can outlive host ownership after abort or timeout.
-			if (settled) return;
+			if (closing) return;
 			try {
 				worker.postMessage(message);
 			} catch (error) {
-				finish({
-					logs: [...logs],
-					error: {
-						kind: "worker-exit",
-						message: error instanceof Error ? error.message : String(error),
+				finish(
+					{
+						logs: [...logs],
+						error: {
+							kind: "worker-exit",
+							message: error instanceof Error ? error.message : String(error),
+						},
 					},
-				});
+					true,
+				);
 			}
 		};
 
-		const onAbort = () => {
-			finish({ logs: [...logs], error: { kind: "abort" } });
+		const onAbort = (): void => {
+			finish({ logs: [...logs], error: { kind: "abort" } }, true);
 		};
-		const timer = setTimeout(() => {
-			finish({ logs: [...logs], error: { kind: "timeout" } });
-		}, timeoutMs);
-		request.signal?.addEventListener("abort", onAbort, { once: true });
-		if (request.signal?.aborted) {
-			onAbort();
-			return;
-		}
 
-		const onMessage = (raw: unknown) => {
+		const onMessage = (raw: unknown): void => {
+			if (closing) return;
 			let message: WorkerToHost;
 			try {
 				const parsed = parseWorkerMessage(raw);
 				if (!parsed) return;
 				message = parsed;
 			} catch (error) {
-				finish({
-					logs: [...logs],
-					error: {
-						kind: "invalid-output",
-						message: error instanceof Error ? error.message : String(error),
+				finish(
+					{
+						logs: [...logs],
+						error: {
+							kind: "invalid-output",
+							message: error instanceof Error ? error.message : String(error),
+						},
 					},
-				});
+					true,
+				);
 				return;
 			}
 			if (message.type === "log") {
@@ -179,7 +199,7 @@ ${request.program}
 					logOutputBytes + separatorBytes + Buffer.byteLength(JSON.stringify(message.text), "utf8");
 				const nextLines = logOutputLines + logicalLineCount(message.text);
 				if (nextBytes > maxOutputBytes || nextLines > maxOutputLines) {
-					finish({ logs: [...logs], error: { kind: "output-limit" } });
+					finish({ logs: [...logs], error: { kind: "output-limit" } }, true);
 					return;
 				}
 				logOutputBytes = nextBytes;
@@ -188,6 +208,22 @@ ${request.program}
 				return;
 			}
 			if (message.type === "call") {
+				if (!Number.isSafeInteger(message.id) || message.id <= lastWorkerCallId) {
+					finish(
+						{
+							logs: [...logs],
+							error: { kind: "invalid-output", message: INVALID_WORKER_CALL_ID_MESSAGE },
+						},
+						true,
+					);
+					return;
+				}
+				lastWorkerCallId = message.id;
+				acceptedBindingCalls += 1;
+				if (acceptedBindingCalls > maxBindingCalls) {
+					finish({ logs: [...logs], error: { kind: "dispatch-limit" } }, true);
+					return;
+				}
 				const binding = functions[message.name];
 				if (!binding) {
 					postReply({
@@ -199,8 +235,8 @@ ${request.program}
 					});
 					return;
 				}
-				void Promise.resolve()
-					.then(() => binding(message.args))
+				const settlement = Promise.resolve()
+					.then(() => binding(message.args, invocation.signal))
 					.then((value) => {
 						postReply({
 							type: "reply",
@@ -222,31 +258,50 @@ ${request.program}
 							toolName,
 							message: errorMessage,
 						});
+					})
+					.finally(() => {
+						if (activeBindings.get(message.id) === settlement) {
+							activeBindings.delete(message.id);
+						}
 					});
+				activeBindings.set(message.id, settlement);
 				return;
 			}
 			if (message.type === "done") {
+				if (activeBindings.size > 0) {
+					finish({ logs: [...logs], error: { kind: "dangling-dispatch" } }, true);
+					return;
+				}
 				finish(
 					"value" in message ? { logs: [...logs], result: message.value } : { logs: [...logs] },
+					false,
 				);
 				return;
 			}
-			finish({ logs: [...logs], error: { kind: message.kind, message: message.message } });
+			finish({ logs: [...logs], error: { kind: message.kind, message: message.message } }, true);
 		};
 
-		const onError = (error: Error) => {
-			finish({ logs: [...logs], error: { kind: "throw", message: error.message } });
+		const onError = (error: Error): void => {
+			finish({ logs: [...logs], error: { kind: "throw", message: error.message } }, true);
 		};
-		const onExit = (code: number) => {
-			if (settled) return;
-			finish({
-				logs: [...logs],
-				error: { kind: "worker-exit", message: `worker exited with code ${code}` },
-			});
+		const onExit = (code: number): void => {
+			if (closing) return;
+			finish(
+				{
+					logs: [...logs],
+					error: { kind: "worker-exit", message: `worker exited with code ${code}` },
+				},
+				true,
+			);
 		};
 
 		worker.on("message", onMessage);
 		worker.on("error", onError);
 		worker.on("exit", onExit);
+		timer = setTimeout(() => {
+			finish({ logs: [...logs], error: { kind: "timeout" } }, true);
+		}, timeoutMs);
+		request.signal?.addEventListener("abort", onAbort, { once: true });
+		if (request.signal?.aborted) onAbort();
 	});
 }

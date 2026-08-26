@@ -5,7 +5,29 @@ import { runCode } from "../src/runtime.ts";
 const BINDING_SMOKE_TIMEOUT_MS = 1500;
 const OUTPUT_LIMIT_BYTES = 17;
 const OUTPUT_LIMIT_LINES = 2000;
-const TERMINATION_SETTLE_MS = 100;
+const DRAIN_OBSERVATION_MS = 500;
+
+async function settledWithinDrainObservation(promise: Promise<unknown>): Promise<boolean> {
+	return await new Promise<boolean>((resolve) => {
+		let observationEnded = false;
+		const timer = setTimeout(() => {
+			observationEnded = true;
+			resolve(false);
+		}, DRAIN_OBSERVATION_MS);
+		void promise.then(
+			() => {
+				if (observationEnded) return;
+				clearTimeout(timer);
+				resolve(true);
+			},
+			() => {
+				if (observationEnded) return;
+				clearTimeout(timer);
+				resolve(true);
+			},
+		);
+	});
+}
 
 const started = Date.now();
 const outcome = await runCode({
@@ -52,22 +74,41 @@ if (
 	process.exit(1);
 }
 
-let rejectBinding: (() => void) | undefined;
 let markBindingStarted: (() => void) | undefined;
+let markBindingAbortObserved: (() => void) | undefined;
+let allowBindingToSettle: (() => void) | undefined;
 const bindingStarted = new Promise<void>((resolve) => {
 	markBindingStarted = resolve;
 });
+const bindingAbortObserved = new Promise<void>((resolve) => {
+	markBindingAbortObserved = resolve;
+});
+const bindingSettlementGate = new Promise<void>((resolve) => {
+	allowBindingToSettle = resolve;
+});
+let bindingSettled = false;
+const unhandledRejections: unknown[] = [];
+const onUnhandledRejection = (error: unknown): void => {
+	unhandledRejections.push(error);
+};
+process.on("unhandledRejection", onUnhandledRejection);
 const controller = new AbortController();
 const pendingAbort = runCode({
 	program: "return await tools.slow(null);",
 	bindings: {
 		global: "tools",
 		functions: {
-			slow: () => {
+			slow: async (_args, signal) => {
 				markBindingStarted?.();
-				return new Promise<null>((_resolve, reject) => {
-					rejectBinding = () => reject(new Error("late binding rejection"));
-				});
+				if (!signal.aborted) {
+					await new Promise<void>((resolve) => {
+						signal.addEventListener("abort", () => resolve(), { once: true });
+					});
+				}
+				markBindingAbortObserved?.();
+				await bindingSettlementGate;
+				bindingSettled = true;
+				throw new Error("late binding rejection");
 			},
 		},
 	},
@@ -76,20 +117,23 @@ const pendingAbort = runCode({
 });
 await bindingStarted;
 controller.abort();
+await bindingAbortObserved;
+const returnedBeforeDrain = await settledWithinDrainObservation(pendingAbort);
+allowBindingToSettle?.();
 const abortOutcome = await pendingAbort;
-const unhandledRejections: unknown[] = [];
-process.on("unhandledRejection", (error) => {
-	unhandledRejections.push(error);
-});
-await new Promise((resolve) => setTimeout(resolve, TERMINATION_SETTLE_MS));
-rejectBinding?.();
+const bindingSettledBeforeReturn = bindingSettled;
 await new Promise((resolve) => setImmediate(resolve));
+process.removeListener("unhandledRejection", onUnhandledRejection);
 if (unhandledRejections.length > 0) {
 	console.error(unhandledRejections[0]);
 	process.exit(1);
 }
-if (JSON.stringify(abortOutcome) !== JSON.stringify({ logs: [], error: { kind: "abort" } })) {
-	console.error(JSON.stringify({ abortOutcome }));
+if (
+	returnedBeforeDrain ||
+	!bindingSettledBeforeReturn ||
+	JSON.stringify(abortOutcome) !== JSON.stringify({ logs: [], error: { kind: "abort" } })
+) {
+	console.error(JSON.stringify({ abortOutcome, bindingSettledBeforeReturn, returnedBeforeDrain }));
 	process.exit(1);
 }
 
@@ -101,5 +145,6 @@ console.log(
 		environmentOutcome,
 		outputLimitOutcome,
 		abortOutcome,
+		drainProof: { bindingSettledBeforeReturn, returnedBeforeDrain },
 	}),
 );

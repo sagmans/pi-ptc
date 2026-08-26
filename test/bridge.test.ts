@@ -16,6 +16,11 @@ import { ToolCallError } from "../src/canonical.ts";
 import { CORE_TOOL_NAMES, DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "../src/config.ts";
 import { createScheduler } from "../src/scheduler.ts";
 
+const BINDING_SIGNAL = new AbortController().signal;
+const QUEUED_ABORT_FIRST_PATH = "first.txt";
+const QUEUED_ABORT_SECOND_PATH = "second.txt";
+const SCHEDULER_ABORT_MESSAGE = /Operation aborted/;
+
 test("bridge snapshots args, returns canonical JSON, and records dispatch", async () => {
 	const logs: unknown[] = [];
 	const events: unknown[] = [];
@@ -37,7 +42,7 @@ test("bridge snapshots args, returns canonical JSON, and records dispatch", asyn
 		},
 	});
 
-	const value = await bindings.read({ path: "a.txt" });
+	const value = await bindings.read({ path: "a.txt" }, BINDING_SIGNAL);
 	assert.deepEqual(value, { text: "hello", truncation: { truncated: false } });
 	assert.deepEqual(logs, [
 		{
@@ -59,6 +64,51 @@ test("bridge snapshots args, returns canonical JSON, and records dispatch", asyn
 	]);
 });
 
+test("bridge forwards the invocation signal to factory execution", async () => {
+	const fallbackSignal = new AbortController().signal;
+	const invocationSignal = new AbortController().signal;
+	let receivedSignal: AbortSignal | undefined;
+	const bindings = createCoreBindings({
+		execute: async (_name, _args, signal) => {
+			receivedSignal = signal;
+			return { content: [] };
+		},
+		scheduler: createScheduler(2),
+		signal: fallbackSignal,
+	});
+
+	await bindings.read({ path: "a.txt" }, invocationSignal);
+
+	assert.equal(receivedSignal, invocationSignal);
+});
+
+test("bridge removes an aborted queued dispatch before factory execution", async () => {
+	const executedPaths: string[] = [];
+	let releaseFirst!: () => void;
+	const firstGate = new Promise<void>((resolve) => {
+		releaseFirst = resolve;
+	});
+	const bindings = createCoreBindings({
+		execute: async (_name, args) => {
+			const path = (args as { path: string }).path;
+			executedPaths.push(path);
+			if (path === QUEUED_ABORT_FIRST_PATH) await firstGate;
+			return { content: [{ type: "text", text: path }] };
+		},
+		scheduler: createScheduler(1),
+	});
+	const queuedController = new AbortController();
+	const first = bindings.read({ path: QUEUED_ABORT_FIRST_PATH }, BINDING_SIGNAL);
+	const queued = bindings.read({ path: QUEUED_ABORT_SECOND_PATH }, queuedController.signal);
+	const queuedRejection = assert.rejects(queued, SCHEDULER_ABORT_MESSAGE);
+
+	queuedController.abort();
+	releaseFirst();
+	await Promise.all([first, queuedRejection]);
+
+	assert.deepEqual(executedPaths, [QUEUED_ABORT_FIRST_PATH]);
+});
+
 test("bridge rejects lossless-invalid args before execute", async () => {
 	let executed = false;
 	const bindings = createCoreBindings({
@@ -69,7 +119,7 @@ test("bridge rejects lossless-invalid args before execute", async () => {
 		scheduler: createScheduler(2),
 	});
 	await assert.rejects(
-		() => bindings.read({ path: undefined as unknown as string }),
+		() => bindings.read({ path: undefined as unknown as string }, BINDING_SIGNAL),
 		/lossless JSON/,
 	);
 	assert.equal(executed, false);
@@ -87,7 +137,7 @@ test("bridge turns factory failure into ToolCallError", async () => {
 		},
 	});
 	await assert.rejects(
-		() => bindings.read({ path: "gone.txt" }),
+		() => bindings.read({ path: "gone.txt" }, BINDING_SIGNAL),
 		(error: unknown) => {
 			assert.ok(error instanceof ToolCallError);
 			assert.equal(error.toolName, "read");
@@ -112,8 +162,8 @@ test("bridge classifies exclusive work so bash waits for reads", async () => {
 		},
 		scheduler: createScheduler(2),
 	});
-	const read = bindings.read({ path: "a.txt" });
-	const bash = bindings.bash({ command: "true" });
+	const read = bindings.read({ path: "a.txt" }, BINDING_SIGNAL);
+	const bash = bindings.bash({ command: "true" }, BINDING_SIGNAL);
 	await Promise.resolve();
 	await Promise.resolve();
 	assert.deepEqual(started, ["read"]);
@@ -130,7 +180,9 @@ test("official executor reads a real file through the factory", async () => {
 		execute,
 		scheduler: createScheduler(2),
 	});
-	assert.deepEqual(await bindings.read({ path: "note.txt" }), { text: "factory-ok\n" });
+	assert.deepEqual(await bindings.read({ path: "note.txt" }, BINDING_SIGNAL), {
+		text: "factory-ok\n",
+	});
 });
 
 function fakeFactoryTools(execute: FactoryToolSet["read"]["execute"]): FactoryToolSet {
@@ -187,7 +239,7 @@ test("bridge reports one stable dispatch record with its native result", async (
 			reported.push(progress);
 		},
 	});
-	await bindings.read({ path: "a.txt" });
+	await bindings.read({ path: "a.txt" }, BINDING_SIGNAL);
 	assert.deepEqual(order, ["start", "execute", "ok"]);
 	assert.deepEqual(reported, [
 		{ id: 1, name: "read", args: { path: "a.txt" }, status: "start" },
@@ -216,8 +268,8 @@ test("bridge keeps bounded tail and head previews for native-like rows", async (
 		},
 	});
 
-	await bindings.bash({ command: "printf lines" });
-	await bindings.grep({ pattern: "line", path: "src" });
+	await bindings.bash({ command: "printf lines" }, BINDING_SIGNAL);
+	await bindings.grep({ pattern: "line", path: "src" }, BINDING_SIGNAL);
 
 	const settled = reported.filter((progress) => progress.status === "ok");
 	assert.deepEqual(
@@ -256,7 +308,7 @@ test("bridge reports err after factory failure", async () => {
 			statuses.push(progress.status);
 		},
 	});
-	await assert.rejects(() => bindings.read({ path: "gone.txt" }), ToolCallError);
+	await assert.rejects(() => bindings.read({ path: "gone.txt" }, BINDING_SIGNAL), ToolCallError);
 	assert.deepEqual(statuses, ["start", "err"]);
 });
 
