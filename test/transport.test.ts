@@ -1,12 +1,15 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
+
 import {
 	createCoreBindings,
 	type DispatchProgress,
 	type DispatchRenderResult,
 } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG, TRUST_COPY } from "../src/config.ts";
+import type { PtcRenderContext } from "../src/renderer.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import { createPtcTool, type PtcPartialResult } from "../src/transport.ts";
 
@@ -33,8 +36,16 @@ const SINGLE_RETAINED_RESULT_BUDGET_BYTES = Buffer.byteLength(
 	"utf8",
 );
 const HOSTILE_RENDER_DETAILS_MESSAGE = "hostile render details";
+const TIMER_TEST_INTERVAL_MS = 5;
+const TIMER_IDLE_OBSERVATION_MS = 30;
 
 type PtcExecuteReport = (progress: DispatchProgress) => void;
+
+const TIMER_THEME = {
+	fg: (_color: string, text: string) => text,
+	bg: (_color: string, text: string) => text,
+	bold: (text: string) => text,
+} as Theme;
 
 const LIMITS = {
 	timeoutMs: 2000,
@@ -42,6 +53,8 @@ const LIMITS = {
 	maxOutputBytes: 51200,
 	maxOutputLines: 2000,
 };
+
+initTheme(undefined, false);
 
 test("ptc description names bash-equivalent trust", () => {
 	const tool = createPtcTool({
@@ -158,6 +171,111 @@ test("ptc abort reaches an active core executor before settlement", async () => 
 	controller.abort();
 	await assert.rejects(pending, /abort/);
 	assert.equal(executorSignal?.aborted, true);
+});
+
+test("terminal abort updates clear the native bash timer before outer rejection", {
+	concurrency: false,
+}, async () => {
+	const originalSetInterval = globalThis.setInterval;
+	const originalClearInterval = globalThis.clearInterval;
+	const activeIntervals = new Set<ReturnType<typeof setInterval>>();
+	let intervalCreations = 0;
+	let intervalClears = 0;
+	globalThis.setInterval = ((...parameters: Parameters<typeof setInterval>) => {
+		const [callback, _delay, ...args] = parameters;
+		intervalCreations += 1;
+		const handle = originalSetInterval(callback, TIMER_TEST_INTERVAL_MS, ...args);
+		activeIntervals.add(handle);
+		return handle;
+	}) as typeof setInterval;
+	globalThis.clearInterval = ((handle) => {
+		intervalClears += 1;
+		activeIntervals.delete(handle as ReturnType<typeof setInterval>);
+		originalClearInterval(handle);
+	}) as typeof clearInterval;
+
+	try {
+		let markExecutorStarted!: () => void;
+		const executorStarted = new Promise<void>((resolve) => {
+			markExecutorStarted = resolve;
+		});
+		let rejectionObserved = false;
+		let terminalObserved = false;
+		let invalidations = 0;
+		const renderContext: PtcRenderContext = {
+			toolCallId: "timer-abort",
+			cwd: process.cwd(),
+			state: {},
+			invalidate: () => {
+				invalidations += 1;
+			},
+			lastComponent: undefined,
+			expanded: false,
+			showImages: false,
+			isError: false,
+		};
+		const tool = createPtcTool({
+			...LIMITS,
+			createBindings: (ctx) =>
+				createCoreBindings({
+					execute: async (_name, _args, signal, onUpdate) => {
+						onUpdate?.({ content: [{ type: "text", text: "working" }] });
+						markExecutorStarted();
+						await new Promise<void>((_resolve, reject) => {
+							if (signal?.aborted) {
+								reject(new Error("aborted"));
+								return;
+							}
+							signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+								once: true,
+							});
+						});
+						return { content: [] };
+					},
+					reportDispatch: ctx.reportDispatch,
+					scheduler: createScheduler(1),
+				}),
+		});
+		const controller = new AbortController();
+		const pending = tool.execute(
+			"timer-abort",
+			{
+				code: 'await tools.bash({ command: "wait" });',
+				description: "abort timed bash",
+			},
+			controller.signal,
+			(partial) => {
+				const status = partial.details.dispatches[0]?.status;
+				tool.renderResult(
+					partial,
+					{ expanded: false, isPartial: status === "start" },
+					TIMER_THEME,
+					renderContext,
+				);
+				if (status === "err") {
+					terminalObserved = true;
+					assert.equal(rejectionObserved, false);
+				}
+			},
+			{ cwd: process.cwd() },
+		);
+
+		await executorStarted;
+		assert.equal(intervalCreations, 1);
+		controller.abort();
+		await assert.rejects(pending, /abort/i);
+		rejectionObserved = true;
+		assert.equal(terminalObserved, true);
+		assert.equal(intervalClears, 1);
+		assert.equal(activeIntervals.size, 0);
+		const invalidationsAfterSettlement = invalidations;
+		await new Promise((resolve) => setTimeout(resolve, TIMER_IDLE_OBSERVATION_MS));
+		assert.equal(invalidations, invalidationsAfterSettlement);
+	} finally {
+		for (const handle of activeIntervals) originalClearInterval(handle);
+		globalThis.setInterval = originalSetInterval;
+		globalThis.clearInterval = originalClearInterval;
+	}
 });
 
 async function waitForUpdates(updates: unknown[], count: number, timeoutMs = 1000): Promise<void> {

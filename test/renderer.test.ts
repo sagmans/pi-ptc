@@ -26,6 +26,8 @@ const DESCRIPTION = "inspect package";
 const PROGRAM = "return 1;";
 const RENDER_TOOL_CALL_ID = "render-call";
 const RENDER_WIDTH = 120;
+const IMAGE_RENDER_WIDTH = 73;
+const IMAGE_RESIZED_WIDTH = 41;
 const EXPECTED_SINGLE_RENDER_COUNT = 1;
 const RENDERER_SOURCE = await import("node:fs").then(({ readFileSync }) =>
 	readFileSync(new URL("../src/renderer.ts", import.meta.url), "utf8"),
@@ -33,6 +35,9 @@ const RENDERER_SOURCE = await import("node:fs").then(({ readFileSync }) =>
 const NATIVE_READ_CONTENT = "NATIVE_READ_CONTENT";
 const OMITTED_READ_CONTENT = "OMITTED_READ_CONTENT";
 const OMITTED_RENDER_BUDGET_BYTES = 1;
+const JPEG_IMAGE_DATA = "aW1hZ2U=";
+const PNG_IMAGE_DATA = "cG5n";
+const CONVERTED_IMAGE_DATA = "Y29udmVydGVk";
 const CHILD_RENDER_FAILURE = "child render failure";
 const CONSTRUCTOR_FAILURE = "constructor failure";
 const INVALIDATE_FAILURE = "invalidate failure";
@@ -737,6 +742,130 @@ test("slot and invalidate failures become bounded diagnostics", () => {
 	);
 	assert.doesNotThrow(() => outerInvalidate?.());
 	assert.match(render(outerRoot), new RegExp(OUTER_INVALIDATE_FAILURE));
+});
+
+test("image conversion is deduplicated and bound to the current row generation", async () => {
+	const tool = createTool();
+	let resolveConversion!: (value: { data: string; mimeType: string }) => void;
+	const conversion = new Promise<{ data: string; mimeType: string }>((resolve) => {
+		resolveConversion = resolve;
+	});
+	let conversionCalls = 0;
+	let invalidations = 0;
+	const imageWidths: number[] = [];
+	const context = {
+		...createRenderContext(false),
+		invalidate: () => {
+			invalidations += 1;
+		},
+		showImages: true,
+	};
+	Object.assign(context, {
+		convertImage: async () => {
+			conversionCalls += 1;
+			return await conversion;
+		},
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: () => new Text("read image.jpg", 0, 0),
+				renderResult: () => new Text("", 0, 0),
+			},
+		}),
+		createImage: (_data: string, _mimeType: string, maxWidthCells: number) => {
+			imageWidths.push(maxWidthCells);
+			return new Text(`image:${maxWidthCells}`, 0, 0);
+		},
+		getImageProtocol: () => "kitty",
+	});
+	const imageResult = {
+		content: [{ type: "image", data: JPEG_IMAGE_DATA, mimeType: "image/jpeg" }],
+		isError: false,
+	};
+	const partial: PtcPartialResult = {
+		content: [{ type: "text", text: "ignored" }],
+		details: createDeltaDetails(DESCRIPTION, {
+			id: 1,
+			name: "read",
+			args: { path: "image.jpg" },
+			status: "start",
+			result: imageResult,
+		}),
+	};
+	const root = tool.renderResult(partial, { expanded: false, isPartial: true }, THEME, context);
+	tool.renderResult(partial, { expanded: false, isPartial: true }, THEME, context);
+	tool.renderResult(
+		{
+			...partial,
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "image.jpg" },
+				status: "ok",
+				result: imageResult,
+			}),
+		},
+		{ expanded: false, isPartial: false },
+		THEME,
+		context,
+	);
+
+	assert.equal(conversionCalls, 1);
+	resolveConversion({ data: CONVERTED_IMAGE_DATA, mimeType: "image/png" });
+	await conversion;
+	await Promise.resolve();
+	assert.equal(invalidations, 1);
+	assert.match(render(root, IMAGE_RENDER_WIDTH), new RegExp(`image:${IMAGE_RENDER_WIDTH}`));
+	assert.match(render(root, IMAGE_RESIZED_WIDTH), new RegExp(`image:${IMAGE_RESIZED_WIDTH}`));
+	assert.deepEqual(imageWidths, [IMAGE_RENDER_WIDTH, IMAGE_RESIZED_WIDTH]);
+
+	let resolveStale!: (value: { data: string; mimeType: string }) => void;
+	const staleConversion = new Promise<{ data: string; mimeType: string }>((resolve) => {
+		resolveStale = resolve;
+	});
+	let staleInvalidations = 0;
+	const staleContext = {
+		...createRenderContext(false),
+		invalidate: () => {
+			staleInvalidations += 1;
+		},
+		showImages: true,
+	};
+	Object.assign(staleContext, {
+		convertImage: async () => await staleConversion,
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: () => new Text("read image", 0, 0),
+				renderResult: () => new Text("", 0, 0),
+			},
+		}),
+		createImage: () => new Text("image", 0, 0),
+		getImageProtocol: () => "kitty",
+	});
+	tool.renderResult(partial, { expanded: false, isPartial: true }, THEME, staleContext);
+	tool.renderResult(
+		{
+			...partial,
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "replacement.png" },
+				status: "ok",
+				result: {
+					content: [{ type: "image", data: PNG_IMAGE_DATA, mimeType: "image/png" }],
+					isError: false,
+				},
+			}),
+		},
+		{ expanded: false, isPartial: false },
+		THEME,
+		staleContext,
+	);
+	resolveStale({ data: CONVERTED_IMAGE_DATA, mimeType: "image/png" });
+	await staleConversion;
+	await Promise.resolve();
+	assert.equal(staleInvalidations, 0);
 });
 
 test("ptc renders nested and outer failures independently", () => {

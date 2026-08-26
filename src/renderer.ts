@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
+
 import {
 	type AgentToolResult,
+	convertToPng,
 	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
@@ -15,6 +18,9 @@ import {
 	Box,
 	type Component,
 	Container,
+	getCapabilities,
+	Image,
+	type ImageProtocol,
 	Spacer,
 	stripTerminalSequences,
 	Text,
@@ -42,10 +48,43 @@ const DIAGNOSTIC_MAX_LINES = 4;
 const DEFAULT_RENDER_FAILURE_MESSAGE = "display failure";
 const DEFAULT_RENDER_SHELL = "default";
 const DISPLAY_DIAGNOSTIC_NAME = "display";
+const IMAGE_HASH_ALGORITHM = "sha256";
+const IMAGE_KEY_SEPARATOR = "\u0000";
+const IMAGE_PNG_MIME_TYPE = "image/png";
+const MINIMUM_IMAGE_WIDTH_CELLS = 1;
+const RENDERER_INTERVAL_STATE_KEY = "interval";
 
 export type PtcDefinitionRegistry = Partial<Record<CoreToolName, ToolDefinition>>;
 export type PtcDefinitionFactory = (cwd: string) => PtcDefinitionRegistry;
+export type PtcImageConverter = (
+	data: string,
+	mimeType: string,
+) => Promise<{ data: string; mimeType: string } | null>;
+export type PtcImageFactory = (
+	data: string,
+	mimeType: string,
+	maxWidthCells: number,
+	theme: Theme,
+) => Component;
 type NativeRenderContext = Parameters<NonNullable<ToolDefinition["renderCall"]>>[2];
+type PtcImageServices = {
+	convertImage: PtcImageConverter;
+	createImage: PtcImageFactory;
+	getImageProtocol(): ImageProtocol;
+};
+type PtcImageSource = {
+	data: string;
+	mimeType: string;
+};
+type PtcImageRecord = {
+	component?: Component;
+	componentWidth?: number;
+	conversion?: Promise<{ data: string; mimeType: string } | null>;
+	converted?: PtcImageSource;
+	generation: number;
+	key: string;
+	source: PtcImageSource;
+};
 
 type PtcRendererState = {
 	root?: SafePtcRoot;
@@ -67,7 +106,10 @@ export type PtcRenderContext = {
 	expanded: boolean;
 	showImages: boolean;
 	isError: boolean;
+	convertImage?: PtcImageConverter;
 	createDefinitions?: PtcDefinitionFactory;
+	createImage?: PtcImageFactory;
+	getImageProtocol?: () => ImageProtocol;
 };
 
 export function attachPtcRenderDispatches(
@@ -107,6 +149,7 @@ export function renderPtcResult(
 class SafePtcRoot implements Component {
 	readonly cwd: string;
 	private readonly definitions: PtcDefinitionRegistry;
+	private readonly imageServices: PtcImageServices;
 	private readonly rows = new Map<number, PtcDispatchRow>();
 	private readonly orderedRows: PtcDispatchRow[] = [];
 	private compatibilityError: PtcDiagnosticRow | undefined;
@@ -119,11 +162,13 @@ class SafePtcRoot implements Component {
 		toolCallId: string,
 		view: PtcRowView,
 		definitions: PtcDefinitionRegistry,
+		imageServices: PtcImageServices,
 	) {
 		this.cwd = cwd;
 		this.toolCallId = toolCallId;
 		this.view = view;
 		this.definitions = definitions;
+		this.imageServices = imageServices;
 	}
 
 	private readonly toolCallId: string;
@@ -155,6 +200,7 @@ class SafePtcRoot implements Component {
 					cwd: this.cwd,
 					definition: this.definitions[dispatch.name],
 					dispatch,
+					imageServices: this.imageServices,
 					toolCallId: `${this.toolCallId}${NESTED_TOOL_CALL_SEPARATOR}${dispatch.id}`,
 					view: this.view,
 				});
@@ -187,6 +233,10 @@ class SafePtcRoot implements Component {
 
 	contain(error: unknown): void {
 		this.containedFailure = sanitizeDiagnostic(errorMessage(error));
+	}
+
+	unmount(): void {
+		for (const row of this.orderedRows) row.unmount();
 	}
 
 	invalidate(): void {
@@ -238,6 +288,7 @@ class PtcDispatchRow implements Component {
 		cwd: string;
 		definition: ToolDefinition | undefined;
 		dispatch: PtcPersistedDispatch;
+		imageServices: PtcImageServices;
 		toolCallId: string;
 		view: PtcRowView;
 	};
@@ -248,6 +299,9 @@ class PtcDispatchRow implements Component {
 	private dispatch: PtcPersistedDispatch;
 	private fingerprint = "";
 	private generation = 0;
+	private imageCache = new Map<string, PtcImageRecord>();
+	private imageOrder: PtcImageRecord[] = [];
+	private mounted = true;
 	private renderFailure: string | undefined;
 	private renderedTheme: Theme | undefined;
 	private viewFingerprint = "";
@@ -257,6 +311,7 @@ class PtcDispatchRow implements Component {
 		cwd: string;
 		definition: ToolDefinition | undefined;
 		dispatch: PtcPersistedDispatch;
+		imageServices: PtcImageServices;
 		toolCallId: string;
 		view: PtcRowView;
 	}) {
@@ -281,9 +336,18 @@ class PtcDispatchRow implements Component {
 		this.rebuild(false);
 	}
 
+	unmount(): void {
+		this.mounted = false;
+		this.generation += 1;
+		this.imageCache.clear();
+		this.imageOrder = [];
+		this.retireRendererTimer();
+	}
+
 	invalidate(): void {
 		try {
 			this.callContainer.invalidate();
+			for (const image of this.imageOrder) image.component?.invalidate();
 		} catch (error) {
 			this.contain(error);
 		}
@@ -295,7 +359,10 @@ class PtcDispatchRow implements Component {
 		}
 		try {
 			const content = this.callContainer.render(width);
-			return content.length === 0 ? [] : [...new Spacer(ROW_SPACING).render(width), ...content];
+			const lines =
+				content.length === 0 ? [] : [...new Spacer(ROW_SPACING).render(width), ...content];
+			lines.push(...this.renderImages(width));
+			return lines;
 		} catch (error) {
 			this.contain(error);
 			return renderRowFailure(errorMessage(error), width, this.view.theme);
@@ -326,8 +393,11 @@ class PtcDispatchRow implements Component {
 			const result = getDispatchResult(this.dispatch);
 			this.resultComponent = result ? this.renderResult(result) : undefined;
 			if (this.resultComponent) this.callContainer.addChild(this.resultComponent);
+			this.refreshImages(result);
 		} catch (error) {
 			this.contain(error);
+		} finally {
+			if (this.dispatch.status !== "start") this.retireRendererTimer();
 		}
 	}
 
@@ -364,6 +434,128 @@ class PtcDispatchRow implements Component {
 		);
 	}
 
+	private refreshImages(result: PtcPersistedRenderResult | undefined): void {
+		const protocol = this.input.imageServices.getImageProtocol();
+		if (!result || !this.view.showImages || protocol === null) {
+			this.imageCache.clear();
+			this.imageOrder = [];
+			return;
+		}
+		const nextCache = new Map<string, PtcImageRecord>();
+		const nextOrder: PtcImageRecord[] = [];
+		for (const block of result.content) {
+			if (block.type !== "image" || !block.data || !block.mimeType) continue;
+			const key = imageContentKey(block.data, block.mimeType);
+			let record = nextCache.get(key) ?? this.imageCache.get(key);
+			if (!record) {
+				record = {
+					generation: this.generation,
+					key,
+					source: { data: block.data, mimeType: block.mimeType },
+				};
+			}
+			record.generation = this.generation;
+			nextCache.set(key, record);
+			nextOrder.push(record);
+			if (
+				protocol === "kitty" &&
+				record.source.mimeType !== IMAGE_PNG_MIME_TYPE &&
+				!record.converted &&
+				!record.conversion
+			) {
+				this.startImageConversion(record);
+			}
+		}
+		this.imageCache = nextCache;
+		this.imageOrder = nextOrder;
+	}
+
+	private startImageConversion(record: PtcImageRecord): void {
+		let conversion: PtcImageRecord["conversion"];
+		try {
+			conversion = this.input.imageServices.convertImage(
+				record.source.data,
+				record.source.mimeType,
+			);
+			record.conversion = conversion;
+		} catch (error) {
+			this.contain(error);
+			return;
+		}
+		void conversion.then(
+			(converted) => {
+				if (
+					!converted ||
+					!this.mounted ||
+					record.generation !== this.generation ||
+					this.imageCache.get(record.key) !== record
+				) {
+					return;
+				}
+				record.converted = converted;
+				record.component = undefined;
+				record.componentWidth = undefined;
+				this.requestInvalidate();
+			},
+			(error) => {
+				if (
+					!this.mounted ||
+					record.generation !== this.generation ||
+					this.imageCache.get(record.key) !== record
+				) {
+					return;
+				}
+				this.contain(error);
+				this.requestInvalidate();
+			},
+		);
+	}
+
+	private renderImages(width: number): string[] {
+		if (!this.view.showImages || this.input.imageServices.getImageProtocol() === null) return [];
+		const protocol = this.input.imageServices.getImageProtocol();
+		const maxWidthCells = Math.max(MINIMUM_IMAGE_WIDTH_CELLS, Math.floor(width));
+		const lines: string[] = [];
+		for (const record of this.imageOrder) {
+			const source = record.converted ?? record.source;
+			if (protocol === "kitty" && source.mimeType !== IMAGE_PNG_MIME_TYPE) {
+				continue;
+			}
+			if (!record.component || record.componentWidth !== maxWidthCells) {
+				record.component = this.input.imageServices.createImage(
+					source.data,
+					source.mimeType,
+					maxWidthCells,
+					this.view.theme,
+				);
+				record.componentWidth = maxWidthCells;
+			}
+			lines.push(...new Spacer(ROW_SPACING).render(width));
+			lines.push(...record.component.render(width));
+		}
+		return lines;
+	}
+
+	private requestInvalidate(): void {
+		try {
+			this.view.invalidate();
+		} catch (error) {
+			this.contain(error);
+		}
+	}
+
+	private retireRendererTimer(): void {
+		try {
+			if (typeof this.rendererState !== "object" || this.rendererState === null) return;
+			const interval = Reflect.get(this.rendererState, RENDERER_INTERVAL_STATE_KEY);
+			if (interval === undefined) return;
+			clearInterval(interval as NodeJS.Timeout);
+			Reflect.set(this.rendererState, RENDERER_INTERVAL_STATE_KEY, undefined);
+		} catch (error) {
+			this.contain(error);
+		}
+	}
+
 	private createRenderContext(lastComponent: Component | undefined): NativeRenderContext {
 		const generation = this.generation;
 		return {
@@ -392,6 +584,8 @@ class PtcDispatchRow implements Component {
 
 	private contain(error: unknown): void {
 		this.renderFailure = sanitizeDiagnostic(errorMessage(error));
+		this.imageCache.clear();
+		this.imageOrder = [];
 		try {
 			this.callContainer.clear();
 			this.callContainer.addChild(createDiagnosticText(this.renderFailure, this.view.theme));
@@ -474,6 +668,7 @@ function findRowInsertionIndex(rows: readonly PtcDispatchRow[], id: number): num
 function getRoot(context: PtcRenderContext, theme: Theme): SafePtcRoot {
 	const existing = context.state.root;
 	if (existing?.cwd === context.cwd) return existing;
+	existing?.unmount();
 	const view: PtcRowView = {
 		expanded: context.expanded,
 		showImages: context.showImages,
@@ -487,7 +682,11 @@ function getRoot(context: PtcRenderContext, theme: Theme): SafePtcRoot {
 	} catch (error) {
 		constructionFailure = error;
 	}
-	const root = new SafePtcRoot(context.cwd, context.toolCallId, view, definitions);
+	const root = new SafePtcRoot(context.cwd, context.toolCallId, view, definitions, {
+		convertImage: context.convertImage ?? convertToPng,
+		createImage: context.createImage ?? createNativeImage,
+		getImageProtocol: context.getImageProtocol ?? getNativeImageProtocol,
+	});
 	if (constructionFailure !== undefined) root.contain(constructionFailure);
 	context.state.root = root;
 	return root;
@@ -503,6 +702,32 @@ function createNativeDefinitions(cwd: string): PtcDefinitionRegistry {
 		read: createReadToolDefinition(cwd) as unknown as ToolDefinition,
 		write: createWriteToolDefinition(cwd) as unknown as ToolDefinition,
 	};
+}
+
+function createNativeImage(
+	data: string,
+	mimeType: string,
+	maxWidthCells: number,
+	theme: Theme,
+): Component {
+	return new Image(
+		data,
+		mimeType,
+		{ fallbackColor: (text) => safeForeground(theme, "toolOutput", text) },
+		{ maxWidthCells },
+	);
+}
+
+function getNativeImageProtocol(): ImageProtocol {
+	return getCapabilities().images;
+}
+
+function imageContentKey(data: string, mimeType: string): string {
+	return createHash(IMAGE_HASH_ALGORITHM)
+		.update(mimeType)
+		.update(IMAGE_KEY_SEPARATOR)
+		.update(data)
+		.digest("hex");
 }
 
 function getDispatchResult(dispatch: PtcPersistedDispatch): PtcPersistedRenderResult | undefined {
