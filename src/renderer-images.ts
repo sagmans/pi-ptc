@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { type Component, Spacer } from "@earendil-works/pi-tui";
+import { type Component, type ImageProtocol, Spacer } from "@earendil-works/pi-tui";
 
 import type { PtcPersistedRenderResult } from "./dispatch-details.ts";
 import type { PtcImageServices, PtcRowView } from "./renderer-contract.ts";
@@ -24,6 +24,11 @@ type PtcImageRecord = {
 	generation: number;
 	key: string;
 	source: PtcImageSource;
+};
+
+type ImageBlock = PtcPersistedRenderResult["content"][number] & {
+	data: string;
+	mimeType: string;
 };
 
 type PtcImageCollectionInput = {
@@ -79,30 +84,40 @@ export class PtcImageCollection {
 		const nextCache = new Map<string, PtcImageRecord>();
 		const nextOrder: PtcImageRecord[] = [];
 		for (const block of result.content) {
-			if (block.type !== "image" || !block.data || !block.mimeType) continue;
-			const key = imageContentKey(block.data, block.mimeType);
-			let record = nextCache.get(key) ?? this.cache.get(key);
-			if (!record) {
-				record = {
-					generation: this.generation,
-					key,
-					source: { data: block.data, mimeType: block.mimeType },
-				};
-			}
-			record.generation = this.generation;
-			nextCache.set(key, record);
+			const record = this.refreshRecord(block, nextCache, protocol);
+			if (!record) continue;
+			nextCache.set(record.key, record);
 			nextOrder.push(record);
-			if (
-				protocol === "kitty" &&
-				record.source.mimeType !== IMAGE_PNG_MIME_TYPE &&
-				!record.converted &&
-				!record.conversion
-			) {
-				this.startConversion(record);
-			}
 		}
 		this.cache = nextCache;
 		this.order = nextOrder;
+	}
+
+	private refreshRecord(
+		block: PtcPersistedRenderResult["content"][number],
+		nextCache: ReadonlyMap<string, PtcImageRecord>,
+		protocol: ImageProtocol,
+	): PtcImageRecord | undefined {
+		if (!isImageBlock(block)) return undefined;
+		const record = this.getOrCreateRecord(block, nextCache);
+		record.generation = this.generation;
+		if (requiresPngConversion(record, protocol)) this.startConversion(record);
+		return record;
+	}
+
+	private getOrCreateRecord(
+		block: ImageBlock,
+		nextCache: ReadonlyMap<string, PtcImageRecord>,
+	): PtcImageRecord {
+		const key = imageContentKey(block.data, block.mimeType);
+		return (
+			nextCache.get(key) ??
+			this.cache.get(key) ?? {
+				generation: this.generation,
+				key,
+				source: { data: block.data, mimeType: block.mimeType },
+			}
+		);
 	}
 
 	render(width: number): string[] {
@@ -158,6 +173,19 @@ export class PtcImageCollection {
 			this.mounted && record.generation === this.generation && this.cache.get(record.key) === record
 		);
 	}
+}
+
+function isImageBlock(block: PtcPersistedRenderResult["content"][number]): block is ImageBlock {
+	return block.type === "image" && Boolean(block.data) && Boolean(block.mimeType);
+}
+
+function requiresPngConversion(record: PtcImageRecord, protocol: ImageProtocol): boolean {
+	return (
+		protocol === "kitty" &&
+		record.source.mimeType !== IMAGE_PNG_MIME_TYPE &&
+		!record.converted &&
+		!record.conversion
+	);
 }
 
 function imageContentKey(data: string, mimeType: string): string {

@@ -19,7 +19,7 @@ import {
 	Text,
 } from "@earendil-works/pi-tui";
 
-import type { DispatchProgress } from "./bridge.ts";
+import type { DispatchProgress } from "./dispatch-contract.ts";
 import {
 	parseDispatchDetails,
 	projectLiveDisplayArguments,
