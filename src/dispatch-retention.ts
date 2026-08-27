@@ -1,4 +1,8 @@
-import type { DispatchProgress, DispatchRenderResult, DispatchSummary } from "./bridge.ts";
+import type {
+	DispatchProgress,
+	DispatchRenderResult,
+	DispatchSummary,
+} from "./dispatch-contract.ts";
 import {
 	type PtcDispatchDetails,
 	type PtcDispatchProjection,
@@ -75,44 +79,15 @@ export function projectRenderResult(
 	const budget: RenderBudget = { remaining: Math.max(0, maxRenderDetailsBytes) };
 	const initialBytes = budget.remaining;
 	try {
-		if (!isUnknownRecord(value)) throw RENDER_VALUE_INCOMPATIBLE;
-		const rawContent = value.content;
-		const rawIsError = value.isError;
-		if (!Array.isArray(rawContent) || typeof rawIsError !== "boolean") {
-			throw RENDER_VALUE_INCOMPATIBLE;
-		}
-
+		const { record, rawContent, rawIsError } = readRenderEnvelope(value);
 		consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
 		consumeJsonPropertyName(budget, "content", true);
-		consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
-		const content: DispatchRenderResult["content"] = [];
-		for (const [index, rawBlock] of rawContent.entries()) {
-			if (index > 0) consumeBytes(budget, JSON_ENTRY_SEPARATOR_BYTES);
-			if (!isUnknownRecord(rawBlock)) throw RENDER_VALUE_INCOMPATIBLE;
-			consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
-			const block: DispatchRenderResult["content"][number] = {
-				type: readRequiredDisplayString(rawBlock, "type", budget, true),
-			};
-			for (const key of ["text", "data", "mimeType"] as const) {
-				const entry = rawBlock[key];
-				if (entry === undefined) continue;
-				if (typeof entry !== "string") throw RENDER_VALUE_INCOMPATIBLE;
-				consumeJsonPropertyName(budget, key, false);
-				block[key] = consumeDisplayString(budget, entry);
-			}
-			consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
-			content.push(block);
-		}
-		consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
+		const content = projectRenderContent(rawContent, budget);
 		consumeJsonPropertyName(budget, "isError", false);
 		consumeBytes(budget, rawIsError ? JSON_TRUE_BYTES : JSON_FALSE_BYTES);
 
 		const result: PtcPersistedRenderResult = { content, isError: rawIsError };
-		const rawDetails = value.details;
-		if (rawDetails !== undefined) {
-			consumeJsonPropertyName(budget, "details", false);
-			result.details = cloneBoundedDisplayJson(rawDetails, budget, new WeakSet());
-		}
+		copyRenderDetails(record, result, budget);
 		consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
 		return { kind: "accepted", result, bytes: initialBytes - budget.remaining };
 	} catch (error) {
@@ -122,6 +97,73 @@ export function projectRenderResult(
 				error === RENDER_BUDGET_EXCEEDED ? RENDER_OMITTED_BUDGET : RENDER_OMITTED_INCOMPATIBLE,
 		};
 	}
+}
+
+function readRenderEnvelope(value: unknown): {
+	record: Record<string, unknown>;
+	rawContent: unknown[];
+	rawIsError: boolean;
+} {
+	if (!isUnknownRecord(value)) throw RENDER_VALUE_INCOMPATIBLE;
+	const rawContent = value.content;
+	const rawIsError = value.isError;
+	if (!Array.isArray(rawContent) || typeof rawIsError !== "boolean") {
+		throw RENDER_VALUE_INCOMPATIBLE;
+	}
+	return { record: value, rawContent, rawIsError };
+}
+
+function projectRenderContent(
+	rawContent: readonly unknown[],
+	budget: RenderBudget,
+): DispatchRenderResult["content"] {
+	consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
+	const content: DispatchRenderResult["content"] = [];
+	for (const [index, rawBlock] of rawContent.entries()) {
+		if (index > 0) consumeBytes(budget, JSON_ENTRY_SEPARATOR_BYTES);
+		content.push(projectRenderBlock(rawBlock, budget));
+	}
+	consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
+	return content;
+}
+
+function projectRenderBlock(
+	rawBlock: unknown,
+	budget: RenderBudget,
+): DispatchRenderResult["content"][number] {
+	if (!isUnknownRecord(rawBlock)) throw RENDER_VALUE_INCOMPATIBLE;
+	consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
+	const block: DispatchRenderResult["content"][number] = {
+		type: readRequiredDisplayString(rawBlock, "type", budget, true),
+	};
+	copyOptionalRenderBlockStrings(rawBlock, block, budget);
+	consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
+	return block;
+}
+
+function copyOptionalRenderBlockStrings(
+	rawBlock: Record<string, unknown>,
+	block: DispatchRenderResult["content"][number],
+	budget: RenderBudget,
+): void {
+	for (const key of ["text", "data", "mimeType"] as const) {
+		const entry = rawBlock[key];
+		if (entry === undefined) continue;
+		if (typeof entry !== "string") throw RENDER_VALUE_INCOMPATIBLE;
+		consumeJsonPropertyName(budget, key, false);
+		block[key] = consumeDisplayString(budget, entry);
+	}
+}
+
+function copyRenderDetails(
+	record: Record<string, unknown>,
+	result: PtcPersistedRenderResult,
+	budget: RenderBudget,
+): void {
+	const rawDetails = record.details;
+	if (rawDetails === undefined) return;
+	consumeJsonPropertyName(budget, "details", false);
+	result.details = cloneBoundedDisplayJson(rawDetails, budget, new WeakSet());
 }
 
 function cloneBoundedDisplayJson(
@@ -134,52 +176,78 @@ function cloneBoundedDisplayJson(
 		return null;
 	}
 	if (typeof value === "string") return consumeDisplayString(budget, value);
-	if (typeof value === "boolean") {
-		consumeBytes(budget, value ? JSON_TRUE_BYTES : JSON_FALSE_BYTES);
-		return value;
-	}
-	if (typeof value === "number") {
-		if (!Number.isFinite(value) || Object.is(value, -0)) throw RENDER_VALUE_INCOMPATIBLE;
-		consumeBytes(budget, Buffer.byteLength(JSON.stringify(value), UTF8_ENCODING));
-		return value;
-	}
-	if (typeof value !== "object") throw RENDER_VALUE_INCOMPATIBLE;
+	if (typeof value === "boolean") return cloneBoundedBoolean(value, budget);
+	if (typeof value === "number") return cloneBoundedNumber(value, budget);
+	if (typeof value === "object") return cloneBoundedComposite(value, budget, ancestors);
+	throw RENDER_VALUE_INCOMPATIBLE;
+}
+
+function cloneBoundedBoolean(value: boolean, budget: RenderBudget): boolean {
+	consumeBytes(budget, value ? JSON_TRUE_BYTES : JSON_FALSE_BYTES);
+	return value;
+}
+
+function cloneBoundedNumber(value: number, budget: RenderBudget): number {
+	if (!Number.isFinite(value) || Object.is(value, -0)) throw RENDER_VALUE_INCOMPATIBLE;
+	consumeBytes(budget, Buffer.byteLength(JSON.stringify(value), UTF8_ENCODING));
+	return value;
+}
+
+function cloneBoundedComposite(
+	value: object,
+	budget: RenderBudget,
+	ancestors: WeakSet<object>,
+): JsonValue {
 	if (ancestors.has(value)) throw RENDER_VALUE_INCOMPATIBLE;
 	ancestors.add(value);
 	try {
-		if (Array.isArray(value)) {
-			consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
-			const result: JsonValue[] = [];
-			for (const [index, entry] of value.entries()) {
-				if (entry === undefined) throw RENDER_VALUE_INCOMPATIBLE;
-				if (index > 0) consumeBytes(budget, JSON_ENTRY_SEPARATOR_BYTES);
-				result.push(cloneBoundedDisplayJson(entry, budget, ancestors));
-			}
-			consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
-			return result;
-		}
-
-		consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
-		const result: { [key: string]: JsonValue } = {};
-		let hasEntry = false;
-		for (const key of Object.keys(value)) {
-			const entry = Reflect.get(value, key);
-			if (entry === undefined) continue;
-			const sanitizedKey = sanitizeDisplayString(key);
-			consumeJsonPropertyName(budget, sanitizedKey, !hasEntry);
-			Object.defineProperty(result, sanitizedKey, {
-				configurable: true,
-				enumerable: true,
-				value: cloneBoundedDisplayJson(entry, budget, ancestors),
-				writable: true,
-			});
-			hasEntry = true;
-		}
-		consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
-		return result;
+		return Array.isArray(value)
+			? cloneBoundedArray(value, budget, ancestors)
+			: cloneBoundedRecord(value, budget, ancestors);
 	} finally {
 		ancestors.delete(value);
 	}
+}
+
+function cloneBoundedArray(
+	value: readonly unknown[],
+	budget: RenderBudget,
+	ancestors: WeakSet<object>,
+): JsonValue[] {
+	consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
+	const result: JsonValue[] = [];
+	for (const [index, entry] of value.entries()) {
+		if (entry === undefined) throw RENDER_VALUE_INCOMPATIBLE;
+		if (index > 0) consumeBytes(budget, JSON_ENTRY_SEPARATOR_BYTES);
+		result.push(cloneBoundedDisplayJson(entry, budget, ancestors));
+	}
+	consumeBytes(budget, JSON_ARRAY_DELIMITER_BYTES);
+	return result;
+}
+
+function cloneBoundedRecord(
+	value: object,
+	budget: RenderBudget,
+	ancestors: WeakSet<object>,
+): { [key: string]: JsonValue } {
+	consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
+	const result: { [key: string]: JsonValue } = {};
+	let hasEntry = false;
+	for (const key of Object.keys(value)) {
+		const entry = Reflect.get(value, key);
+		if (entry === undefined) continue;
+		const sanitizedKey = sanitizeDisplayString(key);
+		consumeJsonPropertyName(budget, sanitizedKey, !hasEntry);
+		Object.defineProperty(result, sanitizedKey, {
+			configurable: true,
+			enumerable: true,
+			value: cloneBoundedDisplayJson(entry, budget, ancestors),
+			writable: true,
+		});
+		hasEntry = true;
+	}
+	consumeBytes(budget, JSON_OBJECT_DELIMITER_BYTES);
+	return result;
 }
 
 function readRequiredDisplayString(
@@ -226,35 +294,58 @@ export function enforcePersistedDetailsBudget(
 	const fits = (): boolean =>
 		Buffer.byteLength(JSON.stringify(details), UTF8_ENCODING) <= byteLimit;
 	if (fits()) return details;
+	if (removeRetainedResults(details, fits)) return details;
+	if (removeRetainedPreviews(details, fits)) return details;
+	if (removeRetainedArguments(details, fits)) return details;
+	if (removeRetainedMetadata(details, fits)) return details;
+	if (removeRetainedDispatches(details, fits)) return details;
+	delete details.compatibilityError;
+	return details;
+}
 
+function removeRetainedResults(details: PtcDispatchDetails, fits: () => boolean): boolean {
 	for (let index = details.dispatches.length - 1; index >= 0; index -= 1) {
 		const dispatch = details.dispatches[index];
 		if (!dispatch?.result) continue;
 		delete dispatch.result;
 		dispatch.renderOmitted = RENDER_OMITTED_BUDGET;
-		if (fits()) return details;
+		if (fits()) return true;
 	}
+	return false;
+}
+
+function removeRetainedPreviews(details: PtcDispatchDetails, fits: () => boolean): boolean {
 	for (let index = details.dispatches.length - 1; index >= 0; index -= 1) {
 		const dispatch = details.dispatches[index];
 		if (!dispatch || dispatch.preview === undefined) continue;
 		delete dispatch.preview;
-		if (fits()) return details;
+		if (fits()) return true;
 	}
+	return false;
+}
+
+function removeRetainedArguments(details: PtcDispatchDetails, fits: () => boolean): boolean {
 	for (let index = details.dispatches.length - 1; index >= 0; index -= 1) {
 		const dispatch = details.dispatches[index];
 		if (!dispatch) continue;
 		dispatch.args = {};
-		if (fits()) return details;
+		if (fits()) return true;
 	}
+	return false;
+}
+
+function removeRetainedMetadata(details: PtcDispatchDetails, fits: () => boolean): boolean {
 	details.description = "";
 	delete details.executionError;
-	if (fits()) return details;
+	return fits();
+}
+
+function removeRetainedDispatches(details: PtcDispatchDetails, fits: () => boolean): boolean {
 	while (details.dispatches.length > 0) {
 		details.dispatches.pop();
-		if (fits()) return details;
+		if (fits()) return true;
 	}
-	delete details.compatibilityError;
-	return details;
+	return false;
 }
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {

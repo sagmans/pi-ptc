@@ -19,16 +19,27 @@ function fail(): never {
 function snapshot(value: unknown, seen: WeakSet<object>): JsonValue {
 	if (value === null) return null;
 	if (typeof value === "boolean" || typeof value === "string") return value;
-	if (typeof value === "number") {
-		if (!Number.isFinite(value) || Object.is(value, -0)) fail();
-		return value;
-	}
-	if (typeof value !== "object") fail();
+	if (typeof value === "number") return snapshotNumber(value);
+	if (typeof value === "object") return snapshotComposite(value, seen);
+	return fail();
+}
+
+function snapshotNumber(value: number): number {
+	if (!Number.isFinite(value) || Object.is(value, -0)) fail();
+	return value;
+}
+
+function snapshotComposite(value: object, seen: WeakSet<object>): JsonValue {
 	if (seen.has(value)) fail();
 	seen.add(value);
-	if (Array.isArray(value)) {
-		return value.map((entry) => snapshot(entry, seen));
-	}
+	return Array.isArray(value) ? snapshotArray(value, seen) : snapshotRecord(value, seen);
+}
+
+function snapshotArray(value: readonly unknown[], seen: WeakSet<object>): JsonValue[] {
+	return value.map((entry) => snapshot(entry, seen));
+}
+
+function snapshotRecord(value: object, seen: WeakSet<object>): { [key: string]: JsonValue } {
 	const record: { [key: string]: JsonValue } = {};
 	for (const [key, entry] of Object.entries(value)) {
 		record[key] = snapshot(entry, seen);

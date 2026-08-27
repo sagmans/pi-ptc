@@ -1,5 +1,5 @@
-import type { DispatchProgress } from "./bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "./config.ts";
+import type { DispatchProgress } from "./dispatch-contract.ts";
 import {
 	compareDispatchIds,
 	DELTA_MODE,

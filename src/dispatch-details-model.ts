@@ -1,4 +1,4 @@
-import type { DispatchRenderResult, DispatchSummary } from "./bridge.ts";
+import type { DispatchRenderResult, DispatchSummary } from "./dispatch-contract.ts";
 import type { JsonValue } from "./json.ts";
 
 export const PTC_DETAIL_SCHEMA_VERSION = 2;

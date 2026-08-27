@@ -1,7 +1,7 @@
 import type { FactoryResult } from "./canonical.ts";
 import type { CoreToolName, DISPATCH_LOG_TYPE } from "./config.ts";
 import type { JsonValue } from "./json.ts";
-import type { BindingFn } from "./runtime.ts";
+import type { BindingFn } from "./runtime-contract.ts";
 
 export type DispatchLogEntry = {
 	customType: typeof DISPATCH_LOG_TYPE;

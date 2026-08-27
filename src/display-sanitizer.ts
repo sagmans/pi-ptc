@@ -26,6 +26,7 @@ const ESCAPE_CSI = "[";
 const ESCAPE_OSC = "]";
 const ESCAPE_ST = "\\";
 const ESCAPE_CONTROL_STRING_INTRODUCERS = new Set(["P", "X", "^", "_"]);
+const C1_CONTROL_STRING_INTRODUCERS = new Set([C1_DCS, C1_SOS, C1_PM, C1_APC]);
 const UTF8_ENCODING = "utf8";
 
 export function sanitizeDisplayText(value: string): string {
@@ -49,33 +50,17 @@ export function sanitizeDisplayString(value: string): string {
 	let index = 0;
 	while (index < value.length) {
 		const code = value.charCodeAt(index);
-		if (code === ESCAPE_CODE) {
-			index = consumeEscapeSequence(value, index);
-			continue;
-		}
-		if (code === C1_CSI) {
-			index = consumeCsiSequence(value, index + 1);
-			continue;
-		}
-		if (code === C1_OSC) {
-			index = consumeControlString(value, index + 1);
-			continue;
-		}
-		if (code === C1_DCS || code === C1_SOS || code === C1_PM || code === C1_APC) {
-			index = consumeControlString(value, index + 1);
+		const controlEnd = consumeEncodedControl(value, index, code);
+		if (controlEnd !== undefined) {
+			index = controlEnd;
 			continue;
 		}
 		if (code === CARRIAGE_RETURN_CODE) {
-			if (value.charCodeAt(index + 1) === LINE_FEED_CODE) index += 1;
 			sanitized += "\n";
-			index += 1;
+			index = consumeCarriageReturn(value, index);
 			continue;
 		}
-		if (
-			(code <= C0_CONTROL_END && code !== HORIZONTAL_TAB_CODE && code !== LINE_FEED_CODE) ||
-			code === DELETE_CODE ||
-			(code >= C1_CONTROL_START && code <= C1_CONTROL_END)
-		) {
+		if (isDiscardedControl(code)) {
 			index += 1;
 			continue;
 		}
@@ -83,6 +68,26 @@ export function sanitizeDisplayString(value: string): string {
 		index += 1;
 	}
 	return sanitized;
+}
+
+function consumeEncodedControl(value: string, index: number, code: number): number | undefined {
+	if (code === ESCAPE_CODE) return consumeEscapeSequence(value, index);
+	if (code === C1_CSI) return consumeCsiSequence(value, index + 1);
+	if (code === C1_OSC || C1_CONTROL_STRING_INTRODUCERS.has(code)) {
+		return consumeControlString(value, index + 1);
+	}
+	return undefined;
+}
+
+function consumeCarriageReturn(value: string, index: number): number {
+	return value.charCodeAt(index + 1) === LINE_FEED_CODE ? index + 2 : index + 1;
+}
+
+function isDiscardedControl(code: number): boolean {
+	const isDiscardedC0 =
+		code <= C0_CONTROL_END && code !== HORIZONTAL_TAB_CODE && code !== LINE_FEED_CODE;
+	const isC1 = code >= C1_CONTROL_START && code <= C1_CONTROL_END;
+	return isDiscardedC0 || code === DELETE_CODE || isC1;
 }
 
 function consumeEscapeSequence(value: string, escapeIndex: number): number {

@@ -1,5 +1,5 @@
-import type { DispatchStatus, DispatchSummary } from "./bridge.ts";
 import { isCoreToolName, SHIPPED_PTC_CONFIG } from "./config.ts";
+import type { DispatchStatus, DispatchSummary } from "./dispatch-contract.ts";
 import {
 	compareDispatchIds,
 	DELTA_MODE,
