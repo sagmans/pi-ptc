@@ -1,0 +1,27 @@
+{
+	"description": "restore historical dispatches",
+	"dispatches": [
+		{
+			"name": "read",
+			"args": { "path": "legacy.txt" },
+			"status": "start"
+		},
+		{
+			"name": "read",
+			"args": { "path": "legacy.txt" },
+			"status": "ok",
+			"preview": "legacy restored output"
+		},
+		{
+			"name": "bash",
+			"args": { "command": "printf legacy" },
+			"status": "ok",
+			"preview": "legacy bash output"
+		},
+		{
+			"name": "unknown",
+			"args": {},
+			"status": "broken"
+		}
+	]
+}

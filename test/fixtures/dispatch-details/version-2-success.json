@@ -1,0 +1,60 @@
+{
+	"schemaVersion": 2,
+	"description": "restore completed dispatches",
+	"mode": "snapshot",
+	"dispatches": [
+		{
+			"id": 1,
+			"name": "read",
+			"args": { "path": "note.txt" },
+			"status": "ok",
+			"result": {
+				"content": [{ "type": "text", "text": "restored read content" }],
+				"details": { "source": "fixture" },
+				"isError": false
+			}
+		},
+		{
+			"id": 2,
+			"name": "edit",
+			"args": {
+				"path": "src/example.ts",
+				"edits": [{ "oldText": "old", "newText": "new" }]
+			},
+			"status": "ok",
+			"result": {
+				"content": [
+					{ "type": "text", "text": "Successfully replaced 1 block(s) in src/example.ts." }
+				],
+				"details": {
+					"diff": "@@ -1 +1 @@\n-old\n+new",
+					"patch": "--- a/src/example.ts\n+++ b/src/example.ts\n@@ -1 +1 @@\n-old\n+new",
+					"firstChangedLine": 1
+				},
+				"isError": false
+			}
+		},
+		{
+			"id": 3,
+			"name": "read",
+			"args": { "path": "image.png" },
+			"status": "ok",
+			"result": {
+				"content": [
+					{ "type": "text", "text": "Read image file [image/png]" },
+					{ "type": "image", "data": "cG5n", "mimeType": "image/png" }
+				],
+				"details": { "width": 1, "height": 1 },
+				"isError": false
+			}
+		},
+		{
+			"id": 4,
+			"name": "bash",
+			"args": { "command": "printf omitted" },
+			"status": "ok",
+			"preview": "preview-only output",
+			"renderOmitted": "budget"
+		}
+	]
+}

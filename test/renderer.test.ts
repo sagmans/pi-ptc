@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -29,9 +30,9 @@ const RENDER_WIDTH = 120;
 const IMAGE_RENDER_WIDTH = 73;
 const IMAGE_RESIZED_WIDTH = 41;
 const EXPECTED_SINGLE_RENDER_COUNT = 1;
-const RENDERER_SOURCE = await import("node:fs").then(({ readFileSync }) =>
-	readFileSync(new URL("../src/renderer.ts", import.meta.url), "utf8"),
-);
+const RECONSTRUCTION_IDLE_MS = 30;
+const RECONSTRUCTION_OUTER_MARKER = "HIDDEN_RECONSTRUCTION_OUTER";
+const RENDERER_SOURCE = readFileSync(new URL("../src/renderer.ts", import.meta.url), "utf8");
 const NATIVE_READ_CONTENT = "NATIVE_READ_CONTENT";
 const OMITTED_READ_CONTENT = "OMITTED_READ_CONTENT";
 const OMITTED_RENDER_BUDGET_BYTES = 1;
@@ -113,6 +114,45 @@ function render(component: Component, width = RENDER_WIDTH): string {
 
 function renderRaw(component: Component, width = RENDER_WIDTH): string {
 	return component.render(width).join("\n");
+}
+
+function loadDispatchFixture(name: string): unknown {
+	return JSON.parse(
+		readFileSync(new URL(`fixtures/dispatch-details/${name}`, import.meta.url), "utf8"),
+	);
+}
+
+function createFreshOuter(
+	details: unknown,
+	isError = false,
+): { component: ToolExecutionComponent; renderRequests(): number } {
+	const tool = createTool();
+	let requests = 0;
+	const component = new ToolExecutionComponent(
+		"ptc",
+		RENDER_TOOL_CALL_ID,
+		{ code: RECONSTRUCTION_OUTER_MARKER, description: DESCRIPTION },
+		{ showImages: false },
+		tool as unknown as HostToolDefinition,
+		{
+			requestRender: () => {
+				requests += 1;
+			},
+		} as TUI,
+		process.cwd(),
+	);
+	component.markExecutionStarted();
+	component.setArgsComplete();
+	component.setExpanded(true);
+	component.updateResult(
+		{
+			content: [{ type: "text", text: RECONSTRUCTION_OUTER_MARKER }],
+			details,
+			isError,
+		},
+		false,
+	);
+	return { component, renderRequests: () => requests };
 }
 
 function resultWith(dispatches: PtcToolResult["details"]["dispatches"]): PtcToolResult {
@@ -337,6 +377,54 @@ test("ptc attachments cannot restore a result omitted from persisted details", (
 			renderOmitted: "budget",
 		},
 	]);
+});
+
+test("fresh outer rows reconstruct version 2 native output without hidden transport content", async () => {
+	const details = JSON.parse(JSON.stringify(loadDispatchFixture("version-2-success.json")));
+	const restored = createFreshOuter(details);
+	const output = render(restored.component);
+
+	assert.match(output, /read note\.txt/);
+	assert.match(output, /restored read content/);
+	assert.match(output, /edit src\/example\.ts/);
+	assert.match(output, /-old/);
+	assert.match(output, /\+new/);
+	assert.match(output, /read image\.png/);
+	assert.match(output, /image\/png/);
+	assert.match(output, /\$ printf omitted/);
+	assert.match(output, /preview-only output/);
+	assert.doesNotMatch(output, new RegExp(RECONSTRUCTION_OUTER_MARKER));
+	assert.ok(output.indexOf("read note.txt") < output.indexOf("edit src/example.ts"));
+	assert.ok(output.indexOf("edit src/example.ts") < output.indexOf("read image.png"));
+	const requestsAfterRestore = restored.renderRequests();
+	await new Promise((resolve) => setTimeout(resolve, RECONSTRUCTION_IDLE_MS));
+	assert.equal(restored.renderRequests(), requestsAfterRestore);
+});
+
+test("fresh outer rows preserve nested and outer error order after JSON reload", () => {
+	const details = JSON.parse(JSON.stringify(loadDispatchFixture("version-2-errors.json")));
+	const output = render(createFreshOuter(details, true).component);
+
+	assert.match(output, /nested fixture failure/);
+	assert.match(output, /outer fixture failure/);
+	assert.ok(output.indexOf("nested fixture failure") < output.indexOf("outer fixture failure"));
+	assert.doesNotMatch(output, new RegExp(RECONSTRUCTION_OUTER_MARKER));
+});
+
+test("fresh outer rows migrate historical IDs and surface malformed details", () => {
+	const legacy = JSON.parse(JSON.stringify(loadDispatchFixture("legacy-no-id.json")));
+	const malformed = JSON.parse(JSON.stringify(loadDispatchFixture("version-2-malformed.json")));
+	const legacyOutput = render(createFreshOuter(legacy).component);
+	const malformedOutput = render(createFreshOuter(malformed).component);
+
+	assert.equal(legacyOutput.match(/read legacy\.txt/g)?.length, EXPECTED_SINGLE_RENDER_COUNT);
+	assert.match(legacyOutput, /legacy restored output/);
+	assert.match(legacyOutput, /\$ printf legacy/);
+	assert.match(legacyOutput, /legacy bash output/);
+	assert.match(legacyOutput, /display/);
+	assert.match(malformedOutput, /read valid\.txt/);
+	assert.match(malformedOutput, /valid row survives/);
+	assert.match(malformedOutput, /display/);
 });
 
 test("ptc uses Pi native read ranges instead of custom status marks", () => {

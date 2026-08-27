@@ -293,6 +293,7 @@ class PtcDispatchRow implements Component {
 		view: PtcRowView;
 	};
 	private readonly callContainer: Container | Box;
+	private argsComplete: boolean;
 	private callComponent: Component | undefined;
 	private resultComponent: Component | undefined;
 	private readonly rendererState: NativeRenderContext["state"] = {};
@@ -317,6 +318,7 @@ class PtcDispatchRow implements Component {
 	}) {
 		this.input = input;
 		this.id = input.dispatch.id;
+		this.argsComplete = input.dispatch.status === "start";
 		this.dispatch = input.dispatch;
 		this.view = input.view;
 		this.callContainer =
@@ -333,6 +335,7 @@ class PtcDispatchRow implements Component {
 
 	update(dispatch: PtcPersistedDispatch): void {
 		this.dispatch = dispatch;
+		if (dispatch.status === "start") this.argsComplete = true;
 		this.rebuild(false);
 	}
 
@@ -574,7 +577,7 @@ class PtcDispatchRow implements Component {
 			state: this.rendererState,
 			cwd: this.input.cwd,
 			executionStarted: true,
-			argsComplete: true,
+			argsComplete: this.argsComplete,
 			isPartial: this.dispatch.status === "start",
 			expanded: this.view.expanded,
 			showImages: this.view.showImages,

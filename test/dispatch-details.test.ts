@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import type { DispatchRenderResult } from "../src/bridge.ts";
@@ -48,6 +49,10 @@ const OVERSIZED_RENDER_VALUE = "x".repeat(PREFLIGHT_RENDER_BUDGET_BYTES + 1);
 const INCOMPATIBLE_RENDER_VALUE = 42;
 const CONTROLLED_RESULT_KEY = `key${CONTROLLED_COMMAND}`;
 const SANITIZED_RESULT_KEY = `key${SANITIZED_COMMAND}`;
+const VERSION_TWO_SUCCESS_FIXTURE = "version-2-success.json";
+const VERSION_TWO_ERRORS_FIXTURE = "version-2-errors.json";
+const VERSION_TWO_MALFORMED_FIXTURE = "version-2-malformed.json";
+const LEGACY_NO_ID_FIXTURE = "legacy-no-id.json";
 
 const START_DISPATCH = {
 	id: 2,
@@ -55,6 +60,12 @@ const START_DISPATCH = {
 	args: { path: "b" },
 	status: "start" as const,
 };
+
+function loadDispatchFixture(name: string): unknown {
+	return JSON.parse(
+		readFileSync(new URL(`fixtures/dispatch-details/${name}`, import.meta.url), "utf8"),
+	);
+}
 
 const FINAL_DISPATCH = {
 	id: 1,
@@ -425,6 +436,47 @@ test("dispatch detail parsing never throws for hostile input", () => {
 
 	assert.doesNotThrow(() => parseDispatchDetails(hostile));
 	assert.equal(typeof parseDispatchDetails(hostile).compatibilityError, "string");
+});
+
+test("version 2 fixtures preserve native results, omissions, and independent errors", () => {
+	const success = parseDispatchDetails(loadDispatchFixture(VERSION_TWO_SUCCESS_FIXTURE));
+	const errors = parseDispatchDetails(loadDispatchFixture(VERSION_TWO_ERRORS_FIXTURE));
+
+	const editDetails = success.dispatches[1]?.result?.details;
+
+	assert.equal(success.dispatches.length, 4);
+	assert.equal(success.dispatches[0]?.result?.content[0]?.text, "restored read content");
+	assert.ok(typeof editDetails === "object" && editDetails !== null && !Array.isArray(editDetails));
+	assert.equal(editDetails.diff, "@@ -1 +1 @@\n-old\n+new");
+	assert.equal(success.dispatches[2]?.result?.content[1]?.mimeType, "image/png");
+	assert.equal(success.dispatches[3]?.renderOmitted, "budget");
+	assert.equal(success.dispatches[3]?.preview, "preview-only output");
+	assert.equal(errors.dispatches[0]?.status, "err");
+	assert.equal(errors.dispatches[0]?.preview, "nested fixture failure");
+	assert.equal(errors.executionError, "outer fixture failure");
+	assert.deepEqual(parseDispatchDetails(JSON.parse(JSON.stringify(success))), success);
+	assert.deepEqual(parseDispatchDetails(JSON.parse(JSON.stringify(errors))), errors);
+});
+
+test("historical and malformed fixtures retain deterministic valid rows", () => {
+	const legacy = parseDispatchDetails(loadDispatchFixture(LEGACY_NO_ID_FIXTURE));
+	const malformed = parseDispatchDetails(loadDispatchFixture(VERSION_TWO_MALFORMED_FIXTURE));
+
+	assert.deepEqual(
+		legacy.dispatches.map((dispatch) => ({ id: dispatch.id, name: dispatch.name })),
+		[
+			{ id: 1, name: "read" },
+			{ id: 2, name: "bash" },
+		],
+	);
+	assert.equal(legacy.dispatches[0]?.preview, "legacy restored output");
+	assert.equal(typeof legacy.compatibilityError, "string");
+	assert.deepEqual(
+		malformed.dispatches.map((dispatch) => dispatch.id),
+		[1],
+	);
+	assert.equal(malformed.dispatches[0]?.preview, "valid row survives");
+	assert.equal(typeof malformed.compatibilityError, "string");
 });
 
 test("version 2 details survive a JSON round-trip", () => {

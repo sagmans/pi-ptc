@@ -22,7 +22,7 @@ One-off load:
 pi -e /absolute/path/to/pi-ptc
 ```
 
-Requires Node `>=22.19.0` and Pi `>=0.84.1`.
+Requires Node `>=22.19.0`. TUI integration is verified against Pi `0.84.3`.
 
 ## Usage
 
@@ -48,10 +48,20 @@ Project `.pi/ptc.json` wins over `~/.pi/agent/ptc.json`.
 
 ## Display
 
-Nested core dispatches reuse Pi's native tool components, including read ranges,
-streaming output, edit diffs, expansion, and error states. The outer `ptc` shell,
-program, and curated return stay hidden. Full nested results reach the renderer
-through in-memory state and are not serialized into model-visible dispatch details.
+PTC owns each nested row and invokes Pi's public built-in tool-definition renderers.
+This preserves native read ranges, streaming output, edit diffs, expansion, and
+error states without nesting Pi's host tool component. The outer `ptc` shell,
+program, and curated return stay hidden.
+
+Version-2 display details persist bounded native results so resumed sessions rebuild
+rows without an in-memory cache. When the configured render-detail byte budget is
+exhausted, the whole native result is omitted deterministically and the row uses its
+bounded preview. Historical unversioned details are migrated on read; malformed
+records produce a display diagnostic instead of disappearing.
+
+Nested images are limited to the row's current viewport width. Pi `0.84.3` does not
+expose the host image-width preference through its renderer context, so PTC cannot
+mirror that separate setting.
 
 ## Coexistence
 

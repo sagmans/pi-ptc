@@ -10,9 +10,12 @@ All notable changes to this project are documented here. This format follows
 
 - Programmatic Tool Call presentation for Pi core tools.
 - Pi-native TUI rows for nested dispatches while the PTC transport stays hidden.
+- Versioned, bounded nested display state for deterministic session restoration.
 
 ### Fixed
 
+- Keep nested renderer, invalidation, terminal-control, image, and timer failures inside PTC-owned rows.
+- Restore current and historical nested rows with explicit preview-only fallback for omitted render data.
 - Bound worker memory and log output while removing inherited worker environment variables.
 - Preserve live foreign-tool activation without reviving intentionally disabled tools.
 - Reserve unique factory call IDs before concurrent dispatches start.

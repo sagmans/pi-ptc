@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 2,
+	"description": "restore malformed details",
+	"mode": "snapshot",
+	"dispatches": [
+		{
+			"id": 1,
+			"name": "read",
+			"args": { "path": "valid.txt" },
+			"status": "ok",
+			"preview": "valid row survives"
+		},
+		{
+			"id": 2,
+			"name": "unknown",
+			"args": {},
+			"status": "broken"
+		}
+	]
+}
