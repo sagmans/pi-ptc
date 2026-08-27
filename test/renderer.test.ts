@@ -39,6 +39,9 @@ const OMITTED_RENDER_BUDGET_BYTES = 1;
 const JPEG_IMAGE_DATA = "aW1hZ2U=";
 const PNG_IMAGE_DATA = "cG5n";
 const CONVERTED_IMAGE_DATA = "Y29udmVydGVk";
+const IMAGE_FALLBACK_TEXT = "[Image: image/png]";
+const ORIGINAL_THEME_TEXT = "ORIGINAL_THEME";
+const UPDATED_THEME_TEXT = "UPDATED_THEME";
 const CHILD_RENDER_FAILURE = "child render failure";
 const CONSTRUCTOR_FAILURE = "constructor failure";
 const INVALIDATE_FAILURE = "invalidate failure";
@@ -830,6 +833,103 @@ test("slot and invalidate failures become bounded diagnostics", () => {
 	);
 	assert.doesNotThrow(() => outerInvalidate?.());
 	assert.match(render(outerRoot), new RegExp(OUTER_INVALIDATE_FAILURE));
+});
+
+test("image-only results keep a textual fallback when the terminal has no image protocol", () => {
+	const tool = createTool();
+	const context = {
+		...createRenderContext(false),
+		showImages: true,
+	};
+	Object.assign(context, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: () => new Text("read image.png", 0, 0),
+				renderResult: () => new Text("", 0, 0),
+			},
+		}),
+		createImage: () => new Text(IMAGE_FALLBACK_TEXT, 0, 0),
+		getImageProtocol: () => null,
+	});
+	const output = render(
+		tool.renderResult(
+			{
+				content: [{ type: "text", text: "ignored" }],
+				details: createDeltaDetails(DESCRIPTION, {
+					id: 1,
+					name: "read",
+					args: { path: "image.png" },
+					status: "ok",
+					result: {
+						content: [{ type: "image", data: PNG_IMAGE_DATA, mimeType: "image/png" }],
+						isError: false,
+					},
+				}),
+			},
+			{ expanded: false, isPartial: false },
+			THEME,
+			context,
+		),
+	);
+
+	assert.match(output, new RegExp(IMAGE_FALLBACK_TEXT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("theme invalidation rebuilds native slots without retiring current callbacks", () => {
+	const tool = createTool();
+	let themeText = ORIGINAL_THEME_TEXT;
+	let firstInvalidate: (() => void) | undefined;
+	let outerInvalidations = 0;
+	const mutableTheme = {
+		...THEME,
+		fg: (_color: string, _text: string) => themeText,
+	} as Theme;
+	const context = {
+		...createRenderContext(false),
+		invalidate: () => {
+			outerInvalidations += 1;
+		},
+	};
+	Object.assign(context, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: (
+					_args: unknown,
+					theme: Theme,
+					slot: { invalidate(): void; lastComponent?: Component },
+				) => {
+					firstInvalidate ??= slot.invalidate;
+					const text = slot.lastComponent instanceof Text ? slot.lastComponent : new Text("", 0, 0);
+					text.setText(theme.fg("toolTitle", "read themed.txt"));
+					return text;
+				},
+			},
+		}),
+	});
+	const root = tool.renderResult(
+		{
+			content: [{ type: "text", text: "ignored" }],
+			details: createDeltaDetails(DESCRIPTION, {
+				id: 1,
+				name: "read",
+				args: { path: "themed.txt" },
+				status: "start",
+			}),
+		},
+		{ expanded: false, isPartial: true },
+		mutableTheme,
+		context,
+	);
+
+	assert.match(render(root), new RegExp(ORIGINAL_THEME_TEXT));
+	themeText = UPDATED_THEME_TEXT;
+	root.invalidate();
+	assert.match(render(root), new RegExp(UPDATED_THEME_TEXT));
+	const invalidationsBeforeCallback = outerInvalidations;
+	firstInvalidate?.();
+	assert.equal(outerInvalidations, invalidationsBeforeCallback + 1);
 });
 
 test("image conversion is deduplicated and bound to the current row generation", async () => {

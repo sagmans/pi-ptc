@@ -330,7 +330,7 @@ class PtcDispatchRow implements Component {
 
 	setView(view: PtcRowView): void {
 		this.view = view;
-		this.rebuild(false);
+		this.rebuild(false, false);
 	}
 
 	update(dispatch: PtcPersistedDispatch): void {
@@ -348,12 +348,12 @@ class PtcDispatchRow implements Component {
 	}
 
 	invalidate(): void {
-		try {
-			this.callContainer.invalidate();
-			for (const image of this.imageOrder) image.component?.invalidate();
-		} catch (error) {
-			this.contain(error);
+		for (const image of this.imageOrder) {
+			image.component = undefined;
+			image.componentWidth = undefined;
 		}
+		this.rebuild(true, false);
+		this.invalidateRenderedChildren();
 	}
 
 	render(width: number): string[] {
@@ -372,7 +372,16 @@ class PtcDispatchRow implements Component {
 		}
 	}
 
-	private rebuild(force: boolean): void {
+	private invalidateRenderedChildren(): void {
+		try {
+			this.callContainer.invalidate();
+			for (const image of this.imageOrder) image.component?.invalidate();
+		} catch (error) {
+			this.contain(error);
+		}
+	}
+
+	private rebuild(force: boolean, advanceGeneration = true): void {
 		const fingerprint = JSON.stringify(this.dispatch);
 		const viewFingerprint = `${this.view.expanded}:${this.view.showImages}`;
 		if (
@@ -386,7 +395,7 @@ class PtcDispatchRow implements Component {
 		this.fingerprint = fingerprint;
 		this.viewFingerprint = viewFingerprint;
 		this.renderedTheme = this.view.theme;
-		this.generation += 1;
+		if (advanceGeneration) this.generation += 1;
 		this.renderFailure = undefined;
 		try {
 			if (this.callContainer instanceof Box) this.callContainer.setBgFn(this.getBackground());
@@ -439,7 +448,7 @@ class PtcDispatchRow implements Component {
 
 	private refreshImages(result: PtcPersistedRenderResult | undefined): void {
 		const protocol = this.input.imageServices.getImageProtocol();
-		if (!result || !this.view.showImages || protocol === null) {
+		if (!result || !this.view.showImages) {
 			this.imageCache.clear();
 			this.imageOrder = [];
 			return;
@@ -515,7 +524,7 @@ class PtcDispatchRow implements Component {
 	}
 
 	private renderImages(width: number): string[] {
-		if (!this.view.showImages || this.input.imageServices.getImageProtocol() === null) return [];
+		if (!this.view.showImages) return [];
 		const protocol = this.input.imageServices.getImageProtocol();
 		const maxWidthCells = Math.max(MINIMUM_IMAGE_WIDTH_CELLS, Math.floor(width));
 		const lines: string[] = [];
@@ -566,7 +575,7 @@ class PtcDispatchRow implements Component {
 			toolCallId: this.input.toolCallId,
 			invalidate: () => {
 				if (generation !== this.generation) return;
-				this.invalidate();
+				this.invalidateRenderedChildren();
 				try {
 					this.view.invalidate();
 				} catch (error) {
@@ -635,6 +644,7 @@ class PtcDiagnosticRow implements Component {
 
 	invalidate(): void {
 		try {
+			this.updateText();
 			this.box.invalidate();
 		} catch {}
 	}
