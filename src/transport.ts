@@ -17,10 +17,11 @@ import {
 	type PtcDispatchDetails,
 	type PtcDispatchProjection,
 	projectDispatchForRetention,
+	projectLiveDisplayArguments,
 } from "./dispatch-details.ts";
 import type { JsonValue } from "./json.ts";
-import { renderPtcCall, renderPtcResult } from "./renderer.ts";
-import { type BindingFn, type CodeRunResult, runCode } from "./runtime.ts";
+import { attachPtcRenderDispatches, renderPtcCall, renderPtcResult } from "./renderer.ts";
+import { type BindingFn, type CodeRunResult, logicalLineCount, runCode } from "./runtime.ts";
 
 export type PtcParams = {
 	code: string;
@@ -30,7 +31,11 @@ export type PtcParams = {
 export type PtcExecuteContext = {
 	cwd: string;
 	signal?: AbortSignal;
+};
+
+export type PtcBindingContext = PtcExecuteContext & {
 	reportDispatch?: (progress: DispatchProgress) => void;
+	isOpen(): boolean;
 };
 
 export type PtcPartialResult = {
@@ -81,11 +86,14 @@ const PTC_PARAMETERS = Type.Object({
 
 export function createPtcTool(options: {
 	timeoutMs: number;
+	drainTimeoutMs?: number;
+	maxOrphanedBindings?: number;
 	maxDispatches: number;
 	maxRenderDetailsBytes?: number;
+	maxPersistedDetailsBytes?: number;
 	maxOutputBytes: number;
 	maxOutputLines: number;
-	createBindings: (ctx: PtcExecuteContext) => Record<string, BindingFn>;
+	createBindings: (ctx: PtcBindingContext) => Record<string, BindingFn>;
 	failureDetails?: FailureDetailsStore;
 	run?: typeof runCode;
 }) {
@@ -93,6 +101,8 @@ export function createPtcTool(options: {
 	const failureDetails = options.failureDetails ?? createFailureDetailsStore();
 	const maxRenderDetailsBytes =
 		options.maxRenderDetailsBytes ?? SHIPPED_PTC_CONFIG.maxRenderDetailsBytes;
+	const maxPersistedDetailsBytes =
+		options.maxPersistedDetailsBytes ?? SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes;
 	return {
 		name: TRANSPORT_NAME,
 		label: "PTC",
@@ -114,9 +124,13 @@ export function createPtcTool(options: {
 			}
 			const abortSignal = signal ?? ctx.signal;
 			const dispatches = new Map<number, PtcDispatchProjection>();
+			const liveArguments = new Map<number, JsonValue>();
 			let retainedRenderBytes = 0;
 			let renderBudgetExhausted = false;
+			let acceptingDispatchReports = true;
 			const reportDispatch = (progress: DispatchProgress) => {
+				if (!acceptingDispatchReports) return;
+				liveArguments.set(progress.id, projectLiveDisplayArguments(progress.name, progress.args));
 				const previous = dispatches.get(progress.id);
 				if (previous) retainedRenderBytes -= previous.renderBytes;
 				const projection = projectDispatchForRetention(
@@ -129,11 +143,35 @@ export function createPtcTool(options: {
 					renderBudgetExhausted = true;
 				}
 				dispatches.set(progress.id, projection);
-				const details = createDeltaDetailsFromProjection(params.description, projection.dispatch);
+				const details = createDeltaDetailsFromProjection(
+					params.description,
+					projection.dispatch,
+					maxPersistedDetailsBytes,
+				);
+				attachPtcRenderDispatches(details, [
+					{
+						...progress,
+						args: liveArguments.get(progress.id) ?? progress.args,
+					},
+				]);
 				onUpdate?.({
 					content: [{ type: "text", text: formatDispatchLine(projection.dispatch) }],
 					details,
 				});
+			};
+			const terminalizeActiveDispatches = (message: string): void => {
+				for (const projection of [...dispatches.values()]) {
+					if (projection.dispatch.status !== "start") continue;
+					reportDispatch({
+						...projection.dispatch,
+						status: "err",
+						preview: message,
+						result: {
+							content: [{ type: "text", text: message }],
+							isError: true,
+						},
+					});
+				}
 			};
 			try {
 				const outcome = await run({
@@ -144,27 +182,58 @@ export function createPtcTool(options: {
 							cwd: ctx.cwd,
 							signal: abortSignal,
 							reportDispatch,
+							isOpen: () => acceptingDispatchReports,
 						}),
 					},
 					signal: abortSignal,
 					timeoutMs: options.timeoutMs,
+					drainTimeoutMs: options.drainTimeoutMs,
 					maxBindingCalls: options.maxDispatches,
+					maxOrphanedBindings: options.maxOrphanedBindings,
 					maxOutputBytes: options.maxOutputBytes,
 					maxOutputLines: options.maxOutputLines,
 				});
+				if (outcome.error) {
+					terminalizeActiveDispatches(
+						"message" in outcome.error ? outcome.error.message : outcome.error.kind,
+					);
+				}
+				acceptingDispatchReports = false;
 				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
-				const details = createSnapshotDetailsFromProjections(params.description, progress);
+				const details = createSnapshotDetailsFromProjections(
+					params.description,
+					progress,
+					undefined,
+					maxPersistedDetailsBytes,
+				);
+				attachPtcRenderDispatches(
+					details,
+					progress.map((dispatch) => ({
+						...dispatch,
+						args: liveArguments.get(dispatch.id) ?? dispatch.args,
+					})),
+				);
 				return {
 					content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
 					details,
 				};
 			} catch (error) {
-				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
 				const executionError = error instanceof Error ? error.message : String(error);
+				terminalizeActiveDispatches(executionError);
+				acceptingDispatchReports = false;
+				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
 				const details = createSnapshotDetailsFromProjections(
 					params.description,
 					progress,
 					executionError,
+					maxPersistedDetailsBytes,
+				);
+				attachPtcRenderDispatches(
+					details,
+					progress.map((dispatch) => ({
+						...dispatch,
+						args: liveArguments.get(dispatch.id) ?? dispatch.args,
+					})),
 				);
 				failureDetails.remember(toolCallId, details);
 				throw error;
@@ -179,16 +248,25 @@ function serializeOuterResult(
 ): string {
 	if (outcome.error) {
 		const message = "message" in outcome.error ? outcome.error.message : outcome.error.kind;
-		throw new Error(`ptc failed (${outcome.error.kind}): ${message}`);
+		const failure = `ptc failed (${outcome.error.kind}): ${message}`;
+		assertOuterResultWithinLimits(failure, limits);
+		throw new Error(failure);
 	}
 	const outer: { logs: string[]; result?: JsonValue } =
 		"result" in outcome ? { logs: outcome.logs, result: outcome.result } : { logs: outcome.logs };
 	const text = JSON.stringify(outer);
+	assertOuterResultWithinLimits(text, limits);
+	return text;
+}
+
+function assertOuterResultWithinLimits(
+	text: string,
+	limits: { maxOutputBytes: number; maxOutputLines: number },
+): void {
 	if (Buffer.byteLength(text, "utf8") > limits.maxOutputBytes) {
 		throw new Error(OUTER_OVERFLOW_BYTES_MESSAGE);
 	}
-	if (text.split(/\r?\n/).length > limits.maxOutputLines) {
+	if (logicalLineCount(text) > limits.maxOutputLines) {
 		throw new Error(OUTER_OVERFLOW_LINES_MESSAGE);
 	}
-	return text;
 }

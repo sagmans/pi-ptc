@@ -22,7 +22,6 @@ import {
 	Image,
 	type ImageProtocol,
 	Spacer,
-	stripTerminalSequences,
 	Text,
 } from "@earendil-works/pi-tui";
 
@@ -32,8 +31,11 @@ import {
 	type PtcPersistedDispatch,
 	type PtcPersistedRenderResult,
 	parseDispatchDetails,
+	projectLiveDisplayArguments,
 	sanitizeDisplayJson,
+	sanitizeDisplayText,
 } from "./dispatch-details.ts";
+import type { JsonValue } from "./json.ts";
 import type { PtcParams, PtcPartialResult, PtcToolResult } from "./transport.ts";
 
 const EMPTY_VALUE_LABEL = "(empty)";
@@ -53,6 +55,7 @@ const IMAGE_KEY_SEPARATOR = "\u0000";
 const IMAGE_PNG_MIME_TYPE = "image/png";
 const MINIMUM_IMAGE_WIDTH_CELLS = 1;
 const RENDERER_INTERVAL_STATE_KEY = "interval";
+const liveRenderArguments = new WeakMap<object, ReadonlyMap<number, JsonValue>>();
 
 export type PtcDefinitionRegistry = Partial<Record<CoreToolName, ToolDefinition>>;
 export type PtcDefinitionFactory = (cwd: string) => PtcDefinitionRegistry;
@@ -113,9 +116,19 @@ export type PtcRenderContext = {
 };
 
 export function attachPtcRenderDispatches(
-	_details: object,
-	_dispatches: readonly DispatchProgress[],
-): void {}
+	details: object,
+	dispatches: readonly DispatchProgress[],
+): void {
+	liveRenderArguments.set(
+		details,
+		new Map(
+			dispatches.map((dispatch) => [
+				dispatch.id,
+				projectLiveDisplayArguments(dispatch.name, dispatch.args),
+			]),
+		),
+	);
+}
 
 export function renderPtcCall(_args: PtcParams, _theme: Theme, context: PtcRenderContext): Text {
 	const component =
@@ -132,13 +145,20 @@ export function renderPtcResult(
 ): Component {
 	const root = getRoot(context, theme);
 	const details = parseDispatchDetails(result.details);
+	const attachedArguments =
+		typeof result.details === "object" && result.details !== null
+			? liveRenderArguments.get(result.details)
+			: undefined;
 	root.setView({
 		expanded: context.expanded,
 		showImages: context.showImages,
 		theme,
 		invalidate: context.invalidate,
 	});
-	for (const dispatch of details.dispatches) root.updateDispatch(dispatch);
+	for (const dispatch of details.dispatches) {
+		const args = attachedArguments?.get(dispatch.id);
+		root.updateDispatch(args === undefined ? dispatch : { ...dispatch, args });
+	}
 	root.setCompatibilityError(details.compatibilityError);
 	root.setExecutionError(
 		context.isError ? (details.executionError ?? getOuterExecutionError(result)) : undefined,
@@ -303,6 +323,7 @@ class PtcDispatchRow implements Component {
 	private imageCache = new Map<string, PtcImageRecord>();
 	private imageOrder: PtcImageRecord[] = [];
 	private mounted = true;
+	private rebuilding = false;
 	private renderFailure: string | undefined;
 	private renderedTheme: Theme | undefined;
 	private viewFingerprint = "";
@@ -382,6 +403,7 @@ class PtcDispatchRow implements Component {
 	}
 
 	private rebuild(force: boolean, advanceGeneration = true): void {
+		if (this.rebuilding) return;
 		const fingerprint = JSON.stringify(this.dispatch);
 		const viewFingerprint = `${this.view.expanded}:${this.view.showImages}`;
 		if (
@@ -397,6 +419,7 @@ class PtcDispatchRow implements Component {
 		this.renderedTheme = this.view.theme;
 		if (advanceGeneration) this.generation += 1;
 		this.renderFailure = undefined;
+		this.rebuilding = true;
 		try {
 			if (this.callContainer instanceof Box) this.callContainer.setBgFn(this.getBackground());
 			this.callContainer.clear();
@@ -410,22 +433,29 @@ class PtcDispatchRow implements Component {
 			this.contain(error);
 		} finally {
 			if (this.dispatch.status !== "start") this.retireRendererTimer();
+			this.rebuilding = false;
 		}
 	}
 
 	private renderCall(): Component {
 		const renderer = this.input.definition?.renderCall;
-		if (!renderer) {
-			return new Text(
-				this.view.theme.fg("toolTitle", this.view.theme.bold(this.dispatch.name)),
-				0,
-				0,
-			);
+		if (!renderer || !hasCompleteNativeCallArguments(this.dispatch)) {
+			return this.renderFallbackCall();
 		}
 		return renderer(
 			sanitizeDisplayJson(this.dispatch.args) as never,
 			this.view.theme,
 			this.createRenderContext(this.callComponent),
+		);
+	}
+
+	private renderFallbackCall(): Component {
+		const args = this.dispatch.args;
+		const path = isUnknownRecord(args) && typeof args.path === "string" ? ` ${args.path}` : "";
+		return new Text(
+			this.view.theme.fg("toolTitle", this.view.theme.bold(`${this.dispatch.name}${path}`)),
+			0,
+			0,
 		);
 	}
 
@@ -569,12 +599,11 @@ class PtcDispatchRow implements Component {
 	}
 
 	private createRenderContext(lastComponent: Component | undefined): NativeRenderContext {
-		const generation = this.generation;
 		return {
 			args: sanitizeDisplayJson(this.dispatch.args),
 			toolCallId: this.input.toolCallId,
 			invalidate: () => {
-				if (generation !== this.generation) return;
+				if (!this.mounted) return;
 				this.invalidateRenderedChildren();
 				try {
 					this.view.invalidate();
@@ -743,6 +772,17 @@ function imageContentKey(data: string, mimeType: string): string {
 		.digest("hex");
 }
 
+function hasCompleteNativeCallArguments(dispatch: PtcPersistedDispatch): boolean {
+	if (!isUnknownRecord(dispatch.args)) return false;
+	if (dispatch.name === "write") return typeof dispatch.args.content === "string";
+	if (dispatch.name === "edit") return Array.isArray(dispatch.args.edits);
+	return true;
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function getDispatchResult(dispatch: PtcPersistedDispatch): PtcPersistedRenderResult | undefined {
 	if (dispatch.result) return dispatch.result;
 	if (dispatch.status === "start" && dispatch.preview === undefined) return undefined;
@@ -750,13 +790,13 @@ function getDispatchResult(dispatch: PtcPersistedDispatch): PtcPersistedRenderRe
 		content:
 			dispatch.preview === undefined
 				? []
-				: [{ type: "text", text: stripTerminalSequences(dispatch.preview) }],
+				: [{ type: "text", text: sanitizeDisplayText(dispatch.preview) }],
 		isError: dispatch.status === "err",
 	};
 }
 
 function getOuterExecutionError(result: PtcPartialResult | PtcToolResult): string {
-	return stripTerminalSequences(getTextContent(result)).replace(PTC_ERROR_PREFIX, "");
+	return sanitizeDisplayText(getTextContent(result)).replace(PTC_ERROR_PREFIX, "");
 }
 
 function getTextContent(result: PtcPartialResult | PtcToolResult): string {
@@ -800,7 +840,7 @@ function errorMessage(error: unknown): string {
 }
 
 function sanitizeDiagnostic(message: string): string {
-	return stripTerminalSequences(message)
+	return sanitizeDisplayText(message)
 		.slice(0, DIAGNOSTIC_MAX_CHARACTERS)
 		.split(/\r?\n/)
 		.slice(0, DIAGNOSTIC_MAX_LINES)

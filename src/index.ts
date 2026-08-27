@@ -72,8 +72,11 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	pi.registerTool(
 		createPtcTool({
 			timeoutMs: shipped.timeoutMs,
+			drainTimeoutMs: shipped.drainTimeoutMs,
+			maxOrphanedBindings: shipped.maxOrphanedBindings,
 			maxDispatches: shipped.maxDispatches,
 			maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,
+			maxPersistedDetailsBytes: shipped.maxPersistedDetailsBytes,
 			maxOutputBytes: shipped.maxOutputBytes,
 			maxOutputLines: shipped.maxOutputLines,
 			failureDetails,
@@ -81,6 +84,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 				createCoreBindings({
 					execute: createOfficialExecutor(ctx.cwd),
 					scheduler: createScheduler(shipped.maxParallelDispatches),
+					acceptSideEffects: ctx.isOpen,
 					appendLog: (entry: DispatchLogEntry) => {
 						pi.appendEntry(DISPATCH_LOG_TYPE, entry);
 					},

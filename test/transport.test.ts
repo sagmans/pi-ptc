@@ -13,9 +13,12 @@ import type { PtcRenderContext } from "../src/renderer.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import { createPtcTool, type PtcPartialResult } from "../src/transport.ts";
 
+const CUSTOM_DRAIN_TIMEOUT_MS = 321;
 const CUSTOM_MAX_DISPATCHES = 37;
+const CUSTOM_MAX_ORPHANED_BINDINGS = 4;
 const CUSTOM_MAX_OUTPUT_BYTES = 1234;
 const CUSTOM_MAX_OUTPUT_LINES = 56;
+const CUSTOM_MAX_PERSISTED_DETAILS_BYTES = 2345;
 const SCALING_DISPATCH_COUNT = 100;
 const SCALING_DESCRIPTION = "inspect dispatch scaling";
 const SCALING_ACCESS_BOUND_PER_DISPATCH = 20;
@@ -38,6 +41,7 @@ const SINGLE_RETAINED_RESULT_BUDGET_BYTES = Buffer.byteLength(
 const HOSTILE_RENDER_DETAILS_MESSAGE = "hostile render details";
 const TIMER_TEST_INTERVAL_MS = 5;
 const TIMER_IDLE_OBSERVATION_MS = 30;
+const OVERSIZED_FAILURE_MESSAGE = "failure".repeat(1000);
 
 type PtcExecuteReport = (progress: DispatchProgress) => void;
 
@@ -107,15 +111,52 @@ test("ptc rejects an oversized outer result", async () => {
 	);
 });
 
+test("ptc bounds worker failure messages before Pi persists them", async () => {
+	const tool = createPtcTool({
+		...LIMITS,
+		maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES,
+		maxOutputLines: CUSTOM_MAX_OUTPUT_LINES,
+		createBindings: () => ({}),
+	});
+	let rejection: Error | undefined;
+
+	try {
+		await tool.execute(
+			"call-large-failure",
+			{
+				code: `throw new Error(${JSON.stringify(OVERSIZED_FAILURE_MESSAGE)});`,
+				description: "bound a worker failure",
+			},
+			undefined,
+			undefined,
+			{ cwd: process.cwd() },
+		);
+	} catch (error) {
+		rejection = error as Error;
+	}
+
+	assert.equal(rejection?.message, "ptc failed (output-limit): output-limit");
+	assert.ok(Buffer.byteLength(rejection?.message ?? "", "utf8") <= CUSTOM_MAX_OUTPUT_BYTES);
+});
+
 test("ptc forwards output and dispatch limits into the runtime seam", async () => {
 	let captured:
-		| { maxBindingCalls?: number; maxOutputBytes?: number; maxOutputLines?: number }
+		| {
+				drainTimeoutMs?: number;
+				maxBindingCalls?: number;
+				maxOrphanedBindings?: number;
+				maxOutputBytes?: number;
+				maxOutputLines?: number;
+		  }
 		| undefined;
 	const tool = createPtcTool({
 		timeoutMs: LIMITS.timeoutMs,
+		drainTimeoutMs: CUSTOM_DRAIN_TIMEOUT_MS,
 		maxDispatches: CUSTOM_MAX_DISPATCHES,
+		maxOrphanedBindings: CUSTOM_MAX_ORPHANED_BINDINGS,
 		maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES,
 		maxOutputLines: CUSTOM_MAX_OUTPUT_LINES,
+		maxPersistedDetailsBytes: CUSTOM_MAX_PERSISTED_DETAILS_BYTES,
 		createBindings: () => ({}),
 		run: async (request) => {
 			captured = request;
@@ -131,9 +172,55 @@ test("ptc forwards output and dispatch limits into the runtime seam", async () =
 		{ cwd: process.cwd() },
 	);
 
+	assert.equal(captured?.drainTimeoutMs, CUSTOM_DRAIN_TIMEOUT_MS);
 	assert.equal(captured?.maxBindingCalls, CUSTOM_MAX_DISPATCHES);
+	assert.equal(captured?.maxOrphanedBindings, CUSTOM_MAX_ORPHANED_BINDINGS);
 	assert.equal(captured?.maxOutputBytes, CUSTOM_MAX_OUTPUT_BYTES);
 	assert.equal(captured?.maxOutputLines, CUSTOM_MAX_OUTPUT_LINES);
+});
+
+test("ptc terminalizes and quarantines dispatches left active at runtime settlement", async () => {
+	const updates: PtcPartialResult[] = [];
+	let reportDispatch: PtcExecuteReport | undefined;
+	const tool = createPtcTool({
+		...LIMITS,
+		createBindings: (ctx) => {
+			reportDispatch = ctx.reportDispatch;
+			return {};
+		},
+		run: async () => {
+			reportDispatch?.({
+				id: 1,
+				name: "read",
+				args: { path: "stalled.txt" },
+				status: "start",
+			});
+			return { logs: [], error: { kind: "timeout" } };
+		},
+	});
+
+	await assert.rejects(
+		() =>
+			tool.execute(
+				"call-stalled",
+				{ code: "return null;", description: "settle stalled dispatch" },
+				undefined,
+				(partial) => updates.push(partial),
+				{ cwd: process.cwd() },
+			),
+		/timeout/,
+	);
+
+	assert.equal(updates.at(-1)?.details.dispatches[0]?.status, "err");
+	const updateCountAfterSettlement = updates.length;
+	reportDispatch?.({
+		id: 1,
+		name: "read",
+		args: { path: "stalled.txt" },
+		status: "ok",
+		result: { content: [{ type: "text", text: "late" }], isError: false },
+	});
+	assert.equal(updates.length, updateCountAfterSettlement);
 });
 
 test("ptc abort reaches an active core executor before settlement", async () => {

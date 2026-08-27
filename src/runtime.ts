@@ -13,8 +13,9 @@ const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] 
 const INVALID_WORKER_CALL_ID_MESSAGE =
 	"worker call id must be a positive safe integer that strictly increases";
 const INVALID_WORKER_MESSAGE = "worker emitted an invalid protocol message";
+const bindingReservations = new Set<Promise<void>>();
 
-// Required internal contract: bindings must settle after abort because host work cannot be abandoned safely.
+// Bindings should settle after abort, while the deadline prevents a broken binding from pinning Pi.
 export type BindingFn = (args: JsonValue, signal: AbortSignal) => Promise<JsonValue>;
 
 export type CodeRunFailure =
@@ -25,6 +26,7 @@ export type CodeRunFailure =
 	| { kind: "output-limit" }
 	| { kind: "dispatch-limit" }
 	| { kind: "dangling-dispatch" }
+	| { kind: "orphan-limit" }
 	| { kind: "worker-exit"; message: string };
 
 export type CodeRunRequest = {
@@ -35,9 +37,11 @@ export type CodeRunRequest = {
 	};
 	signal?: AbortSignal;
 	timeoutMs?: number;
+	drainTimeoutMs?: number;
 	maxOutputBytes?: number;
 	maxOutputLines?: number;
 	maxBindingCalls?: number;
+	maxOrphanedBindings?: number;
 };
 
 export type CodeRunResult = {
@@ -50,7 +54,7 @@ type WorkerToHost =
 	| { type: "log"; text: string }
 	| { type: "call"; id: number; name: string; args: JsonValue }
 	| { type: "done"; value?: JsonValue }
-	| { type: "fail"; kind: "throw" | "invalid-output"; message: string };
+	| { type: "fail"; kind: "throw" | "invalid-output" | "output-limit"; message: string };
 
 type HostToWorker =
 	| { type: "reply"; id: number; ok: true; value: JsonValue }
@@ -60,7 +64,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function logicalLineCount(text: string): number {
+export function logicalLineCount(text: string): number {
 	return text.split(/\r\n|\r|\n/).length;
 }
 
@@ -81,7 +85,7 @@ function parseWorkerMessage(value: unknown): WorkerToHost {
 	}
 	if (
 		value.type === "fail" &&
-		(value.kind === "throw" || value.kind === "invalid-output") &&
+		(value.kind === "throw" || value.kind === "invalid-output" || value.kind === "output-limit") &&
 		typeof value.message === "string"
 	) {
 		return { type: "fail", kind: value.kind, message: value.message };
@@ -107,9 +111,11 @@ ${request.program}
 
 	const functions = request.bindings?.functions ?? {};
 	const timeoutMs = request.timeoutMs ?? SHIPPED_PTC_CONFIG.timeoutMs;
+	const drainTimeoutMs = request.drainTimeoutMs ?? SHIPPED_PTC_CONFIG.drainTimeoutMs;
 	const maxOutputBytes = request.maxOutputBytes ?? SHIPPED_PTC_CONFIG.maxOutputBytes;
 	const maxOutputLines = request.maxOutputLines ?? SHIPPED_PTC_CONFIG.maxOutputLines;
 	const maxBindingCalls = request.maxBindingCalls ?? SHIPPED_PTC_CONFIG.maxDispatches;
+	const maxOrphanedBindings = request.maxOrphanedBindings ?? SHIPPED_PTC_CONFIG.maxOrphanedBindings;
 	const logs: string[] = [];
 	let logOutputBytes = EMPTY_LOGS_SERIALIZED_BYTES;
 	let logOutputLines = 0;
@@ -126,6 +132,8 @@ ${request.program}
 		workerData: {
 			program,
 			bindingNames: Object.keys(functions),
+			maxOutputBytes,
+			maxOutputLines,
 		},
 	});
 
@@ -144,8 +152,17 @@ ${request.program}
 			if (closing) return;
 			closing = true;
 			if (mustAbort) invocation.abort();
-			await Promise.allSettled([...activeBindings.values()]);
+			const bindingsToDrain = [...activeBindings.values()];
 			await worker.terminate().catch(() => undefined);
+			let drainTimer: ReturnType<typeof setTimeout> | undefined;
+			const drained = await Promise.race([
+				Promise.allSettled(bindingsToDrain).then(() => true),
+				new Promise<false>((drainElapsed) => {
+					drainTimer = setTimeout(() => drainElapsed(false), drainTimeoutMs);
+				}),
+			]);
+			if (drainTimer !== undefined) clearTimeout(drainTimer);
+			if (!drained) activeBindings.clear();
 			cleanupListeners();
 			resolve(outcome);
 		};
@@ -209,6 +226,10 @@ ${request.program}
 				return;
 			}
 			if (message.type === "call") {
+				if (bindingReservations.size >= maxOrphanedBindings) {
+					finish({ logs: [...logs], error: { kind: "orphan-limit" } }, true);
+					return;
+				}
 				if (!Number.isSafeInteger(message.id) || message.id <= lastWorkerCallId) {
 					finish(
 						{
@@ -261,10 +282,12 @@ ${request.program}
 						});
 					})
 					.finally(() => {
+						bindingReservations.delete(settlement);
 						if (activeBindings.get(message.id) === settlement) {
 							activeBindings.delete(message.id);
 						}
 					});
+				bindingReservations.add(settlement);
 				activeBindings.set(message.id, settlement);
 				return;
 			}
@@ -277,6 +300,14 @@ ${request.program}
 					"value" in message ? { logs: [...logs], result: message.value } : { logs: [...logs] },
 					false,
 				);
+				return;
+			}
+			if (
+				message.kind === "output-limit" ||
+				Buffer.byteLength(message.message, "utf8") > maxOutputBytes ||
+				logicalLineCount(message.message) > maxOutputLines
+			) {
+				finish({ logs: [...logs], error: { kind: "output-limit" } }, true);
 				return;
 			}
 			finish({ logs: [...logs], error: { kind: message.kind, message: message.message } }, true);

@@ -15,6 +15,8 @@ All notable changes to this project are documented here. This format follows
 ### Fixed
 
 - Keep nested renderer, invalidation, terminal-control, image, and timer failures inside PTC-owned rows.
+- Bound cancellation drains, quarantine late display reports, and terminalize stalled nested rows.
+- Bound complete persisted display payloads and strip C0, C1, and ECMA-48 control families.
 - Restore current and historical nested rows with explicit preview-only fallback for omitted render data.
 - Bound worker memory and log output while removing inherited worker environment variables.
 - Preserve live foreign-tool activation without reviving intentionally disabled tools.

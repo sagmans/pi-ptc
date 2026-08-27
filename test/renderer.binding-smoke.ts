@@ -10,7 +10,7 @@ import { createPtcTool, type PtcPartialResult, type PtcToolResult } from "../src
 
 const DESCRIPTION = "exercise Bun renderer bindings";
 const RENDER_WIDTH = 100;
-const RAW_TERMINAL_SEQUENCE = "\u001b[2J";
+const RAW_TERMINAL_SEQUENCE = "\u001b[?1049h\u001bc\u0007\u009b31m\u001bPpayload\u001b\\";
 const RAW_PATH = `before${RAW_TERMINAL_SEQUENCE}after.txt`;
 const SANITIZED_PATH = "beforeafter.txt";
 const FINAL_READ_TEXT = "BUN_NATIVE_READ_RESULT";

@@ -3,6 +3,8 @@
 import { runCode } from "../src/runtime.ts";
 
 const BINDING_SMOKE_TIMEOUT_MS = 1500;
+const NEVER_SETTLING_TIMEOUT_MS = 100;
+const NEVER_SETTLING_DRAIN_TIMEOUT_MS = 30;
 const OUTPUT_LIMIT_BYTES = 17;
 const OUTPUT_LIMIT_LINES = 2000;
 const DRAIN_OBSERVATION_MS = 500;
@@ -137,6 +139,33 @@ if (
 	process.exit(1);
 }
 
+let markNeverSettlingStarted: (() => void) | undefined;
+const neverSettlingStarted = new Promise<void>((resolve) => {
+	markNeverSettlingStarted = resolve;
+});
+const pendingDrainDeadline = runCode({
+	program: "return await tools.never(null);",
+	bindings: {
+		global: "tools",
+		functions: {
+			never: async () => {
+				markNeverSettlingStarted?.();
+				return await new Promise<never>(() => undefined);
+			},
+		},
+	},
+	timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
+	drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
+});
+await neverSettlingStarted;
+const drainDeadlineOutcome = await pendingDrainDeadline;
+if (
+	JSON.stringify(drainDeadlineOutcome) !== JSON.stringify({ logs: [], error: { kind: "timeout" } })
+) {
+	console.error(JSON.stringify({ drainDeadlineOutcome }));
+	process.exit(1);
+}
+
 console.log(
 	JSON.stringify({
 		ok: true,
@@ -145,6 +174,7 @@ console.log(
 		environmentOutcome,
 		outputLimitOutcome,
 		abortOutcome,
+		drainDeadlineOutcome,
 		drainProof: { bindingSettledBeforeReturn, returnedBeforeDrain },
 	}),
 );

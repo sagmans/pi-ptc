@@ -1,4 +1,7 @@
 import { strict as assert } from "node:assert";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
@@ -6,6 +9,18 @@ import { runCode } from "../src/runtime.ts";
 
 const ACTIVE_BINDING_TIMEOUT_MS = 1500;
 const RUNTIME_TEST_TIMEOUT_MS = 1500;
+const NEVER_SETTLING_TIMEOUT_MS = 100;
+const NEVER_SETTLING_DRAIN_TIMEOUT_MS = 30;
+const NEVER_SETTLING_TEST_TIMEOUT_MS = 500;
+const WORKER_TERMINATION_TIMEOUT_MS = 100;
+const WORKER_TERMINATION_DRAIN_TIMEOUT_MS = 300;
+const LATE_WORKER_ACTIVITY_DELAY_MS = 150;
+const WORKER_TERMINATION_TEST_TIMEOUT_MS = 1000;
+const ORPHAN_LIMIT = 1;
+const WORKER_FAILURE_MAX_BYTES = 64;
+const WORKER_FAILURE_MAX_LINES = 2;
+const OVERSIZED_WORKER_FAILURE_MESSAGE = "failure".repeat(WORKER_FAILURE_MAX_BYTES + 1);
+const CR_ONLY_WORKER_FAILURE_MESSAGE = "one\rtwo\rthree";
 const DRAIN_OBSERVATION_MS = 500;
 const EXCESS_BINDING_CALLS = SHIPPED_PTC_CONFIG.maxDispatches + 1;
 const LATE_BINDING_ERROR = "late binding rejection";
@@ -31,6 +46,8 @@ const MALFORMED_WORKER_MESSAGES = [
 ] as const;
 const ACTIVE_BINDING_CALL_LIMIT = 1;
 const ACTIVE_LIMIT_PROGRAM = "void tools.first(null); void tools.second(null); return null;";
+const ORPHAN_RESERVATION_PROGRAM =
+	"void tools.first(null); void tools.second(null); await new Promise(() => undefined);";
 
 function deferred<T = void>(): {
 	promise: Promise<T>;
@@ -272,6 +289,192 @@ test("runCode aborts an active binding signal on timeout", async () => {
 	assert.equal(bindingSettled, true);
 });
 
+test("runCode returns after the drain deadline when a timed-out binding never settles", {
+	timeout: NEVER_SETTLING_TEST_TIMEOUT_MS,
+}, async () => {
+	const bindingStarted = deferred();
+	const allowBindingToSettle = deferred();
+	const pending = runCode({
+		program: "await tools.hang(null); return 1;",
+		bindings: {
+			global: "tools",
+			functions: {
+				hang: async () => {
+					bindingStarted.resolve();
+					await allowBindingToSettle.promise;
+					return null;
+				},
+			},
+		},
+		timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
+		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
+	});
+	await bindingStarted.promise;
+
+	const outcome = await pending;
+	allowBindingToSettle.resolve();
+	await nextTurn();
+
+	assert.deepEqual(outcome.error, { kind: "timeout" });
+});
+
+test("runCode returns after the drain deadline when an aborted binding never settles", {
+	timeout: NEVER_SETTLING_TEST_TIMEOUT_MS,
+}, async () => {
+	const controller = new AbortController();
+	const bindingStarted = deferred();
+	const allowBindingToSettle = deferred();
+	const pending = runCode({
+		program: "await tools.hang(null); return 1;",
+		bindings: {
+			global: "tools",
+			functions: {
+				hang: async () => {
+					bindingStarted.resolve();
+					await allowBindingToSettle.promise;
+					return null;
+				},
+			},
+		},
+		signal: controller.signal,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
+	});
+	await bindingStarted.promise;
+	controller.abort();
+
+	const outcome = await pending;
+	allowBindingToSettle.resolve();
+	await nextTurn();
+
+	assert.deepEqual(outcome.error, { kind: "abort" });
+});
+
+test("runCode terminates worker-authored activity before draining host bindings", {
+	timeout: WORKER_TERMINATION_TEST_TIMEOUT_MS,
+}, async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-worker-close-"));
+	const markerPath = join(directory, "late-worker-activity.txt");
+	const bindingStarted = deferred();
+	const allowBindingToSettle = deferred();
+	try {
+		const pending = runCode({
+			program: `
+void tools.hang(null);
+await new Promise((resolve) => setTimeout(resolve, ${LATE_WORKER_ACTIVITY_DELAY_MS}));
+const { writeFile } = await import("node:fs/promises");
+await writeFile(${JSON.stringify(markerPath)}, "late");
+return null;
+`,
+			bindings: {
+				global: "tools",
+				functions: {
+					hang: async () => {
+						bindingStarted.resolve();
+						await allowBindingToSettle.promise;
+						return null;
+					},
+				},
+			},
+			timeoutMs: WORKER_TERMINATION_TIMEOUT_MS,
+			drainTimeoutMs: WORKER_TERMINATION_DRAIN_TIMEOUT_MS,
+		});
+		await bindingStarted.promise;
+		const outcome = await pending;
+		assert.deepEqual(outcome.error, { kind: "timeout" });
+		assert.equal(existsSync(markerPath), false);
+	} finally {
+		allowBindingToSettle.resolve();
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("runCode reserves orphan capacity before parallel bindings start", async () => {
+	const firstStarted = deferred();
+	const firstAbortObserved = deferred();
+	const allowFirstToSettle = deferred();
+	let secondBindingCalls = 0;
+	const pending = runCode({
+		program: ORPHAN_RESERVATION_PROGRAM,
+		bindings: {
+			global: "tools",
+			functions: {
+				first: async (_args, signal) => {
+					firstStarted.resolve();
+					if (!signal.aborted) {
+						await new Promise<void>((resolve) => {
+							signal.addEventListener("abort", () => resolve(), { once: true });
+						});
+					}
+					firstAbortObserved.resolve();
+					await allowFirstToSettle.promise;
+					return null;
+				},
+				second: async () => {
+					secondBindingCalls += 1;
+					return null;
+				},
+			},
+		},
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		maxOrphanedBindings: ORPHAN_LIMIT,
+	});
+
+	await firstStarted.promise;
+	await firstAbortObserved.promise;
+	const returnedBeforeDrain = await settledWithinDrainObservation(pending);
+	allowFirstToSettle.resolve();
+	const outcome = await pending;
+
+	assert.equal(returnedBeforeDrain, false);
+	assert.equal(secondBindingCalls, 0);
+	assert.deepEqual(outcome.error, { kind: "orphan-limit" });
+});
+
+test("runCode caps unresolved binding orphans across invocations", async () => {
+	const firstStarted = deferred();
+	const allowFirstToSettle = deferred();
+	const first = runCode({
+		program: "await tools.hang(null); return null;",
+		bindings: {
+			global: "tools",
+			functions: {
+				hang: async () => {
+					firstStarted.resolve();
+					await allowFirstToSettle.promise;
+					return null;
+				},
+			},
+		},
+		timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
+		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
+		maxOrphanedBindings: ORPHAN_LIMIT,
+	});
+	await firstStarted.promise;
+	assert.deepEqual((await first).error, { kind: "timeout" });
+
+	let secondBindingCalls = 0;
+	const second = await runCode({
+		program: "await tools.echo(null); return null;",
+		bindings: {
+			global: "tools",
+			functions: {
+				echo: async () => {
+					secondBindingCalls += 1;
+					return null;
+				},
+			},
+		},
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		maxOrphanedBindings: ORPHAN_LIMIT,
+	});
+	allowFirstToSettle.resolve();
+	await nextTurn();
+
+	assert.equal(secondBindingCalls, 0);
+	assert.deepEqual(second.error, { kind: "orphan-limit" });
+});
+
 test("runCode waits for an abort-aware binding after outer abort", async () => {
 	const controller = new AbortController();
 	const bindingStarted = deferred();
@@ -475,6 +678,26 @@ test("runCode terminates when logs exceed the logical line limit", async () => {
 		logs: ["one", "two"],
 		error: { kind: "output-limit" },
 	});
+});
+
+test("runCode bounds worker failure bytes before host ingestion", async () => {
+	const outcome = await runCode({
+		program: `throw new Error(${JSON.stringify(OVERSIZED_WORKER_FAILURE_MESSAGE)});`,
+		maxOutputBytes: WORKER_FAILURE_MAX_BYTES,
+		maxOutputLines: SHIPPED_PTC_CONFIG.maxOutputLines,
+	});
+
+	assert.deepEqual(outcome, { logs: [], error: { kind: "output-limit" } });
+});
+
+test("runCode counts carriage-return worker failures as logical lines", async () => {
+	const outcome = await runCode({
+		program: `throw new Error(${JSON.stringify(CR_ONLY_WORKER_FAILURE_MESSAGE)});`,
+		maxOutputBytes: SHIPPED_PTC_CONFIG.maxOutputBytes,
+		maxOutputLines: WORKER_FAILURE_MAX_LINES,
+	});
+
+	assert.deepEqual(outcome, { logs: [], error: { kind: "output-limit" } });
 });
 
 test("runCode starts workers with an empty environment", async () => {

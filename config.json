@@ -1,9 +1,12 @@
 {
 	"presentation": "code",
 	"timeoutMs": 120000,
+	"drainTimeoutMs": 5000,
+	"maxOrphanedBindings": 100,
 	"maxParallelDispatches": 10,
 	"maxDispatches": 100,
 	"maxRenderDetailsBytes": 2000000,
+	"maxPersistedDetailsBytes": 3000000,
 	"maxOutputBytes": 256000,
 	"maxOutputLines": 10000,
 	"workerMaxOldGenerationSizeMb": 128

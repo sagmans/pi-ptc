@@ -1,8 +1,6 @@
-import { stripTerminalSequences } from "@earendil-works/pi-tui";
-
 import type { DispatchProgress, DispatchRenderResult, DispatchSummary } from "./bridge.ts";
-import { isCoreToolName, SHIPPED_PTC_CONFIG } from "./config.ts";
-import { type JsonValue, snapshotJsonValue } from "./json.ts";
+import { type CoreToolName, isCoreToolName, SHIPPED_PTC_CONFIG } from "./config.ts";
+import type { JsonValue } from "./json.ts";
 
 export const PTC_DETAIL_SCHEMA_VERSION = 2;
 
@@ -11,6 +9,44 @@ const SNAPSHOT_MODE = "snapshot";
 const RENDER_OMITTED_BUDGET = "budget";
 const RENDER_OMITTED_INCOMPATIBLE = "incompatible";
 const COMPATIBILITY_ERROR_MAX_CHARACTERS = 256;
+const DISPLAY_ARGUMENT_MAX_BYTES = 8192;
+const DISPLAY_ARGUMENT_STRING_MAX_BYTES = 4096;
+const LIVE_WRITE_CONTENT_MAX_BYTES = 3072;
+const LIVE_EDIT_ENTRY_MAX_COUNT = 8;
+const LIVE_EDIT_TEXT_MAX_BYTES = 192;
+const DISPLAY_DESCRIPTION_MAX_BYTES = 4096;
+const DISPLAY_EXECUTION_ERROR_MAX_BYTES = 8192;
+const DISPLAY_PREVIEW_MAX_BYTES = 4096;
+const DISPLAY_TRUNCATION_MARK = "…";
+const ESCAPE_CODE = 0x1b;
+const DELETE_CODE = 0x7f;
+const C0_CONTROL_END = 0x1f;
+const C1_CONTROL_START = 0x80;
+const C1_CONTROL_END = 0x9f;
+const C1_DCS = 0x90;
+const C1_SOS = 0x98;
+const C1_CSI = 0x9b;
+const C1_ST = 0x9c;
+const C1_OSC = 0x9d;
+const C1_PM = 0x9e;
+const C1_APC = 0x9f;
+const HORIZONTAL_TAB_CODE = 0x09;
+const LINE_FEED_CODE = 0x0a;
+const CARRIAGE_RETURN_CODE = 0x0d;
+const BELL_CODE = 0x07;
+const ESCAPE_CSI = "[";
+const ESCAPE_OSC = "]";
+const ESCAPE_ST = "\\";
+const ESCAPE_CONTROL_STRING_INTRODUCERS = new Set(["P", "X", "^", "_"]);
+const DISPLAY_ARGUMENT_KEYS = Object.freeze({
+	bash: ["command", "timeout"],
+	edit: ["path"],
+	find: ["pattern", "path", "limit"],
+	grep: ["pattern", "path", "glob", "ignoreCase", "literal", "context", "limit"],
+	ls: ["path", "limit"],
+	read: ["path", "offset", "limit"],
+	write: ["path"],
+} as const satisfies Record<CoreToolName, readonly string[]>);
 const INCOMPATIBLE_DETAILS_MESSAGE =
 	"Some dispatch display details were omitted because they are incompatible.";
 const UTF8_ENCODING = "utf8";
@@ -69,14 +105,18 @@ type RenderProjection =
 const RENDER_BUDGET_EXCEEDED = Symbol("render-budget-exceeded");
 const RENDER_VALUE_INCOMPATIBLE = Symbol("render-value-incompatible");
 
+export function sanitizeDisplayText(value: string): string {
+	return sanitizeDisplayString(value);
+}
+
 export function sanitizeDisplayJson(value: JsonValue): JsonValue {
-	if (typeof value === "string") return stripTerminalSequences(value);
+	if (typeof value === "string") return sanitizeDisplayString(value);
 	if (Array.isArray(value)) return value.map(sanitizeDisplayJson);
 	if (typeof value !== "object" || value === null) return value;
 
 	return Object.fromEntries(
 		Object.entries(value).map(
-			([key, entry]) => [stripTerminalSequences(key), sanitizeDisplayJson(entry)] as const,
+			([key, entry]) => [sanitizeDisplayString(key), sanitizeDisplayJson(entry)] as const,
 		),
 	);
 }
@@ -85,16 +125,28 @@ export function createDeltaDetails(
 	description: string,
 	dispatch: DispatchProgress,
 	maxRenderDetailsBytes = SHIPPED_PTC_CONFIG.maxRenderDetailsBytes,
+	maxPersistedDetailsBytes = SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes,
 ): PtcDispatchDetails {
 	const projection = projectDispatchForRetention(dispatch, maxRenderDetailsBytes);
-	return createDeltaDetailsFromProjection(description, projection.dispatch);
+	return createDeltaDetailsFromProjection(
+		description,
+		projection.dispatch,
+		maxPersistedDetailsBytes,
+	);
 }
 
 export function createDeltaDetailsFromProjection(
 	description: string,
 	dispatch: PtcPersistedDispatch,
+	maxPersistedDetailsBytes = SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes,
 ): PtcDispatchDetails {
-	return createProjectedDetails(description, DELTA_MODE, [dispatch]);
+	return createProjectedDetails(
+		description,
+		DELTA_MODE,
+		[dispatch],
+		undefined,
+		maxPersistedDetailsBytes,
+	);
 }
 
 export function createSnapshotDetails(
@@ -102,6 +154,7 @@ export function createSnapshotDetails(
 	dispatches: readonly DispatchProgress[],
 	executionError?: string,
 	maxRenderDetailsBytes = SHIPPED_PTC_CONFIG.maxRenderDetailsBytes,
+	maxPersistedDetailsBytes = SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes,
 ): PtcDispatchDetails {
 	let retainedRenderBytes = 0;
 	let renderBudgetExhausted = false;
@@ -117,19 +170,26 @@ export function createSnapshotDetails(
 		}
 		return projection.dispatch;
 	});
-	return createSnapshotDetailsFromProjections(description, projected, executionError);
+	return createSnapshotDetailsFromProjections(
+		description,
+		projected,
+		executionError,
+		maxPersistedDetailsBytes,
+	);
 }
 
 export function createSnapshotDetailsFromProjections(
 	description: string,
 	dispatches: readonly PtcPersistedDispatch[],
 	executionError?: string,
+	maxPersistedDetailsBytes = SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes,
 ): PtcDispatchDetails {
 	return createProjectedDetails(
 		description,
 		SNAPSHOT_MODE,
 		[...dispatches].sort(compareDispatchIds),
 		executionError,
+		maxPersistedDetailsBytes,
 	);
 }
 
@@ -196,7 +256,7 @@ function parseVersionTwoDetails(value: Record<string, unknown>): PtcDispatchDeta
 	copyOptionalDisplayString(value, "executionError", details, state);
 	copyOptionalDisplayString(value, "compatibilityError", details, state);
 	applyCompatibilityDiagnostic(details, state.malformed);
-	return details;
+	return enforcePersistedDetailsBudget(details, SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes);
 }
 
 function parseLegacyDetails(value: Record<string, unknown>): PtcDispatchDetails {
@@ -214,7 +274,7 @@ function parseLegacyDetails(value: Record<string, unknown>): PtcDispatchDetails 
 	copyOptionalDisplayString(value, "executionError", details, state);
 	copyOptionalDisplayString(value, "compatibilityError", details, state);
 	applyCompatibilityDiagnostic(details, state.malformed);
-	return details;
+	return enforcePersistedDetailsBudget(details, SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes);
 }
 
 function parseVersionTwoDispatches(
@@ -317,8 +377,10 @@ function parseDispatch(
 		if (value.status !== "start" && value.status !== "ok" && value.status !== "err") {
 			return undefined;
 		}
-		if (!Object.hasOwn(value, "args")) return undefined;
-		const args = sanitizeDisplayJson(snapshotJsonValue(value.args));
+		if (!Object.hasOwn(value, "args") || !isLosslessJsonValue(value.args, new WeakSet())) {
+			return undefined;
+		}
+		const args = projectDisplayArguments(value.name, value.args);
 		const dispatch: PtcPersistedDispatch = {
 			id,
 			name: value.name,
@@ -329,7 +391,7 @@ function parseDispatch(
 			const preview = value.preview;
 			if (preview !== undefined) {
 				if (typeof preview !== "string") return undefined;
-				dispatch.preview = sanitizeDisplayString(preview);
+				dispatch.preview = sanitizeBoundedDisplayString(preview, DISPLAY_PREVIEW_MAX_BYTES);
 			}
 		} catch {
 			state.malformed = true;
@@ -399,32 +461,36 @@ function createProjectedDetails(
 	description: string,
 	mode: PtcDispatchDetails["mode"],
 	dispatches: PtcPersistedDispatch[],
-	executionError?: string,
+	executionError: string | undefined,
+	maxPersistedDetailsBytes: number,
 ): PtcDispatchDetails {
 	const details: PtcDispatchDetails = {
 		schemaVersion: PTC_DETAIL_SCHEMA_VERSION,
-		description: sanitizeDisplayString(description),
+		description: sanitizeBoundedDisplayString(description, DISPLAY_DESCRIPTION_MAX_BYTES),
 		mode,
-		dispatches,
+		dispatches: dispatches.map((dispatch) => ({ ...dispatch })),
 	};
 	if (executionError !== undefined) {
-		details.executionError = sanitizeDisplayString(executionError);
+		details.executionError = sanitizeBoundedDisplayString(
+			executionError,
+			DISPLAY_EXECUTION_ERROR_MAX_BYTES,
+		);
 	}
 	if (dispatches.some((dispatch) => dispatch.renderOmitted === RENDER_OMITTED_INCOMPATIBLE)) {
 		details.compatibilityError = INCOMPATIBLE_DETAILS_MESSAGE;
 	}
-	return details;
+	return enforcePersistedDetailsBudget(details, maxPersistedDetailsBytes);
 }
 
 function sanitizeDispatch(dispatch: DispatchSummary): PtcPersistedDispatch {
 	const sanitized: PtcPersistedDispatch = {
 		id: dispatch.id,
 		name: dispatch.name,
-		args: sanitizeDisplayJson(dispatch.args),
+		args: projectDisplayArguments(dispatch.name, dispatch.args),
 		status: dispatch.status,
 	};
 	if (dispatch.preview !== undefined) {
-		sanitized.preview = sanitizeDisplayString(dispatch.preview);
+		sanitized.preview = sanitizeBoundedDisplayString(dispatch.preview, DISPLAY_PREVIEW_MAX_BYTES);
 	}
 	return sanitized;
 }
@@ -591,7 +657,9 @@ function parseMode(value: unknown, state: ParseState): PtcDispatchDetails["mode"
 }
 
 function parseDisplayString(value: unknown, state: ParseState, fallback: string): string {
-	if (typeof value === "string") return sanitizeDisplayString(value);
+	if (typeof value === "string") {
+		return sanitizeBoundedDisplayString(value, DISPLAY_DESCRIPTION_MAX_BYTES);
+	}
 	state.malformed = true;
 	return fallback;
 }
@@ -608,7 +676,7 @@ function copyOptionalDisplayString(
 		state.malformed = true;
 		return;
 	}
-	const sanitized = sanitizeDisplayString(value);
+	const sanitized = sanitizeBoundedDisplayString(value, DISPLAY_EXECUTION_ERROR_MAX_BYTES);
 	target[key] = key === "compatibilityError" ? boundCompatibilityError(sanitized) : sanitized;
 }
 
@@ -623,7 +691,7 @@ function applyCompatibilityDiagnostic(details: PtcDispatchDetails, malformed: bo
 function incompatibleDetails(description = ""): PtcDispatchDetails {
 	return {
 		schemaVersion: PTC_DETAIL_SCHEMA_VERSION,
-		description: sanitizeDisplayString(description),
+		description: sanitizeBoundedDisplayString(description, DISPLAY_DESCRIPTION_MAX_BYTES),
 		mode: SNAPSHOT_MODE,
 		dispatches: [],
 		compatibilityError: INCOMPATIBLE_DETAILS_MESSAGE,
@@ -634,12 +702,256 @@ function readDescription(value: Record<string, unknown>): string {
 	return typeof value.description === "string" ? value.description : "";
 }
 
+export function projectDisplayArguments(name: CoreToolName, value: unknown): JsonValue {
+	if (!isUnknownRecord(value)) return {};
+	const projected: { [key: string]: JsonValue } = {};
+	for (const key of DISPLAY_ARGUMENT_KEYS[name]) {
+		let entry: unknown;
+		try {
+			entry = Reflect.get(value, key);
+		} catch {
+			continue;
+		}
+		let sanitized: JsonValue;
+		if (typeof entry === "string") {
+			sanitized = sanitizeBoundedDisplayString(entry, DISPLAY_ARGUMENT_STRING_MAX_BYTES);
+		} else if (
+			entry === null ||
+			typeof entry === "boolean" ||
+			(typeof entry === "number" && Number.isFinite(entry) && !Object.is(entry, -0))
+		) {
+			sanitized = entry;
+		} else {
+			continue;
+		}
+		Object.defineProperty(projected, key, {
+			configurable: true,
+			enumerable: true,
+			value: sanitized,
+			writable: true,
+		});
+		if (Buffer.byteLength(JSON.stringify(projected), UTF8_ENCODING) > DISPLAY_ARGUMENT_MAX_BYTES) {
+			Reflect.deleteProperty(projected, key);
+		}
+	}
+	return projected;
+}
+
+export function projectLiveDisplayArguments(name: CoreToolName, value: unknown): JsonValue {
+	const projected = projectDisplayArguments(name, value) as { [key: string]: JsonValue };
+	if (!isUnknownRecord(value)) return projected;
+	try {
+		if (name === "write") {
+			const content = Reflect.get(value, "content");
+			if (typeof content === "string") {
+				const sanitized = sanitizeBoundedDisplayString(content, LIVE_WRITE_CONTENT_MAX_BYTES);
+				if (sanitized === content) setProjectedArgument(projected, "content", sanitized);
+			}
+		}
+		if (name === "edit") {
+			const rawEdits = Reflect.get(value, "edits");
+			if (
+				Array.isArray(rawEdits) &&
+				rawEdits.length > 0 &&
+				rawEdits.length <= LIVE_EDIT_ENTRY_MAX_COUNT
+			) {
+				const edits: JsonValue[] = [];
+				for (const rawEdit of rawEdits) {
+					if (!isUnknownRecord(rawEdit)) return projected;
+					const oldText = Reflect.get(rawEdit, "oldText");
+					const newText = Reflect.get(rawEdit, "newText");
+					if (typeof oldText !== "string" || typeof newText !== "string") return projected;
+					const sanitizedOldText = sanitizeBoundedDisplayString(oldText, LIVE_EDIT_TEXT_MAX_BYTES);
+					const sanitizedNewText = sanitizeBoundedDisplayString(newText, LIVE_EDIT_TEXT_MAX_BYTES);
+					if (sanitizedOldText !== oldText || sanitizedNewText !== newText) return projected;
+					edits.push({ oldText: sanitizedOldText, newText: sanitizedNewText });
+				}
+				setProjectedArgument(projected, "edits", edits);
+			}
+		}
+	} catch {
+		return projected;
+	}
+	return projected;
+}
+
+function setProjectedArgument(
+	projected: { [key: string]: JsonValue },
+	key: string,
+	value: JsonValue,
+): void {
+	Object.defineProperty(projected, key, {
+		configurable: true,
+		enumerable: true,
+		value,
+		writable: true,
+	});
+	if (Buffer.byteLength(JSON.stringify(projected), UTF8_ENCODING) > DISPLAY_ARGUMENT_MAX_BYTES) {
+		Reflect.deleteProperty(projected, key);
+	}
+}
+
+function enforcePersistedDetailsBudget(
+	details: PtcDispatchDetails,
+	maxPersistedDetailsBytes: number,
+): PtcDispatchDetails {
+	const byteLimit = Math.max(0, maxPersistedDetailsBytes);
+	const fits = (): boolean =>
+		Buffer.byteLength(JSON.stringify(details), UTF8_ENCODING) <= byteLimit;
+	if (fits()) return details;
+
+	for (let index = details.dispatches.length - 1; index >= 0; index -= 1) {
+		const dispatch = details.dispatches[index];
+		if (!dispatch?.result) continue;
+		delete dispatch.result;
+		dispatch.renderOmitted = RENDER_OMITTED_BUDGET;
+		if (fits()) return details;
+	}
+	for (let index = details.dispatches.length - 1; index >= 0; index -= 1) {
+		const dispatch = details.dispatches[index];
+		if (!dispatch || dispatch.preview === undefined) continue;
+		delete dispatch.preview;
+		if (fits()) return details;
+	}
+	for (let index = details.dispatches.length - 1; index >= 0; index -= 1) {
+		const dispatch = details.dispatches[index];
+		if (!dispatch) continue;
+		dispatch.args = {};
+		if (fits()) return details;
+	}
+	details.description = "";
+	delete details.executionError;
+	if (fits()) return details;
+	while (details.dispatches.length > 0) {
+		details.dispatches.pop();
+		if (fits()) return details;
+	}
+	delete details.compatibilityError;
+	return details;
+}
+
 function sanitizeDisplayString(value: string): string {
-	return stripTerminalSequences(value);
+	let sanitized = "";
+	let index = 0;
+	while (index < value.length) {
+		const code = value.charCodeAt(index);
+		if (code === ESCAPE_CODE) {
+			index = consumeEscapeSequence(value, index);
+			continue;
+		}
+		if (code === C1_CSI) {
+			index = consumeCsiSequence(value, index + 1);
+			continue;
+		}
+		if (code === C1_OSC) {
+			index = consumeControlString(value, index + 1);
+			continue;
+		}
+		if (code === C1_DCS || code === C1_SOS || code === C1_PM || code === C1_APC) {
+			index = consumeControlString(value, index + 1);
+			continue;
+		}
+		if (code === CARRIAGE_RETURN_CODE) {
+			if (value.charCodeAt(index + 1) === LINE_FEED_CODE) index += 1;
+			sanitized += "\n";
+			index += 1;
+			continue;
+		}
+		if (
+			(code <= C0_CONTROL_END && code !== HORIZONTAL_TAB_CODE && code !== LINE_FEED_CODE) ||
+			code === DELETE_CODE ||
+			(code >= C1_CONTROL_START && code <= C1_CONTROL_END)
+		) {
+			index += 1;
+			continue;
+		}
+		sanitized += value[index];
+		index += 1;
+	}
+	return sanitized;
+}
+
+function consumeEscapeSequence(value: string, escapeIndex: number): number {
+	const introducer = value[escapeIndex + 1];
+	if (introducer === undefined) return value.length;
+	if (introducer === ESCAPE_CSI) return consumeCsiSequence(value, escapeIndex + 2);
+	if (introducer === ESCAPE_OSC) return consumeControlString(value, escapeIndex + 2);
+	if (ESCAPE_CONTROL_STRING_INTRODUCERS.has(introducer)) {
+		return consumeControlString(value, escapeIndex + 2);
+	}
+	let index = escapeIndex + 1;
+	while (index < value.length) {
+		const code = value.charCodeAt(index);
+		if (code >= 0x20 && code <= 0x2f) {
+			index += 1;
+			continue;
+		}
+		if (code >= 0x30 && code <= 0x7e) return index + 1;
+		return index;
+	}
+	return value.length;
+}
+
+function consumeCsiSequence(value: string, startIndex: number): number {
+	let index = startIndex;
+	while (index < value.length) {
+		const code = value.charCodeAt(index);
+		index += 1;
+		if (code >= 0x40 && code <= 0x7e) return index;
+	}
+	return value.length;
+}
+
+function consumeControlString(value: string, startIndex: number): number {
+	let index = startIndex;
+	while (index < value.length) {
+		const code = value.charCodeAt(index);
+		if (code === C1_ST) return index + 1;
+		if (code === BELL_CODE) return index + 1;
+		if (code === ESCAPE_CODE && value[index + 1] === ESCAPE_ST) return index + 2;
+		index += 1;
+	}
+	return value.length;
+}
+
+function sanitizeBoundedDisplayString(value: string, maxBytes: number): string {
+	const sanitized = sanitizeDisplayString(value);
+	if (Buffer.byteLength(sanitized, UTF8_ENCODING) <= maxBytes) return sanitized;
+	const markBytes = Buffer.byteLength(DISPLAY_TRUNCATION_MARK, UTF8_ENCODING);
+	if (maxBytes < markBytes) return "";
+	const contentLimit = maxBytes - markBytes;
+	let bytes = 0;
+	let truncated = "";
+	for (const character of sanitized) {
+		const characterBytes = Buffer.byteLength(character, UTF8_ENCODING);
+		if (bytes + characterBytes > contentLimit) break;
+		truncated += character;
+		bytes += characterBytes;
+	}
+	return `${truncated}${DISPLAY_TRUNCATION_MARK}`;
 }
 
 function boundCompatibilityError(value: string): string {
 	return value.slice(0, COMPATIBILITY_ERROR_MAX_CHARACTERS);
+}
+
+function isLosslessJsonValue(value: unknown, ancestors: WeakSet<object>): value is JsonValue {
+	if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+	if (typeof value === "number") return Number.isFinite(value) && !Object.is(value, -0);
+	if (typeof value !== "object" || ancestors.has(value)) return false;
+	ancestors.add(value);
+	try {
+		if (Array.isArray(value)) {
+			return value.every((entry) => isLosslessJsonValue(entry, ancestors));
+		}
+		return Object.keys(value).every((key) =>
+			isLosslessJsonValue(Reflect.get(value, key), ancestors),
+		);
+	} catch {
+		return false;
+	} finally {
+		ancestors.delete(value);
+	}
 }
 
 function isPositiveInteger(value: unknown): value is number {

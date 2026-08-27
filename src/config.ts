@@ -45,9 +45,12 @@ export type Presentation = "code" | "both" | "native";
 export type PtcConfig = {
 	readonly presentation: Presentation;
 	readonly timeoutMs: number;
+	readonly drainTimeoutMs: number;
+	readonly maxOrphanedBindings: number;
 	readonly maxParallelDispatches: number;
 	readonly maxDispatches: number;
 	readonly maxRenderDetailsBytes: number;
+	readonly maxPersistedDetailsBytes: number;
 	readonly maxOutputBytes: number;
 	readonly maxOutputLines: number;
 	readonly workerMaxOldGenerationSizeMb: number;
@@ -77,6 +80,8 @@ function parseShippedConfig(value: unknown): PtcConfig {
 	return {
 		presentation: value.presentation as Presentation,
 		timeoutMs: requiredPositiveInteger(value.timeoutMs, "timeoutMs"),
+		drainTimeoutMs: requiredPositiveInteger(value.drainTimeoutMs, "drainTimeoutMs"),
+		maxOrphanedBindings: requiredPositiveInteger(value.maxOrphanedBindings, "maxOrphanedBindings"),
 		maxParallelDispatches: requiredPositiveInteger(
 			value.maxParallelDispatches,
 			"maxParallelDispatches",
@@ -85,6 +90,10 @@ function parseShippedConfig(value: unknown): PtcConfig {
 		maxRenderDetailsBytes: requiredPositiveInteger(
 			value.maxRenderDetailsBytes,
 			"maxRenderDetailsBytes",
+		),
+		maxPersistedDetailsBytes: requiredPositiveInteger(
+			value.maxPersistedDetailsBytes,
+			"maxPersistedDetailsBytes",
 		),
 		maxOutputBytes: requiredPositiveInteger(value.maxOutputBytes, "maxOutputBytes"),
 		maxOutputLines: requiredPositiveInteger(value.maxOutputLines, "maxOutputLines"),

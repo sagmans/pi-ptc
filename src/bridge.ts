@@ -23,6 +23,7 @@ import {
 	DISPATCH_LOG_TYPE,
 	isExclusiveToolName,
 } from "./config.ts";
+import { projectDisplayArguments } from "./dispatch-details.ts";
 import { type JsonValue, snapshotJsonValue } from "./json.ts";
 import type { BindingFn } from "./runtime.ts";
 import type { Scheduler } from "./scheduler.ts";
@@ -214,6 +215,7 @@ export function createCoreBindings(input: {
 	scheduler: Scheduler;
 	appendLog?: (entry: DispatchLogEntry) => void;
 	emit?: (name: string, payload: unknown) => void;
+	acceptSideEffects?: () => boolean;
 	reportDispatch?: (progress: DispatchProgress) => void;
 }): CoreBindings {
 	const bindings = Object.create(null) as CoreBindings;
@@ -242,8 +244,16 @@ export function createCoreBindings(input: {
 						});
 						settledResult = toDispatchRenderResult(result, result.isError === true);
 						const value = toCanonicalValue(name, result);
-						input.appendLog?.({ customType: DISPATCH_LOG_TYPE, name, args, isError });
-						input.emit?.(DISPATCH_EVENT, { name, args, isError });
+						const displayArgs = projectDisplayArguments(name, args);
+						if (input.acceptSideEffects?.() !== false) {
+							input.appendLog?.({
+								customType: DISPATCH_LOG_TYPE,
+								name,
+								args: displayArgs,
+								isError,
+							});
+							input.emit?.(DISPATCH_EVENT, { name, args: displayArgs, isError });
+						}
 						const preview = dispatchPreview(name, textFromContent(result.content), false);
 						const progress: DispatchProgress = {
 							id,
@@ -257,10 +267,19 @@ export function createCoreBindings(input: {
 						return value;
 					} catch (error) {
 						isError = true;
-						input.appendLog?.({ customType: DISPATCH_LOG_TYPE, name, args, isError });
-						input.emit?.(DISPATCH_EVENT, { name, args, isError });
+						const displayArgs = projectDisplayArguments(name, args);
+						if (input.acceptSideEffects?.() !== false) {
+							input.appendLog?.({
+								customType: DISPATCH_LOG_TYPE,
+								name,
+								args: displayArgs,
+								isError,
+							});
+							input.emit?.(DISPATCH_EVENT, { name, args: displayArgs, isError });
+						}
 						const message = error instanceof Error ? error.message : String(error);
 						const preview = dispatchPreview(name, message, true);
+						const displayMessage = preview ?? ELLIPSIS;
 						const progress: DispatchProgress = {
 							id,
 							name,
@@ -270,7 +289,7 @@ export function createCoreBindings(input: {
 								settledResult?.isError === true
 									? settledResult
 									: {
-											content: [{ type: "text", text: message }],
+											content: [{ type: "text", text: displayMessage }],
 											isError: true,
 										},
 						};

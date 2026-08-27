@@ -8,6 +8,7 @@ import {
 	createCoreBindings,
 	createFactoryExecutor,
 	createOfficialExecutor,
+	type DispatchLogEntry,
 	type DispatchProgress,
 	type FactoryToolSet,
 	formatDispatchLine,
@@ -23,6 +24,7 @@ const OPERATION_ABORTED_MESSAGE = "Operation aborted";
 const SCHEDULER_ABORT_MESSAGE = new RegExp(OPERATION_ABORTED_MESSAGE);
 const EARLY_NATIVE_ABORT_MESSAGE = "native aborted before owned work settled";
 const PARTIAL_CANCEL_TEXT = "partial output";
+const PRIVATE_WRITE_CONTENT = "PRIVATE_WRITE_CONTENT".repeat(100);
 
 async function nextTurn(): Promise<void> {
 	await new Promise<void>((resolve) => setImmediate(resolve));
@@ -181,6 +183,31 @@ test("bridge rejects lossless-invalid args before execute", async () => {
 		/lossless JSON/,
 	);
 	assert.equal(executed, false);
+});
+
+test("bridge bounds durable arguments and rejects quarantined side effects", async () => {
+	const logs: DispatchLogEntry[] = [];
+	const events: Array<{ name: string; payload: unknown }> = [];
+	let acceptSideEffects = true;
+	const bindings = createCoreBindings({
+		execute: async () => ({ content: [] }),
+		scheduler: createScheduler(1),
+		appendLog: (entry) => logs.push(entry),
+		emit: (name, payload) => events.push({ name, payload }),
+		acceptSideEffects: () => acceptSideEffects,
+	});
+
+	await bindings.write({ path: "private.txt", content: PRIVATE_WRITE_CONTENT }, BINDING_SIGNAL);
+	acceptSideEffects = false;
+	await bindings.write({ path: "late.txt", content: PRIVATE_WRITE_CONTENT }, BINDING_SIGNAL);
+
+	assert.equal(logs.length, 1);
+	assert.equal(events.length, 1);
+	assert.deepEqual(logs[0]?.args, { path: "private.txt" });
+	assert.deepEqual((events[0]?.payload as { args?: unknown } | undefined)?.args, {
+		path: "private.txt",
+	});
+	assert.equal(JSON.stringify({ logs, events }).includes(PRIVATE_WRITE_CONTENT), false);
 });
 
 test("bridge turns factory failure into ToolCallError", async () => {

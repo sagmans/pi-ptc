@@ -16,6 +16,12 @@ const DESCRIPTION = "inspect files";
 const LEGACY_DESCRIPTION = "legacy";
 const CONTROLLED_COMMAND = "before\u001b[2Jafter";
 const SANITIZED_COMMAND = "beforeafter";
+const EXTENDED_CONTROLLED_TEXT =
+	"before\u001b[?1049hmiddle\u001bc\u0007\u009b31mred\u001bPpayload\u001b\\after";
+const EXTENDED_SANITIZED_TEXT = "beforemiddleredafter";
+const OVERSIZED_ARGUMENT_TEXT = "argument-data".repeat(100_000);
+const OVERSIZED_DESCRIPTION_TAIL = "DESCRIPTION_TAIL_MUST_BE_OMITTED";
+const OVERSIZED_ERROR_TAIL = "ERROR_TAIL_MUST_BE_OMITTED";
 const COMPATIBILITY_ERROR_MAX_CHARACTERS = 256;
 const LONG_EXECUTION_ERROR = "failure ".repeat(COMPATIBILITY_ERROR_MAX_CHARACTERS);
 const HOSTILE_DETAILS_ERROR = "hostile details";
@@ -81,6 +87,31 @@ test("display JSON strips terminal sequences recursively", () => {
 	});
 });
 
+test("display JSON strips private-mode, reset, C0, C1, and control-string sequences", () => {
+	assert.deepEqual(sanitizeDisplayJson({ command: EXTENDED_CONTROLLED_TEXT }), {
+		command: EXTENDED_SANITIZED_TEXT,
+	});
+
+	const details = createDeltaDetails(DESCRIPTION, {
+		id: 1,
+		name: "bash",
+		args: { command: EXTENDED_CONTROLLED_TEXT },
+		status: "err",
+		preview: EXTENDED_CONTROLLED_TEXT,
+		result: {
+			content: [{ type: "text", text: EXTENDED_CONTROLLED_TEXT }],
+			isError: true,
+		},
+	});
+	const serialized = JSON.stringify(details);
+
+	assert.equal(serialized.includes("\\u001b"), false);
+	assert.equal(serialized.includes("\\u0007"), false);
+	assert.equal(serialized.includes("\\u009b"), false);
+	assert.equal(details.dispatches[0]?.preview, EXTENDED_SANITIZED_TEXT);
+	assert.equal(details.dispatches[0]?.result?.content[0]?.text, EXTENDED_SANITIZED_TEXT);
+});
+
 test("display JSON preserves an own __proto__ key without changing the prototype", () => {
 	const sanitized = sanitizeDisplayJson(JSON.parse(PROTOTYPE_JSON));
 	const record = sanitized as { [key: string]: unknown };
@@ -95,13 +126,13 @@ test("version 2 delta contains one sanitized dispatch", () => {
 	assert.deepEqual(
 		createDeltaDetails(DESCRIPTION, {
 			...START_DISPATCH,
-			args: { command: CONTROLLED_COMMAND },
+			args: { path: CONTROLLED_COMMAND },
 		}),
 		{
 			schemaVersion: PTC_DETAIL_SCHEMA_VERSION,
 			description: DESCRIPTION,
 			mode: "delta",
-			dispatches: [{ ...START_DISPATCH, args: { command: SANITIZED_COMMAND } }],
+			dispatches: [{ ...START_DISPATCH, args: { path: SANITIZED_COMMAND } }],
 		},
 	);
 });
@@ -113,6 +144,31 @@ test("version 2 snapshot orders sanitized dispatches by id", () => {
 		mode: "snapshot",
 		dispatches: [FINAL_DISPATCH, START_DISPATCH],
 	});
+});
+
+test("persisted details bound descriptions, errors, and tool arguments together", () => {
+	const oversizedDescription = `${OVERSIZED_ARGUMENT_TEXT}${OVERSIZED_DESCRIPTION_TAIL}`;
+	const oversizedError = `${OVERSIZED_ARGUMENT_TEXT}${OVERSIZED_ERROR_TAIL}`;
+	const details = createSnapshotDetails(
+		oversizedDescription,
+		Array.from({ length: 3 }, (_, index) => ({
+			id: index + 1,
+			name: "write" as const,
+			args: { path: `file-${index}.txt`, content: OVERSIZED_ARGUMENT_TEXT },
+			status: "ok" as const,
+		})),
+		oversizedError,
+	);
+	const serialized = JSON.stringify(details);
+
+	assert.ok(Buffer.byteLength(serialized, "utf8") <= SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes);
+	assert.equal(serialized.includes(OVERSIZED_DESCRIPTION_TAIL), false);
+	assert.equal(serialized.includes(OVERSIZED_ERROR_TAIL), false);
+	assert.equal(serialized.includes(OVERSIZED_ARGUMENT_TEXT), false);
+	assert.deepEqual(
+		details.dispatches.map((dispatch) => dispatch.args),
+		[{ path: "file-0.txt" }, { path: "file-1.txt" }, { path: "file-2.txt" }],
+	);
 });
 
 test("snapshot render projections omit whole results after the byte budget is exhausted", () => {

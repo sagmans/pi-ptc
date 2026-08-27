@@ -36,12 +36,23 @@ const RENDERER_SOURCE = readFileSync(new URL("../src/renderer.ts", import.meta.u
 const NATIVE_READ_CONTENT = "NATIVE_READ_CONTENT";
 const OMITTED_READ_CONTENT = "OMITTED_READ_CONTENT";
 const OMITTED_RENDER_BUDGET_BYTES = 1;
+const LIVE_WRITE_CONTENT = "bounded live content";
+const NATIVE_WRITE_RENDER_MARKER = "native write renderer";
+const NATIVE_EDIT_RENDER_MARKER = "native edit renderer";
+const LIVE_EDIT_ENTRY_LIMIT = 8;
+const LIVE_EDIT_TEXT_LIMIT_BYTES = 192;
+const OVERSIZED_LIVE_EDIT_TEXT = "x".repeat(LIVE_EDIT_TEXT_LIMIT_BYTES + 1);
+const LOSSY_EDIT_PATH = "lossy.txt";
+const LOSSY_EDIT_REPLACEMENT = "replacement";
+const LOSSY_EDIT_OLD_PREFIX = "old";
+const LOSSY_EDIT_NEW_PREFIX = "new";
 const JPEG_IMAGE_DATA = "aW1hZ2U=";
 const PNG_IMAGE_DATA = "cG5n";
 const CONVERTED_IMAGE_DATA = "Y29udmVydGVk";
 const IMAGE_FALLBACK_TEXT = "[Image: image/png]";
 const ORIGINAL_THEME_TEXT = "ORIGINAL_THEME";
 const UPDATED_THEME_TEXT = "UPDATED_THEME";
+const CALLBACK_TEST_INTERVAL_MS = 60_000;
 const CHILD_RENDER_FAILURE = "child render failure";
 const CONSTRUCTOR_FAILURE = "constructor failure";
 const INVALIDATE_FAILURE = "invalidate failure";
@@ -52,6 +63,7 @@ const RAW_VISIBLE_SUFFIX = "after";
 const RAW_VISIBLE_TEXT = `${RAW_VISIBLE_PREFIX}${RAW_VISIBLE_SUFFIX}`;
 const CALL_RENDER_FAILURE = `${RAW_VISIBLE_PREFIX}\u001b[2J${RAW_VISIBLE_SUFFIX}`;
 const RESULT_RENDER_FAILURE = `${RAW_VISIBLE_PREFIX}\u001b]0;unsafe\u0007${RAW_VISIBLE_SUFFIX}`;
+const EXTENDED_RENDER_CONTROL = `${RAW_VISIBLE_PREFIX}\u001b[?1049h\u001bc\u0007\u009b31m\u001bPpayload\u001b\\${RAW_VISIBLE_SUFFIX}`;
 const RAW_CONTROL_SEQUENCES = [
 	"\u001b[2J",
 	"\u001b[H",
@@ -382,6 +394,108 @@ test("ptc attachments cannot restore a result omitted from persisted details", (
 	]);
 });
 
+test("live write arguments use native rendering while restored redacted rows use a safe fallback", () => {
+	const tool = createTool();
+	const rawDispatch: DispatchProgress = {
+		id: 1,
+		name: "write",
+		args: { path: "live.txt", content: LIVE_WRITE_CONTENT },
+		status: "start",
+	};
+	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
+	attachPtcRenderDispatches(details, [rawDispatch]);
+	let nativeRenderCalls = 0;
+	const createDefinitions = () => ({
+		write: {
+			name: "write",
+			renderCall: (args: { content?: string }) => {
+				nativeRenderCalls += 1;
+				return new Text(`${NATIVE_WRITE_RENDER_MARKER}: ${args.content ?? ""}`, 0, 0);
+			},
+		},
+	});
+	const liveContext = createRenderContext(false);
+	Object.assign(liveContext, { createDefinitions });
+	const liveOutput = render(
+		tool.renderResult(
+			{ content: [{ type: "text", text: "ignored" }], details },
+			{ expanded: false, isPartial: true },
+			THEME,
+			liveContext,
+		),
+	);
+
+	assert.match(liveOutput, new RegExp(NATIVE_WRITE_RENDER_MARKER));
+	assert.match(liveOutput, new RegExp(LIVE_WRITE_CONTENT));
+	assert.equal(nativeRenderCalls, 1);
+	const restoredContext = createRenderContext(false);
+	Object.assign(restoredContext, { createDefinitions });
+	const restoredDetails = JSON.parse(JSON.stringify(details)) as PtcPartialResult["details"];
+	const restoredOutput = render(
+		tool.renderResult(
+			{ content: [{ type: "text", text: "ignored" }], details: restoredDetails },
+			{ expanded: false, isPartial: true },
+			THEME,
+			restoredContext,
+		),
+	);
+
+	assert.match(restoredOutput, /write live\.txt/);
+	assert.doesNotMatch(restoredOutput, new RegExp(NATIVE_WRITE_RENDER_MARKER));
+	assert.doesNotMatch(restoredOutput, new RegExp(LIVE_WRITE_CONTENT));
+	assert.equal(nativeRenderCalls, 1);
+});
+
+test("lossy live edit projections use a safe fallback when terminal render data is omitted", () => {
+	const tool = createTool();
+	const lossyEditCases = [
+		[{ oldText: OVERSIZED_LIVE_EDIT_TEXT, newText: LOSSY_EDIT_REPLACEMENT }],
+		Array.from({ length: LIVE_EDIT_ENTRY_LIMIT + 1 }, (_, index) => ({
+			oldText: `${LOSSY_EDIT_OLD_PREFIX}-${index}`,
+			newText: `${LOSSY_EDIT_NEW_PREFIX}-${index}`,
+		})),
+	];
+
+	for (const edits of lossyEditCases) {
+		const rawDispatch: DispatchProgress = {
+			id: 1,
+			name: "edit",
+			args: { path: LOSSY_EDIT_PATH, edits },
+			status: "ok",
+			result: { content: [], isError: false },
+		};
+		const details = createDeltaDetails(DESCRIPTION, rawDispatch, OMITTED_RENDER_BUDGET_BYTES);
+		attachPtcRenderDispatches(details, [rawDispatch]);
+		let nativeRenderCalls = 0;
+		const context = createRenderContext(false);
+		Object.assign(context, {
+			createDefinitions: () => ({
+				edit: {
+					name: "edit",
+					renderShell: "self",
+					renderCall: () => {
+						nativeRenderCalls += 1;
+						return new Text(NATIVE_EDIT_RENDER_MARKER, 0, 0);
+					},
+				},
+			}),
+		});
+		const output = render(
+			tool.renderResult(
+				{ content: [{ type: "text", text: "ignored" }], details },
+				{ expanded: false, isPartial: false },
+				THEME,
+				context,
+			),
+		);
+
+		assert.equal(details.dispatches[0]?.renderOmitted, "budget");
+		assert.match(output, /edit lossy\.txt/);
+		assert.doesNotMatch(output, new RegExp(NATIVE_EDIT_RENDER_MARKER));
+		assert.equal(nativeRenderCalls, 0);
+	}
+});
+
 test("fresh outer rows reconstruct version 2 native output without hidden transport content", async () => {
 	const details = JSON.parse(JSON.stringify(loadDispatchFixture("version-2-success.json")));
 	const restored = createFreshOuter(details);
@@ -672,6 +786,55 @@ test("ptc sanitizes raw CSI, OSC, and APC across every display channel", () => {
 	}
 });
 
+test("outer fallbacks and renderer diagnostics strip extended terminal controls", () => {
+	const tool = createTool();
+	const fallbackOutput = renderRaw(
+		tool.renderResult(
+			{
+				content: [{ type: "text", text: EXTENDED_RENDER_CONTROL }],
+				details: undefined,
+			} as unknown as PtcToolResult,
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false, true),
+		),
+	);
+	const diagnosticContext = createRenderContext(false);
+	Object.assign(diagnosticContext, {
+		createDefinitions: () => ({
+			read: {
+				name: "read",
+				renderCall: () => {
+					throw new Error(EXTENDED_RENDER_CONTROL);
+				},
+			},
+		}),
+	});
+	const diagnosticOutput = renderRaw(
+		tool.renderResult(
+			{
+				content: [{ type: "text", text: "ignored" }],
+				details: createDeltaDetails(DESCRIPTION, {
+					id: 1,
+					name: "read",
+					args: { path: "safe.txt" },
+					status: "start",
+				}),
+			},
+			{ expanded: false, isPartial: true },
+			THEME,
+			diagnosticContext,
+		),
+	);
+
+	for (const output of [fallbackOutput, diagnosticOutput]) {
+		assert.equal(output.includes("\u001b"), false);
+		assert.equal(output.includes("\u0007"), false);
+		assert.equal(output.includes("\u009b"), false);
+		assert.match(output, new RegExp(RAW_VISIBLE_TEXT));
+	}
+});
+
 test("constructor failures stay inside the real outer tool renderer", () => {
 	const tool = createTool();
 	const hostileTool = {
@@ -930,6 +1093,71 @@ test("theme invalidation rebuilds native slots without retiring current callback
 	const invalidationsBeforeCallback = outerInvalidations;
 	firstInvalidate?.();
 	assert.equal(outerInvalidations, invalidationsBeforeCallback + 1);
+});
+
+test("partial rebuilds keep the active native renderer callback live", () => {
+	const tool = createTool();
+	let activeCallback: (() => void) | undefined;
+	let interval: ReturnType<typeof setInterval> | undefined;
+	let outerInvalidations = 0;
+	let resultRenders = 0;
+	let root: Component | undefined;
+	const context = {
+		...createRenderContext(false),
+		invalidate: () => {
+			outerInvalidations += 1;
+			root?.invalidate();
+		},
+	};
+	Object.assign(context, {
+		createDefinitions: () => ({
+			bash: {
+				name: "bash",
+				renderCall: () => new Text("bash", 0, 0),
+				renderResult: (
+					_result: unknown,
+					_options: unknown,
+					_theme: Theme,
+					slot: { invalidate(): void; state: Record<string, unknown> },
+				) => {
+					resultRenders += 1;
+					if (!slot.state.interval) {
+						activeCallback = slot.invalidate;
+						interval = setInterval(() => undefined, CALLBACK_TEST_INTERVAL_MS);
+						slot.state.interval = interval;
+					}
+					return new Text(`working-${resultRenders}`, 0, 0);
+				},
+			},
+		}),
+	});
+	try {
+		for (const preview of ["first", "second"]) {
+			root = tool.renderResult(
+				{
+					content: [{ type: "text", text: "ignored" }],
+					details: createDeltaDetails(DESCRIPTION, {
+						id: 1,
+						name: "bash",
+						args: { command: "sleep 1" },
+						status: "start",
+						preview,
+					}),
+				},
+				{ expanded: false, isPartial: true },
+				THEME,
+				context,
+			);
+		}
+
+		const invalidationsBeforeCallback = outerInvalidations;
+		const rendersBeforeCallback = resultRenders;
+		activeCallback?.();
+		assert.equal(outerInvalidations, invalidationsBeforeCallback + 1);
+		assert.equal(resultRenders, rendersBeforeCallback + 1);
+	} finally {
+		if (interval) clearInterval(interval);
+	}
 });
 
 test("image conversion is deduplicated and bound to the current row generation", async () => {

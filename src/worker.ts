@@ -8,7 +8,12 @@ import { type JsonValue, snapshotJsonValue } from "./json.ts";
 type BootData = {
 	program: string;
 	bindingNames: string[];
+	maxOutputBytes: number;
+	maxOutputLines: number;
 };
+
+const EMPTY_FAILURE_MESSAGE = "";
+const UTF8_ENCODING = "utf8";
 
 type ReplyMessage =
 	| { type: "reply"; id: number; ok: true; value: JsonValue }
@@ -35,6 +40,10 @@ const pending = new Map<
 	{ resolve: (value: JsonValue) => void; reject: (error: Error) => void }
 >();
 let nextCallId = 1;
+
+function logicalLineCount(text: string): number {
+	return text.split(/\r\n|\r|\n/).length;
+}
 
 port.on("message", (raw: unknown) => {
 	if (typeof raw !== "object" || raw === null) return;
@@ -88,6 +97,17 @@ void (async () => {
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
+		if (
+			Buffer.byteLength(message, UTF8_ENCODING) > boot.maxOutputBytes ||
+			logicalLineCount(message) > boot.maxOutputLines
+		) {
+			port.postMessage({
+				type: "fail",
+				kind: "output-limit",
+				message: EMPTY_FAILURE_MESSAGE,
+			});
+			return;
+		}
 		const kind = message.includes("lossless JSON") ? "invalid-output" : "throw";
 		port.postMessage({ type: "fail", kind, message });
 	}
