@@ -1,6 +1,6 @@
 # pi-ptc compared with PTC and Code Mode implementations
 
-Scope: current `feat-ptc-plan` working tree.
+Scope: Pi `0.84.3` compatibility matrix.
 
 ```text
 pi-ptc
@@ -19,8 +19,8 @@ pi-ptc
 │  │  └─ Worker containment explicitly is not a security boundary
 │  ├─ pi-ptc stronger for Pi UX
 │  │  ├─ Hides the outer transport card
-│  │  ├─ Shows every nested dispatch as a separate native-like row
-│  │  ├─ Shows compact output previews
+│  │  ├─ Invokes Pi's public built-in renderers inside PTC-owned rows
+│  │  ├─ Persists bounded native results for deterministic row restoration
 │  │  └─ Keeps unrelated Pi extensions visible
 │  └─ DSH stronger as a general harness
 │     ├─ Generates argument and output types from the live visible registry
@@ -70,8 +70,8 @@ Its main gaps are:
    Execution provide stronger boundaries.
 3. **Schema breadth** — the SDK and canonical mappings are handwritten for seven
    tools. DSH, Cloudflare, and Pydantic project live tool definitions.
-4. **Execution controls** — concurrency, wall time, heap, and output are bounded,
-   but total nested-call count is not. Pydantic reserves a configurable call budget.
+4. **Interactive controls** — concurrency, total dispatch count, wall time, heap,
+   output, and persisted render details are bounded, but there is no approval or pause gate.
 5. **Durability** — each call starts clean and nested logs are thin. Cloudflare adds
    pause/approval/replay/rollback; Pydantic retains run-local REPL state.
 
@@ -83,11 +83,19 @@ larger sandbox or connector framework.
 Priority order before broadening scope:
 
 1. Switch nested dispatches to a future public Pi invoke/policy path.
-2. Add a total dispatch budget.
+2. Keep dispatch and render-detail budgets aligned with measured local workflows.
 3. Generate SDK argument/output declarations if foreign tools become eligible.
 4. Add a real sandbox only if the product claim changes from bash-equivalent local
    code to untrusted or multi-tenant execution.
 5. Add replay, approvals, or persistent state only for evidenced workflows.
+
+## Compatibility evidence
+
+Pi-bundled package peers use the host-provided `"*"` range required by Pi's package
+contract. Development dependencies remain pinned to Pi `0.84.3`. `npm run verify`
+gates Node types, formatting, and behavior; `npm run test:bun` gates worker lifecycle,
+native rendering, terminal sanitation, independent errors, JSON restoration, and
+bounded 50/100-dispatch scaling under Bun.
 
 ## Sources
 

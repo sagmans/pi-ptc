@@ -23,6 +23,15 @@ pi -e /absolute/path/to/pi-ptc
 ```
 
 Requires Node `>=22.19.0`. TUI integration is verified against Pi `0.84.3`.
+Pi supplies the bundled coding-agent, TUI, and TypeBox peer dependencies; local
+compatibility tests keep those development dependencies pinned to the verified host.
+
+Repeat the Node and Bun compatibility gates with:
+
+```bash
+npm run verify
+npm run test:bun
+```
 
 ## Usage
 
