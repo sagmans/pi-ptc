@@ -71,6 +71,15 @@ const RAW_CONTROL_SEQUENCES = [
 	"\u001b]8;;https://unsafe.invalid\u0007\u001b]8;;\u0007",
 	"\u001b_pi:unsafe\u0007",
 ] as const;
+const CONTROLLED_TOOL_NAME_CASES = [
+	"before\u001b[31mafter",
+	"before\u001b]0;unsafe-title\u0007after",
+	"before\u001b_payload\u001b\\after",
+	"before\nafter",
+	"before\u009b31mafter",
+] as const;
+const OVERSIZED_TOOL_NAME = "tool-name".repeat(1_000);
+const MAX_FALLBACK_RENDER_BYTES = 1_024;
 const LIMITS = {
 	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
@@ -746,6 +755,34 @@ test("ptc root contains child rendering failures", () => {
 	assert.match(output, /execution/);
 	assert.match(output, new RegExp(CHILD_RENDER_FAILURE));
 	assert.doesNotMatch(output, /unsafe\.txt/);
+});
+
+test("ptc fallback sanitizes and bounds arbitrary tool names", () => {
+	const tool = createTool();
+	for (const name of CONTROLLED_TOOL_NAME_CASES) {
+		const output = renderRaw(
+			tool.renderResult(
+				resultWith([{ id: 1, name, args: {}, status: "ok" }]),
+				{ expanded: false, isPartial: false },
+				THEME,
+				createRenderContext(false),
+			),
+		);
+
+		assert.equal(output.includes(name), false, JSON.stringify(output));
+		assert.match(output, /beforeafter/);
+	}
+
+	const oversizedOutput = renderRaw(
+		tool.renderResult(
+			resultWith([{ id: 1, name: OVERSIZED_TOOL_NAME, args: {}, status: "ok" }]),
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+	assert.ok(Buffer.byteLength(oversizedOutput, "utf8") <= MAX_FALLBACK_RENDER_BYTES);
+	assert.equal(oversizedOutput.includes(OVERSIZED_TOOL_NAME), false);
 });
 
 test("ptc sanitizes raw CSI, OSC, and APC across every display channel", () => {

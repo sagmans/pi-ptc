@@ -9,8 +9,10 @@ import {
 	createSnapshotDetails,
 	PTC_DETAIL_SCHEMA_VERSION,
 	parseDispatchDetails,
+	projectDisplayArguments,
 	sanitizeDisplayJson,
 } from "../src/dispatch-details.ts";
+import type { JsonValue } from "../src/json.ts";
 
 const DESCRIPTION = "inspect files";
 const LEGACY_DESCRIPTION = "legacy";
@@ -59,6 +61,24 @@ const VERSION_TWO_SUCCESS_FIXTURE = "version-2-success.json";
 const VERSION_TWO_ERRORS_FIXTURE = "version-2-errors.json";
 const VERSION_TWO_MALFORMED_FIXTURE = "version-2-malformed.json";
 const LEGACY_NO_ID_FIXTURE = "legacy-no-id.json";
+const GENERIC_TOOL_NAME = "mcp.server/call[odd name]";
+const GENERIC_REDACTION_MARKER = "[REDACTED]";
+const GENERIC_ARGUMENT_MAX_BYTES = 8192;
+const GENERIC_LARGE_VALUE = "GENERIC_PRIVATE_VALUE".repeat(10_000);
+const CONTROLLED_TOOL_NAMES = [
+	"before\u001b[31mafter",
+	"before\u001b]0;unsafe-title\u0007after",
+	"before\u001b_payload\u001b\\after",
+	"before\nafter",
+	"before\u009b31mafter",
+] as const;
+const COMPOUND_CREDENTIAL_VALUES = [
+	"private-access",
+	"private-refresh",
+	"private-auth",
+	"private-bearer",
+	"private-session",
+] as const;
 
 const START_DISPATCH = {
 	id: 2,
@@ -544,4 +564,188 @@ test("version 2 details survive a JSON round-trip", () => {
 	const restored = parseDispatchDetails(JSON.parse(JSON.stringify(details)));
 
 	assert.deepEqual(restored, details);
+});
+
+test("arbitrary exact tool names round-trip through dispatch details", () => {
+	const details = createDeltaDetails(DESCRIPTION, {
+		id: 7,
+		name: GENERIC_TOOL_NAME,
+		args: { operation: "status" },
+		status: "ok",
+		preview: "complete",
+	});
+	const restored = parseDispatchDetails(JSON.parse(JSON.stringify(details)));
+
+	assert.deepEqual(details.dispatches, [
+		{
+			id: 7,
+			name: GENERIC_TOOL_NAME,
+			args: { operation: "status" },
+			status: "ok",
+			preview: "complete",
+		},
+	]);
+	assert.deepEqual(restored, details);
+});
+
+test("controlled exact tool names remain intact in persisted models", () => {
+	const details = createSnapshotDetails(
+		DESCRIPTION,
+		CONTROLLED_TOOL_NAMES.map((name, index) => ({
+			id: index + 1,
+			name,
+			args: {},
+			status: "ok" as const,
+		})),
+	);
+	const restored = parseDispatchDetails(JSON.parse(JSON.stringify(details)));
+
+	assert.deepEqual(
+		details.dispatches.map(({ name }) => name),
+		CONTROLLED_TOOL_NAMES,
+	);
+	assert.deepEqual(
+		restored.dispatches.map(({ name }) => name),
+		CONTROLLED_TOOL_NAMES,
+	);
+});
+
+test("generic display arguments redact normalized credential keys recursively", () => {
+	const projected = projectDisplayArguments(GENERIC_TOOL_NAME, {
+		Password: "one",
+		nested: {
+			SECRET: "two",
+			token: "three",
+			Authorization: "four",
+			cookie: "five",
+			client_secret: "six",
+			OAuthCode: "seven",
+			"redirect-url": "eight",
+			keep: CONTROLLED_COMMAND,
+		},
+		array: [{ ClientSecret: "nine" }, { redirect_url: "ten" }],
+	});
+
+	assert.deepEqual(projected, {
+		Password: GENERIC_REDACTION_MARKER,
+		nested: {
+			SECRET: GENERIC_REDACTION_MARKER,
+			token: GENERIC_REDACTION_MARKER,
+			Authorization: GENERIC_REDACTION_MARKER,
+			cookie: GENERIC_REDACTION_MARKER,
+			client_secret: GENERIC_REDACTION_MARKER,
+			OAuthCode: GENERIC_REDACTION_MARKER,
+			"redirect-url": GENERIC_REDACTION_MARKER,
+			keep: SANITIZED_COMMAND,
+		},
+		array: [{ ClientSecret: GENERIC_REDACTION_MARKER }, { redirect_url: GENERIC_REDACTION_MARKER }],
+	});
+});
+
+test("retained generic arguments redact compound credential keys recursively", () => {
+	const details = createDeltaDetails(DESCRIPTION, {
+		id: 1,
+		name: GENERIC_TOOL_NAME,
+		args: {
+			nested: {
+				access_token: COMPOUND_CREDENTIAL_VALUES[0],
+				refreshToken: COMPOUND_CREDENTIAL_VALUES[1],
+			},
+			array: [
+				{ authToken: COMPOUND_CREDENTIAL_VALUES[2] },
+				{ bearer_token: COMPOUND_CREDENTIAL_VALUES[3] },
+				{ session_cookie: COMPOUND_CREDENTIAL_VALUES[4] },
+			],
+			tokenizer: "keep-tokenizer",
+			secretary: "keep-secretary",
+		},
+		status: "ok",
+	});
+
+	assert.deepEqual(details.dispatches[0]?.args, {
+		nested: {
+			access_token: GENERIC_REDACTION_MARKER,
+			refreshToken: GENERIC_REDACTION_MARKER,
+		},
+		array: [
+			{ authToken: GENERIC_REDACTION_MARKER },
+			{ bearer_token: GENERIC_REDACTION_MARKER },
+			{ session_cookie: GENERIC_REDACTION_MARKER },
+		],
+		tokenizer: "keep-tokenizer",
+		secretary: "keep-secretary",
+	});
+	const serialized = JSON.stringify(details);
+	for (const value of COMPOUND_CREDENTIAL_VALUES) assert.equal(serialized.includes(value), false);
+});
+
+test("generic display arguments omit a revoked top-level proxy", () => {
+	const { proxy, revoke } = Proxy.revocable({}, {});
+	revoke();
+
+	assert.deepEqual(projectDisplayArguments(GENERIC_TOOL_NAME, proxy), {});
+});
+
+test("generic display arguments omit a revoked nested object property", () => {
+	const { proxy, revoke } = Proxy.revocable({}, {});
+	revoke();
+
+	assert.deepEqual(
+		projectDisplayArguments(GENERIC_TOOL_NAME, {
+			before: "visible before",
+			inaccessible: proxy,
+			after: "visible after",
+		}),
+		{
+			before: "visible before",
+			after: "visible after",
+		},
+	);
+});
+
+test("generic display arguments omit a revoked array entry", () => {
+	const { proxy, revoke } = Proxy.revocable({}, {});
+	revoke();
+
+	assert.deepEqual(
+		projectDisplayArguments(GENERIC_TOOL_NAME, ["visible before", proxy, "visible after"]),
+		["visible before", "visible after"],
+	);
+});
+
+test("generic display arguments stay bounded and tolerate hostile recursive values", () => {
+	const cyclic: Record<string, unknown> = {
+		large: GENERIC_LARGE_VALUE,
+		nested: [{ safe: "yes", password: GENERIC_LARGE_VALUE }],
+		nonFinite: Number.POSITIVE_INFINITY,
+		negativeZero: -0,
+		missing: undefined,
+		callable: () => undefined,
+		symbol: Symbol("hidden"),
+	};
+	cyclic.self = cyclic;
+	Object.defineProperty(cyclic, "accessor", {
+		enumerable: true,
+		get() {
+			throw new Error(HOSTILE_DETAILS_ERROR);
+		},
+	});
+	cyclic.hostile = new Proxy(
+		{},
+		{
+			ownKeys() {
+				throw new Error(HOSTILE_DETAILS_ERROR);
+			},
+		},
+	);
+
+	let projected: JsonValue | undefined;
+	assert.doesNotThrow(() => {
+		projected = projectDisplayArguments(GENERIC_TOOL_NAME, cyclic);
+	});
+	const serialized = JSON.stringify(projected);
+	assert.ok(Buffer.byteLength(serialized, "utf8") <= GENERIC_ARGUMENT_MAX_BYTES);
+	assert.equal(serialized.includes(GENERIC_LARGE_VALUE), false);
+	assert.equal(serialized.includes("accessor"), false);
+	assert.equal(serialized.includes("private"), false);
 });

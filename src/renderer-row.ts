@@ -7,6 +7,7 @@ import {
 	sanitizeDisplayJson,
 	sanitizeDisplayText,
 } from "./dispatch-details.ts";
+import { DISPLAY_TOOL_NAME_MAX_BYTES, sanitizeBoundedDisplayLabel } from "./display-sanitizer.ts";
 import type { NativeRenderContext, PtcImageServices, PtcRowView } from "./renderer-contract.ts";
 import {
 	createDiagnosticText,
@@ -165,12 +166,9 @@ export class PtcDispatchRow implements Component {
 
 	private renderFallbackCall(): Component {
 		const args = this.dispatch.args;
+		const name = sanitizeBoundedDisplayLabel(this.dispatch.name, DISPLAY_TOOL_NAME_MAX_BYTES);
 		const path = isUnknownRecord(args) && typeof args.path === "string" ? ` ${args.path}` : "";
-		return new Text(
-			this.view.theme.fg("toolTitle", this.view.theme.bold(`${this.dispatch.name}${path}`)),
-			0,
-			0,
-		);
+		return new Text(this.view.theme.fg("toolTitle", this.view.theme.bold(`${name}${path}`)), 0, 0);
 	}
 
 	private renderResult(result: PtcPersistedRenderResult): Component | undefined {

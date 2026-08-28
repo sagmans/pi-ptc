@@ -1,5 +1,5 @@
-import type { CoreToolName } from "./config.ts";
 import type { DispatchProgress, DispatchStatus, DispatchSummary } from "./dispatch-contract.ts";
+import { DISPLAY_TOOL_NAME_MAX_BYTES, sanitizeBoundedDisplayLabel } from "./display-sanitizer.ts";
 import type { JsonValue } from "./json.ts";
 
 const DISPATCH_PREVIEW_MAX_CHARACTERS = 1200;
@@ -9,7 +9,7 @@ const DISPATCH_OK_MARK = "ok";
 const DISPATCH_ERR_MARK = "err";
 const ELLIPSIS = "…";
 
-export function dispatchTarget(name: CoreToolName, args: JsonValue): string {
+export function dispatchTarget(name: string, args: JsonValue): string {
 	if (!isRecord(args)) return "";
 	if (name === "bash") {
 		return typeof args.command === "string" ? args.command : "";
@@ -25,8 +25,9 @@ export function formatDispatchLine(
 	progress: Pick<DispatchProgress, "name" | "args" | "status">,
 ): string {
 	const mark = dispatchStatusMark(progress.status);
+	const name = sanitizeBoundedDisplayLabel(progress.name, DISPLAY_TOOL_NAME_MAX_BYTES);
 	const target = dispatchTarget(progress.name, progress.args);
-	return target.length > 0 ? `${progress.name} ${mark} ${target}` : `${progress.name} ${mark}`;
+	return target.length > 0 ? `${name} ${mark} ${target}` : `${name} ${mark}`;
 }
 
 function dispatchStatusMark(status: DispatchStatus): string {
@@ -71,11 +72,7 @@ function boundPreview(text: string, direction: "head" | "tail"): string | undefi
 		: ELLIPSIS + preview.slice(-contentLength);
 }
 
-export function dispatchPreview(
-	name: CoreToolName,
-	text: string,
-	isError: boolean,
-): string | undefined {
+export function dispatchPreview(name: string, text: string, isError: boolean): string | undefined {
 	if (!isError && (name === "read" || name === "edit" || name === "write")) {
 		return undefined;
 	}

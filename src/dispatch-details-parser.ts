@@ -1,4 +1,4 @@
-import { isCoreToolName, SHIPPED_PTC_CONFIG } from "./config.ts";
+import { SHIPPED_PTC_CONFIG } from "./config.ts";
 import type { DispatchStatus, DispatchSummary } from "./dispatch-contract.ts";
 import {
 	compareDispatchIds,
@@ -199,7 +199,7 @@ function parseDispatchBase(
 	if (requireId && !hasExplicitId) return undefined;
 	const id = hasExplicitId ? value.id : 1;
 	if (!isPositiveInteger(id)) return undefined;
-	if (typeof value.name !== "string" || !isCoreToolName(value.name)) return undefined;
+	if (typeof value.name !== "string") return undefined;
 	if (!isDispatchStatus(value.status)) return undefined;
 	if (!hasLosslessArguments(value)) return undefined;
 	return {

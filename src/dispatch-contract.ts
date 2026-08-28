@@ -5,7 +5,7 @@ import type { BindingFn } from "./runtime-contract.ts";
 
 export type DispatchLogEntry = {
 	customType: typeof DISPATCH_LOG_TYPE;
-	name: CoreToolName;
+	name: string;
 	args: JsonValue;
 	isError: boolean;
 };
@@ -25,7 +25,7 @@ export type DispatchRenderResult = {
 
 export type DispatchProgress = {
 	id: number;
-	name: CoreToolName;
+	name: string;
 	args: JsonValue;
 	status: DispatchStatus;
 	preview?: string;

@@ -29,22 +29,46 @@ function snapshotNumber(value: number): number {
 	return value;
 }
 
-function snapshotComposite(value: object, seen: WeakSet<object>): JsonValue {
-	if (seen.has(value)) fail();
-	seen.add(value);
-	return Array.isArray(value) ? snapshotArray(value, seen) : snapshotRecord(value, seen);
+function snapshotComposite(value: object, ancestors: WeakSet<object>): JsonValue {
+	if (ancestors.has(value)) fail();
+	ancestors.add(value);
+	try {
+		if (Array.isArray(value)) return snapshotArray(value, ancestors);
+		if (!isPlainRecord(value)) fail();
+		return snapshotRecord(value, ancestors);
+	} finally {
+		ancestors.delete(value);
+	}
 }
 
-function snapshotArray(value: readonly unknown[], seen: WeakSet<object>): JsonValue[] {
-	return value.map((entry) => snapshot(entry, seen));
+function snapshotArray(value: readonly unknown[], ancestors: WeakSet<object>): JsonValue[] {
+	const array: JsonValue[] = [];
+	for (let index = 0; index < value.length; index += 1) {
+		if (!Object.hasOwn(value, index)) fail();
+		array.push(snapshot(Reflect.get(value, index), ancestors));
+	}
+	return array;
 }
 
-function snapshotRecord(value: object, seen: WeakSet<object>): { [key: string]: JsonValue } {
+function snapshotRecord(
+	value: Record<string, unknown>,
+	ancestors: WeakSet<object>,
+): { [key: string]: JsonValue } {
 	const record: { [key: string]: JsonValue } = {};
-	for (const [key, entry] of Object.entries(value)) {
-		record[key] = snapshot(entry, seen);
+	for (const key of Object.keys(value)) {
+		Object.defineProperty(record, key, {
+			configurable: true,
+			enumerable: true,
+			value: snapshot(Reflect.get(value, key), ancestors),
+			writable: true,
+		});
 	}
 	return record;
+}
+
+function isPlainRecord(value: object): value is Record<string, unknown> {
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
 }
 
 export function snapshotJsonValue(value: unknown): JsonValue {

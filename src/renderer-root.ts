@@ -1,3 +1,4 @@
+import { isCoreToolName } from "./config.ts";
 import type { PtcPersistedDispatch } from "./dispatch-details.ts";
 import type {
 	PtcDefinitionRegistry,
@@ -68,7 +69,7 @@ export class SafePtcRoot implements PtcRendererRoot {
 			if (!row) {
 				row = new PtcDispatchRow({
 					cwd: this.cwd,
-					definition: this.definitions[dispatch.name],
+					definition: isCoreToolName(dispatch.name) ? this.definitions[dispatch.name] : undefined,
 					dispatch,
 					imageServices: this.imageServices,
 					toolCallId: `${this.toolCallId}${NESTED_TOOL_CALL_SEPARATOR}${dispatch.id}`,

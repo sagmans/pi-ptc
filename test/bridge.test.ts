@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import * as bridge from "../src/bridge.ts";
 import {
 	createCoreBindings,
 	createFactoryExecutor,
@@ -15,7 +16,16 @@ import {
 } from "../src/bridge.ts";
 import { ToolCallError } from "../src/canonical.ts";
 import { CORE_TOOL_NAMES, DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "../src/config.ts";
-import { createScheduler } from "../src/scheduler.ts";
+import type { JsonValue } from "../src/json.ts";
+import type { BindingFn } from "../src/runtime-contract.ts";
+import { createScheduler, type Scheduler } from "../src/scheduler.ts";
+import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
+import type {
+	NestedToolDispatchRequest,
+	NestedToolDispatchResult,
+	NestedToolRuntimeResult,
+	ToolExecutor,
+} from "../src/tool-executor.ts";
 
 const BINDING_SIGNAL = new AbortController().signal;
 const QUEUED_ABORT_FIRST_PATH = "first.txt";
@@ -25,10 +35,500 @@ const SCHEDULER_ABORT_MESSAGE = new RegExp(OPERATION_ABORTED_MESSAGE);
 const EARLY_NATIVE_ABORT_MESSAGE = "native aborted before owned work settled";
 const PARTIAL_CANCEL_TEXT = "partial output";
 const PRIVATE_WRITE_CONTENT = "PRIVATE_WRITE_CONTENT".repeat(100);
+const GENERIC_TOOL_NAME = "mcp.server/call[odd name]";
+const OTHER_GENERIC_TOOL_NAME = "__proto__";
+const INACTIVE_TOOL_NAME = "inactive.tool";
+const GENERIC_REDACTION_MARKER = "[REDACTED]";
+const GENERIC_FAILED_MESSAGE = "tool failed";
+const CONTROLLED_TOOL_NAME_CASES = [
+	{ raw: "before\u001b[31mafter", safe: "beforeafter" },
+	{ raw: "before\u001b]0;unsafe-title\u0007after", safe: "beforeafter" },
+	{ raw: "before\u001b_payload\u001b\\after", safe: "beforeafter" },
+	{ raw: "before\nafter", safe: "beforeafter" },
+	{ raw: "before\u009b31mafter", safe: "beforeafter" },
+] as const;
+const CONTROLLED_TOOL_NAME = CONTROLLED_TOOL_NAME_CASES.map(({ raw }) => raw).join(":");
+const OVERSIZED_TOOL_NAME = "tool-name".repeat(1_000);
+const MAX_FORMATTED_TOOL_LINE_BYTES = 512;
+const COMPOUND_CREDENTIAL_VALUES = [
+	"private-access",
+	"private-refresh",
+	"private-auth",
+	"private-bearer",
+	"private-session",
+] as const;
+
+type ToolBindingsFactory = (
+	snapshot: readonly ToolCatalogEntry[],
+	executor: ToolExecutor,
+	scheduler: Scheduler,
+	reporting: {
+		appendLog?: (entry: DispatchLogEntry) => void;
+		emit?: (name: string, payload: unknown) => void;
+		acceptSideEffects?: () => boolean;
+		reportDispatch?: (progress: DispatchProgress) => void;
+	},
+) => Record<string, BindingFn>;
+
+function createGenericBindings(
+	snapshot: readonly ToolCatalogEntry[],
+	executor: ToolExecutor,
+	scheduler = createScheduler(2),
+	reporting: Parameters<ToolBindingsFactory>[3] = {},
+): Record<string, BindingFn> {
+	const factory = Reflect.get(bridge, "createToolBindings");
+	assert.equal(typeof factory, "function", "createToolBindings export must exist");
+	return (factory as ToolBindingsFactory)(snapshot, executor, scheduler, reporting);
+}
+
+function catalogEntry(name: string, executionMode?: "parallel" | "sequential"): ToolCatalogEntry {
+	return {
+		name,
+		definition: { name },
+		executable: {
+			parameters: { type: "object" },
+			...(executionMode ? { executionMode } : {}),
+			async execute() {
+				throw new Error("catalog executable must not run directly from bindings");
+			},
+		},
+	};
+}
+
+function dispatchResult(
+	request: NestedToolDispatchRequest,
+	result: NestedToolRuntimeResult,
+	isError = false,
+): NestedToolDispatchResult {
+	return {
+		toolCallId: `nested:${request.name}`,
+		name: request.name,
+		rawArgs: request.args,
+		result,
+		isError,
+	};
+}
+
+function toolExecutor(
+	dispatch: (request: NestedToolDispatchRequest) => Promise<NestedToolDispatchResult>,
+): ToolExecutor {
+	return { dispatch };
+}
 
 async function nextTurn(): Promise<void> {
 	await new Promise<void>((resolve) => setImmediate(resolve));
 }
+
+test("generic bindings preserve controlled exact names across internal channels", async () => {
+	const logs: DispatchLogEntry[] = [];
+	const events: Array<{ name: string; payload: unknown }> = [];
+	const reported: DispatchProgress[] = [];
+	let executedName: string | undefined;
+	const bindings = createGenericBindings(
+		[catalogEntry(CONTROLLED_TOOL_NAME)],
+		toolExecutor(async (request) => {
+			executedName = request.name;
+			return dispatchResult(request, { content: [] });
+		}),
+		createScheduler(2),
+		{
+			appendLog: (entry) => logs.push(entry),
+			emit: (name, payload) => events.push({ name, payload }),
+			reportDispatch: (progress) => reported.push(progress),
+		},
+	);
+
+	await bindings[CONTROLLED_TOOL_NAME]?.({}, BINDING_SIGNAL);
+
+	assert.equal(executedName, CONTROLLED_TOOL_NAME);
+	assert.equal(logs[0]?.name, CONTROLLED_TOOL_NAME);
+	assert.equal((events[0]?.payload as { name?: unknown } | undefined)?.name, CONTROLLED_TOOL_NAME);
+	assert.deepEqual(
+		reported.map(({ name }) => name),
+		[CONTROLLED_TOOL_NAME, CONTROLLED_TOOL_NAME],
+	);
+});
+
+test("dispatch formatting sanitizes and bounds arbitrary tool names", () => {
+	for (const { raw, safe } of CONTROLLED_TOOL_NAME_CASES) {
+		assert.equal(formatDispatchLine({ name: raw, args: {}, status: "ok" }), `${safe} ok`);
+	}
+	const oversized = formatDispatchLine({ name: OVERSIZED_TOOL_NAME, args: {}, status: "ok" });
+	assert.ok(Buffer.byteLength(oversized, "utf8") <= MAX_FORMATTED_TOOL_LINE_BYTES);
+	assert.equal(oversized.includes(OVERSIZED_TOOL_NAME), false);
+});
+
+test("generic bindings expose only a fixed exact snapshot through a null prototype", async () => {
+	const snapshot = [catalogEntry(GENERIC_TOOL_NAME), catalogEntry(OTHER_GENERIC_TOOL_NAME)];
+	const called: Array<{ name: string; args: unknown }> = [];
+	const bindings = createGenericBindings(
+		snapshot,
+		toolExecutor(async (request) => {
+			called.push({ name: request.name, args: request.args });
+			return dispatchResult(request, {
+				content: [{ type: "text", text: `called:${request.name}` }],
+			});
+		}),
+	);
+	snapshot.push(catalogEntry(INACTIVE_TOOL_NAME));
+
+	assert.equal(Object.getPrototypeOf(bindings), null);
+	assert.deepEqual(Object.keys(bindings), [GENERIC_TOOL_NAME, OTHER_GENERIC_TOOL_NAME]);
+	assert.equal(bindings.ptc, undefined);
+	assert.equal(bindings[INACTIVE_TOOL_NAME], undefined);
+	assert.deepEqual(await bindings[GENERIC_TOOL_NAME]?.({ exact: true }, BINDING_SIGNAL), {
+		text: `called:${GENERIC_TOOL_NAME}`,
+		content: [{ type: "text", text: `called:${GENERIC_TOOL_NAME}` }],
+	});
+	assert.deepEqual(await bindings[OTHER_GENERIC_TOOL_NAME]?.({}, BINDING_SIGNAL), {
+		text: `called:${OTHER_GENERIC_TOOL_NAME}`,
+		content: [{ type: "text", text: `called:${OTHER_GENERIC_TOOL_NAME}` }],
+	});
+	assert.deepEqual(called, [
+		{ name: GENERIC_TOOL_NAME, args: { exact: true } },
+		{ name: OTHER_GENERIC_TOOL_NAME, args: {} },
+	]);
+});
+
+test("generic bindings classify parallel and sequential entries through one scheduler", async () => {
+	const firstName = "parallel.one";
+	const secondName = "parallel.two";
+	const sequentialName = "sequential.after";
+	const started: string[] = [];
+	let releaseParallel!: () => void;
+	const parallelGate = new Promise<void>((resolve) => {
+		releaseParallel = resolve;
+	});
+	const bindings = createGenericBindings(
+		[
+			catalogEntry(firstName, "parallel"),
+			catalogEntry(secondName, "parallel"),
+			catalogEntry(sequentialName, "sequential"),
+		],
+		toolExecutor(async (request) => {
+			started.push(request.name);
+			if (request.name !== sequentialName) await parallelGate;
+			return dispatchResult(request, { content: [] });
+		}),
+		createScheduler(2),
+	);
+
+	const first = bindings[firstName]?.({}, BINDING_SIGNAL);
+	const second = bindings[secondName]?.({}, BINDING_SIGNAL);
+	await nextTurn();
+	assert.deepEqual(started, [firstName, secondName]);
+	const sequential = bindings[sequentialName]?.({}, BINDING_SIGNAL);
+	await nextTurn();
+	assert.deepEqual(started, [firstName, secondName]);
+	releaseParallel();
+	await Promise.all([first, second, sequential]);
+	assert.deepEqual(started, [firstName, secondName, sequentialName]);
+});
+
+test("generic bindings cancel queued work before executor dispatch", async () => {
+	const firstName = "parallel.first";
+	const queuedName = "parallel.queued";
+	const started: string[] = [];
+	let releaseFirst!: () => void;
+	const firstGate = new Promise<void>((resolve) => {
+		releaseFirst = resolve;
+	});
+	const bindings = createGenericBindings(
+		[catalogEntry(firstName, "parallel"), catalogEntry(queuedName, "parallel")],
+		toolExecutor(async (request) => {
+			started.push(request.name);
+			if (request.name === firstName) await firstGate;
+			return dispatchResult(request, { content: [] });
+		}),
+		createScheduler(1),
+	);
+	const controller = new AbortController();
+	const first = bindings[firstName]?.({}, BINDING_SIGNAL);
+	const queued = bindings[queuedName]?.({}, controller.signal);
+	assert.ok(queued);
+	const rejection = assert.rejects(queued, SCHEDULER_ABORT_MESSAGE);
+
+	controller.abort();
+	releaseFirst();
+	await Promise.all([first, rejection]);
+	assert.deepEqual(started, [firstName]);
+});
+
+test("generic bindings report partial and final native progress and bounded side effects", async () => {
+	const logs: DispatchLogEntry[] = [];
+	const events: Array<{ name: string; payload: unknown }> = [];
+	const reported: DispatchProgress[] = [];
+	const args = { path: "remote/item", token: "private-token" };
+	const bindings = createGenericBindings(
+		[catalogEntry(GENERIC_TOOL_NAME)],
+		toolExecutor(async (request) => {
+			await request.onUpdate?.({
+				content: [{ type: "text", text: "partial" }],
+				details: { stage: "partial" },
+			});
+			return dispatchResult(request, {
+				content: [{ type: "text", text: "final" }],
+				details: { stage: "final" },
+				usage: { totalTokens: 7 },
+			});
+		}),
+		createScheduler(2),
+		{
+			appendLog: (entry) => logs.push(entry),
+			emit: (name, payload) => events.push({ name, payload }),
+			reportDispatch: (progress) => reported.push(progress),
+		},
+	);
+
+	assert.deepEqual(await bindings[GENERIC_TOOL_NAME]?.(args, BINDING_SIGNAL), {
+		text: "final",
+		content: [{ type: "text", text: "final" }],
+		details: { stage: "final" },
+		usage: { totalTokens: 7 },
+	});
+	assert.deepEqual(
+		reported.map(({ id, name, status, preview }) => ({ id, name, status, preview })),
+		[
+			{ id: 1, name: GENERIC_TOOL_NAME, status: "start", preview: undefined },
+			{ id: 1, name: GENERIC_TOOL_NAME, status: "start", preview: undefined },
+			{ id: 1, name: GENERIC_TOOL_NAME, status: "ok", preview: "final" },
+		],
+	);
+	assert.deepEqual(reported[1]?.result?.details, { stage: "partial" });
+	assert.deepEqual(reported[2]?.result?.details, { stage: "final" });
+	assert.deepEqual(logs, [
+		{
+			customType: DISPATCH_LOG_TYPE,
+			name: GENERIC_TOOL_NAME,
+			args: { path: "remote/item", token: GENERIC_REDACTION_MARKER },
+			isError: false,
+		},
+	]);
+	assert.deepEqual(events, [
+		{
+			name: DISPATCH_EVENT,
+			payload: {
+				name: GENERIC_TOOL_NAME,
+				args: { path: "remote/item", token: GENERIC_REDACTION_MARKER },
+				isError: false,
+			},
+		},
+	]);
+});
+
+test("generic side-effect logs redact compound credential keys recursively", async () => {
+	const logs: DispatchLogEntry[] = [];
+	const args: JsonValue = {
+		nested: {
+			access_token: COMPOUND_CREDENTIAL_VALUES[0],
+			refreshToken: COMPOUND_CREDENTIAL_VALUES[1],
+		},
+		array: [
+			{ authToken: COMPOUND_CREDENTIAL_VALUES[2] },
+			{ bearer_token: COMPOUND_CREDENTIAL_VALUES[3] },
+			{ session_cookie: COMPOUND_CREDENTIAL_VALUES[4] },
+		],
+	};
+	const bindings = createGenericBindings(
+		[catalogEntry(GENERIC_TOOL_NAME)],
+		toolExecutor(async (request) => dispatchResult(request, { content: [] })),
+		createScheduler(2),
+		{ appendLog: (entry) => logs.push(entry) },
+	);
+
+	await bindings[GENERIC_TOOL_NAME]?.(args, BINDING_SIGNAL);
+
+	assert.deepEqual(logs[0]?.args, {
+		nested: {
+			access_token: GENERIC_REDACTION_MARKER,
+			refreshToken: GENERIC_REDACTION_MARKER,
+		},
+		array: [
+			{ authToken: GENERIC_REDACTION_MARKER },
+			{ bearer_token: GENERIC_REDACTION_MARKER },
+			{ session_cookie: GENERIC_REDACTION_MARKER },
+		],
+	});
+	const serialized = JSON.stringify(logs);
+	for (const value of COMPOUND_CREDENTIAL_VALUES) assert.equal(serialized.includes(value), false);
+});
+
+test("generic bindings project lossless text image details and usage", async () => {
+	const revokedBlock = Proxy.revocable({}, {});
+	revokedBlock.revoke();
+	const hostileBlock = new Proxy(
+		{},
+		{
+			get() {
+				throw new Error("hostile content block");
+			},
+		},
+	);
+	const result: NestedToolRuntimeResult = {
+		content: [
+			{ type: "text", text: "first", ignored: true },
+			{ type: "image", data: "aW1hZ2U=", mimeType: "image/png", ignored: true },
+			{ type: "text", text: "second" },
+			{ type: "image", data: "missing mime" },
+			{ type: "audio", data: "ignored", mimeType: "audio/wav" },
+			hostileBlock,
+			revokedBlock.proxy,
+			null,
+		],
+		details: { structuredContent: { answer: 42 } },
+		usage: { input: 3, output: 5 },
+	};
+	const bindings = createGenericBindings(
+		[catalogEntry(GENERIC_TOOL_NAME)],
+		toolExecutor(async (request) => dispatchResult(request, result)),
+	);
+
+	assert.deepEqual(await bindings[GENERIC_TOOL_NAME]?.({}, BINDING_SIGNAL), {
+		text: "firstsecond",
+		content: [
+			{ type: "text", text: "first" },
+			{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+			{ type: "text", text: "second" },
+		],
+		details: { structuredContent: { answer: 42 } },
+		usage: { input: 3, output: 5 },
+	});
+});
+
+test("generic bindings treat revoked result and content proxies as malformed", async () => {
+	const revokedResult = Proxy.revocable({}, {});
+	revokedResult.revoke();
+	const revokedContent = Proxy.revocable([], {});
+	revokedContent.revoke();
+	const fullResultName = "revoked.result";
+	const contentName = "revoked.content";
+	const errorName = "revoked.error";
+	const bindings = createGenericBindings(
+		[catalogEntry(fullResultName), catalogEntry(contentName), catalogEntry(errorName)],
+		toolExecutor(async (request) => {
+			if (request.name === contentName) {
+				return dispatchResult(request, {
+					content: revokedContent.proxy,
+					details: { safe: true },
+				} as NestedToolRuntimeResult);
+			}
+			return dispatchResult(
+				request,
+				revokedResult.proxy as NestedToolRuntimeResult,
+				request.name === errorName,
+			);
+		}),
+	);
+
+	assert.deepEqual(await bindings[fullResultName]?.({}, BINDING_SIGNAL), {
+		text: "",
+		content: [],
+	});
+	assert.deepEqual(await bindings[contentName]?.({}, BINDING_SIGNAL), {
+		text: "",
+		content: [],
+		details: { safe: true },
+	});
+	await assert.rejects(
+		() => bindings[errorName]?.({}, BINDING_SIGNAL),
+		(error: unknown) => {
+			assert.ok(error instanceof ToolCallError);
+			assert.equal(error.message, GENERIC_FAILED_MESSAGE);
+			return true;
+		},
+	);
+});
+
+test("generic bindings omit incompatible optional values but retain raw render details", async () => {
+	const cyclicDetails: { self?: unknown } = {};
+	cyclicDetails.self = cyclicDetails;
+	const cyclicUsage: { self?: unknown } = {};
+	cyclicUsage.self = cyclicUsage;
+	const reported: DispatchProgress[] = [];
+	const bindings = createGenericBindings(
+		[catalogEntry(GENERIC_TOOL_NAME)],
+		toolExecutor(async (request) =>
+			dispatchResult(request, {
+				content: [{ type: "text", text: "safe" }],
+				details: cyclicDetails,
+				usage: cyclicUsage,
+			}),
+		),
+		createScheduler(2),
+		{ reportDispatch: (progress) => reported.push(progress) },
+	);
+
+	assert.deepEqual(await bindings[GENERIC_TOOL_NAME]?.({}, BINDING_SIGNAL), {
+		text: "safe",
+		content: [{ type: "text", text: "safe" }],
+	});
+	assert.equal(reported.at(-1)?.result?.details, cyclicDetails);
+
+	const throwingResult = Object.defineProperties(
+		{ content: [{ type: "text", text: "still safe" }] },
+		{
+			details: {
+				enumerable: true,
+				get() {
+					throw new Error("details getter");
+				},
+			},
+			usage: {
+				enumerable: true,
+				get() {
+					throw new Error("usage getter");
+				},
+			},
+		},
+	) as NestedToolRuntimeResult;
+	const throwingBindings = createGenericBindings(
+		[catalogEntry(GENERIC_TOOL_NAME)],
+		toolExecutor(async (request) => dispatchResult(request, throwingResult)),
+	);
+	await assert.doesNotReject(async () => {
+		assert.deepEqual(await throwingBindings[GENERIC_TOOL_NAME]?.({}, BINDING_SIGNAL), {
+			text: "still safe",
+			content: [{ type: "text", text: "still safe" }],
+		});
+	});
+});
+
+test("generic final errors become catchable ToolCallError after native finalization", async () => {
+	const bindings = createGenericBindings(
+		[catalogEntry(GENERIC_TOOL_NAME), catalogEntry(OTHER_GENERIC_TOOL_NAME)],
+		toolExecutor(async (request) => {
+			if (request.name === OTHER_GENERIC_TOOL_NAME) {
+				return dispatchResult(request, { content: [{ type: "image", data: "x" }] }, true);
+			}
+			return dispatchResult(
+				request,
+				{
+					content: [
+						{ type: "text", text: "patched " },
+						{ type: "text", text: "failure" },
+						{ type: "text", text: 42 },
+					],
+				},
+				true,
+			);
+		}),
+	);
+
+	for (const [name, message] of [
+		[GENERIC_TOOL_NAME, "patched failure"],
+		[OTHER_GENERIC_TOOL_NAME, GENERIC_FAILED_MESSAGE],
+	] as const) {
+		let caught: unknown;
+		try {
+			await bindings[name]?.({}, BINDING_SIGNAL);
+		} catch (error) {
+			caught = error;
+		}
+		assert.ok(caught instanceof ToolCallError);
+		assert.equal(caught.toolName, name);
+		assert.equal(caught.message, message);
+	}
+});
 
 test("bridge snapshots args, returns canonical JSON, and records dispatch", async () => {
 	const logs: unknown[] = [];

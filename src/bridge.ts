@@ -17,3 +17,4 @@ export {
 	summarizeDispatchProgress,
 } from "./dispatch-format.ts";
 export { createFactoryExecutor, createOfficialExecutor } from "./factory-executor.ts";
+export { createToolBindings, type ToolBindingReporting } from "./tool-bindings.ts";

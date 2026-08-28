@@ -4,8 +4,10 @@ export const COMPATIBILITY_ERROR_MAX_CHARACTERS = 256;
 export const DISPLAY_DESCRIPTION_MAX_BYTES = 4096;
 export const DISPLAY_EXECUTION_ERROR_MAX_BYTES = 8192;
 export const DISPLAY_PREVIEW_MAX_BYTES = 4096;
+export const DISPLAY_TOOL_NAME_MAX_BYTES = 256;
 
 const DISPLAY_TRUNCATION_MARK = "…";
+const DISPLAY_LABEL_LAYOUT_CONTROL_PATTERN = /[\t\n]/g;
 const ESCAPE_CODE = 0x1b;
 const DELETE_CODE = 0x7f;
 const C0_CONTROL_END = 0x1f;
@@ -131,6 +133,13 @@ function consumeControlString(value: string, startIndex: number): number {
 		index += 1;
 	}
 	return value.length;
+}
+
+export function sanitizeBoundedDisplayLabel(value: string, maxBytes: number): string {
+	return sanitizeBoundedDisplayString(
+		sanitizeDisplayString(value).replace(DISPLAY_LABEL_LAYOUT_CONTROL_PATTERN, ""),
+		maxBytes,
+	);
 }
 
 export function sanitizeBoundedDisplayString(value: string, maxBytes: number): string {
