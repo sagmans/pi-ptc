@@ -1,6 +1,12 @@
 // Prompt SDK is the model-facing contract. Keep it lexicographic and byte-stable.
 
-import { CORE_TOOL_NAMES, type CoreToolName } from "./config.ts";
+import { CORE_TOOL_NAMES, type CoreToolName, isCoreToolName } from "./config.ts";
+import {
+	renderSafeJsonStringLiteral,
+	SCHEMA_SIGNATURE_FALLBACK,
+	schemaToTypeScriptSignature,
+} from "./schema-signature.ts";
+import type { ToolCatalogEntry } from "./tool-catalog.ts";
 
 const BINDING_SIGNATURES = Object.freeze({
 	bash: "await tools.bash({ command, timeout? })",
@@ -12,17 +18,61 @@ const BINDING_SIGNATURES = Object.freeze({
 	write: "await tools.write({ path, content })",
 } as const satisfies Record<CoreToolName, string>);
 
-const SDK_HEADER = `tools:sdk
+const LEGACY_SDK_HEADER = `tools:sdk
 Call core tools only from a ptc program. The code argument is the body of an async function.
 Top-level await and return are legal. Use erasable TypeScript only.
 Successful bindings resolve to canonical JSON. Failed bindings reject ToolCallError(toolName, message).
 Promise.all may overlap read, grep, find, and ls. bash, edit, and write drain the pool and run alone.
 Load skills with tools.read({ path }), not a native read call. /skill:name still works.
 `;
+const ACTIVE_SDK_HEADER = `tools:sdk
+Call active runtime tools only from a ptc program. The code argument is the body of an async function.
+Top-level await and return are legal. Use erasable TypeScript only.
+Successful bindings resolve to canonical JSON. Failed bindings reject ToolCallError(toolName, message).
+Tool calls follow active runtime scheduling modes.
+`;
+const SKILL_COMMAND_GUIDANCE = "/skill:name still works.\n";
+const READ_SKILL_GUIDANCE =
+	"Load skills with tools.read({ path }), not a native read call. /skill:name still works.\n";
+const ASCII_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
-export function renderSdkPrompt(): string {
-	const lines = CORE_TOOL_NAMES.map((name) => BINDING_SIGNATURES[name]);
-	return `${SDK_HEADER}${lines.join("\n")}\n`;
+type SdkToolLine = {
+	name: string;
+	line: string;
+};
+
+export function renderSdkPrompt(catalog?: readonly ToolCatalogEntry[]): string {
+	if (!catalog) {
+		const lines = CORE_TOOL_NAMES.map((name) => BINDING_SIGNATURES[name]);
+		return `${LEGACY_SDK_HEADER}${lines.join("\n")}\n`;
+	}
+	const lines = catalog.map(renderCatalogToolLine).sort(compareToolLines);
+	const guidance = catalog.some((entry) => entry.name === "read")
+		? READ_SKILL_GUIDANCE
+		: SKILL_COMMAND_GUIDANCE;
+	return `${ACTIVE_SDK_HEADER}${guidance}${lines.map(({ line }) => line).join("\n")}\n`;
+}
+
+function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
+	if (isCoreToolName(entry.name)) {
+		return { name: entry.name, line: BINDING_SIGNATURES[entry.name] };
+	}
+	let signature = SCHEMA_SIGNATURE_FALLBACK;
+	try {
+		signature = schemaToTypeScriptSignature(entry.executable.parameters);
+	} catch {}
+	const reference = ASCII_IDENTIFIER_PATTERN.test(entry.name)
+		? `tools.${entry.name}`
+		: `tools[${renderSafeJsonStringLiteral(entry.name)}]`;
+	return { name: entry.name, line: `await ${reference}(${signature})` };
+}
+
+function compareToolLines(left: SdkToolLine, right: SdkToolLine): number {
+	if (left.name < right.name) return -1;
+	if (left.name > right.name) return 1;
+	if (left.line < right.line) return -1;
+	if (left.line > right.line) return 1;
+	return 0;
 }
 
 export type SkillPromptInput = {

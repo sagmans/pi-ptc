@@ -13,6 +13,7 @@ import {
 	type RenderBudget,
 	type RenderProjection,
 } from "./dispatch-details-model.ts";
+import { getLiveDispatchRetentionResult } from "./dispatch-live.ts";
 import { projectDisplayArguments } from "./display-arguments.ts";
 import {
 	DISPLAY_PREVIEW_MAX_BYTES,
@@ -40,7 +41,7 @@ export function projectDispatchForRetention(
 	const persisted = sanitizeDispatch(dispatch);
 	let result: unknown;
 	try {
-		result = dispatch.result;
+		result = getLiveDispatchRetentionResult(dispatch)?.result ?? dispatch.result;
 	} catch {
 		persisted.renderOmitted = RENDER_OMITTED_INCOMPATIBLE;
 		return { dispatch: persisted, renderBytes: 0 };

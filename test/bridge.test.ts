@@ -254,7 +254,7 @@ test("generic bindings cancel queued work before executor dispatch", async () =>
 	assert.deepEqual(started, [firstName]);
 });
 
-test("generic bindings report partial and final native progress and bounded side effects", async () => {
+test("generic bindings keep raw progress in attachments and bound side effects", async () => {
 	const logs: DispatchLogEntry[] = [];
 	const events: Array<{ name: string; payload: unknown }> = [];
 	const reported: DispatchProgress[] = [];
@@ -294,8 +294,18 @@ test("generic bindings report partial and final native progress and bounded side
 			{ id: 1, name: GENERIC_TOOL_NAME, status: "ok", preview: "final" },
 		],
 	);
-	assert.deepEqual(reported[1]?.result?.details, { stage: "partial" });
-	assert.deepEqual(reported[2]?.result?.details, { stage: "final" });
+	assert.equal(reported[1]?.result, undefined);
+	assert.equal(reported[2]?.result, undefined);
+	assert.deepEqual(
+		reported.map(({ args: progressArgs }) => progressArgs),
+		Array.from({ length: 3 }, () => ({
+			path: "remote/item",
+			token: GENERIC_REDACTION_MARKER,
+		})),
+	);
+	const serializedProgress = JSON.stringify(reported);
+	assert.equal(serializedProgress.includes("private-token"), false);
+	assert.equal(serializedProgress.includes('"stage"'), false);
 	assert.deepEqual(logs, [
 		{
 			customType: DISPATCH_LOG_TYPE,
@@ -439,7 +449,7 @@ test("generic bindings treat revoked result and content proxies as malformed", a
 	);
 });
 
-test("generic bindings omit incompatible optional values but retain raw render details", async () => {
+test("generic bindings omit incompatible optional values and raw render details from progress", async () => {
 	const cyclicDetails: { self?: unknown } = {};
 	cyclicDetails.self = cyclicDetails;
 	const cyclicUsage: { self?: unknown } = {};
@@ -462,7 +472,8 @@ test("generic bindings omit incompatible optional values but retain raw render d
 		text: "safe",
 		content: [{ type: "text", text: "safe" }],
 	});
-	assert.equal(reported.at(-1)?.result?.details, cyclicDetails);
+	assert.equal(reported.at(-1)?.result, undefined);
+	assert.doesNotThrow(() => JSON.stringify(reported));
 
 	const throwingResult = Object.defineProperties(
 		{ content: [{ type: "text", text: "still safe" }] },

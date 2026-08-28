@@ -1,11 +1,11 @@
 import { strict as assert } from "node:assert";
 
-import { initTheme, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, stripTerminalSequences, Text } from "@earendil-works/pi-tui";
 
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { createDeltaDetails, createSnapshotDetails } from "../src/dispatch-details.ts";
-import type { PtcRenderContext } from "../src/renderer.ts";
+import type { PtcDefinitionRegistry, PtcRenderContext } from "../src/renderer.ts";
 import { createPtcTool, type PtcPartialResult, type PtcToolResult } from "../src/transport.ts";
 
 const DESCRIPTION = "exercise Bun renderer bindings";
@@ -88,15 +88,21 @@ function final(details: PtcToolResult["details"]): PtcToolResult {
 function measureScale(dispatchCount: number): { renderCalls: number; retainedRows: number } {
 	const tool = createTool();
 	let renderCalls = 0;
-	const context = createContext(`scale-${dispatchCount}`, () => ({
-		read: {
-			name: "read",
-			renderCall: (args: { path: string }) => {
-				renderCalls += 1;
-				return new Text(`row:${args.path}`, 0, 0);
-			},
-		} as unknown as ToolDefinition,
-	}));
+	const context = createContext(
+		`scale-${dispatchCount}`,
+		() =>
+			new Map([
+				[
+					"read",
+					{
+						renderCall: (args: { path: string }) => {
+							renderCalls += 1;
+							return new Text(`row:${args.path}`, 0, 0);
+						},
+					},
+				],
+			]) as unknown as PtcDefinitionRegistry,
+	);
 	let root: Component | undefined;
 	for (let id = FIRST_DISPATCH_ID; id <= dispatchCount; id += 1) {
 		root = tool.renderResult(

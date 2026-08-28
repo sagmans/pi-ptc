@@ -1,11 +1,22 @@
 import type { Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Component, ImageProtocol } from "@earendil-works/pi-tui";
 
-import type { CoreToolName } from "./config.ts";
-import type { PtcPersistedDispatch } from "./dispatch-details.ts";
+import type { PtcPersistedDispatch, PtcPersistedRenderResult } from "./dispatch-details.ts";
+import type { ToolCatalogEntry } from "./tool-catalog.ts";
 
-export type PtcDefinitionRegistry = Partial<Record<CoreToolName, ToolDefinition>>;
+export type PtcRenderDefinition = Pick<
+	ToolDefinition,
+	"renderCall" | "renderResult" | "renderShell"
+>;
+export type PtcDefinitionRegistry = ReadonlyMap<string, PtcRenderDefinition>;
 export type PtcDefinitionFactory = (cwd: string) => PtcDefinitionRegistry;
+export type PtcDefinitionProvider = (cwd: string) => readonly ToolCatalogEntry[];
+export type PtcLiveRenderAttachment = {
+	readonly args: unknown;
+	readonly displayResult?: PtcPersistedRenderResult;
+	readonly hasResult: boolean;
+	readonly result?: unknown;
+};
 export type PtcImageConverter = (
 	data: string,
 	mimeType: string,
@@ -31,7 +42,7 @@ export type PtcRowView = {
 export type PtcRendererRoot = Component & {
 	readonly cwd: string;
 	setView(view: PtcRowView): void;
-	updateDispatch(dispatch: PtcPersistedDispatch): void;
+	updateDispatch(dispatch: PtcPersistedDispatch, attachment?: PtcLiveRenderAttachment): void;
 	setCompatibilityError(message: string | undefined): void;
 	setExecutionError(message: string | undefined): void;
 	contain(error: unknown): void;

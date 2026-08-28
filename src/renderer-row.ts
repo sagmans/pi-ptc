@@ -1,6 +1,7 @@
-import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, Theme } from "@earendil-works/pi-coding-agent";
 import { Box, type Component, Container, Spacer, Text } from "@earendil-works/pi-tui";
 
+import { isCoreToolName } from "./config.ts";
 import {
 	type PtcPersistedDispatch,
 	type PtcPersistedRenderResult,
@@ -8,7 +9,13 @@ import {
 	sanitizeDisplayText,
 } from "./dispatch-details.ts";
 import { DISPLAY_TOOL_NAME_MAX_BYTES, sanitizeBoundedDisplayLabel } from "./display-sanitizer.ts";
-import type { NativeRenderContext, PtcImageServices, PtcRowView } from "./renderer-contract.ts";
+import type {
+	NativeRenderContext,
+	PtcImageServices,
+	PtcLiveRenderAttachment,
+	PtcRenderDefinition,
+	PtcRowView,
+} from "./renderer-contract.ts";
 import {
 	createDiagnosticText,
 	DEFAULT_RENDER_SHELL,
@@ -25,8 +32,9 @@ const RENDERER_INTERVAL_STATE_KEY = "interval";
 
 type PtcDispatchRowInput = {
 	cwd: string;
-	definition: ToolDefinition | undefined;
+	definition: PtcRenderDefinition | undefined;
 	dispatch: PtcPersistedDispatch;
+	attachment?: PtcLiveRenderAttachment;
 	imageServices: PtcImageServices;
 	toolCallId: string;
 	view: PtcRowView;
@@ -38,6 +46,7 @@ export class PtcDispatchRow implements Component {
 	private readonly images: PtcImageCollection;
 	private readonly input: PtcDispatchRowInput;
 	private argsComplete: boolean;
+	private attachment: PtcLiveRenderAttachment | undefined;
 	private callComponent: Component | undefined;
 	private resultComponent: Component | undefined;
 	private readonly rendererState: NativeRenderContext["state"] = {};
@@ -46,6 +55,7 @@ export class PtcDispatchRow implements Component {
 	private mounted = true;
 	private rebuilding = false;
 	private renderFailure: string | undefined;
+	private renderedAttachment: PtcLiveRenderAttachment | undefined;
 	private renderedTheme: Theme | undefined;
 	private viewFingerprint = "";
 	private view: PtcRowView;
@@ -54,6 +64,7 @@ export class PtcDispatchRow implements Component {
 		this.input = input;
 		this.id = input.dispatch.id;
 		this.argsComplete = input.dispatch.status === "start";
+		this.attachment = input.attachment;
 		this.dispatch = input.dispatch;
 		this.view = input.view;
 		this.callContainer =
@@ -74,8 +85,9 @@ export class PtcDispatchRow implements Component {
 		this.rebuild(false, false);
 	}
 
-	update(dispatch: PtcPersistedDispatch): void {
+	update(dispatch: PtcPersistedDispatch, attachment?: PtcLiveRenderAttachment): void {
 		this.dispatch = dispatch;
+		this.attachment = attachment;
 		if (dispatch.status === "start") this.argsComplete = true;
 		this.rebuild(false);
 	}
@@ -125,12 +137,14 @@ export class PtcDispatchRow implements Component {
 			!force &&
 			fingerprint === this.fingerprint &&
 			viewFingerprint === this.viewFingerprint &&
+			this.renderedAttachment === this.attachment &&
 			this.renderedTheme === this.view.theme
 		) {
 			return;
 		}
 		this.fingerprint = fingerprint;
 		this.viewFingerprint = viewFingerprint;
+		this.renderedAttachment = this.attachment;
 		this.renderedTheme = this.view.theme;
 		if (advanceGeneration) this.images.advanceGeneration();
 		this.renderFailure = undefined;
@@ -141,9 +155,15 @@ export class PtcDispatchRow implements Component {
 			this.callComponent = this.renderCall();
 			this.callContainer.addChild(this.callComponent);
 			const result = getDispatchResult(this.dispatch);
-			this.resultComponent = result ? this.renderResult(result) : undefined;
+			const liveDisplayResult =
+				this.dispatch.renderOmitted === "incompatible" ? this.attachment?.displayResult : undefined;
+			const fallbackResult = liveDisplayResult ?? result;
+			this.resultComponent =
+				fallbackResult || this.attachment?.hasResult
+					? this.renderResult(fallbackResult)
+					: undefined;
 			if (this.resultComponent) this.callContainer.addChild(this.resultComponent);
-			this.images.refresh(result);
+			this.images.refresh(this.dispatch.result ?? liveDisplayResult);
 		} catch (error) {
 			this.contain(error);
 		} finally {
@@ -154,11 +174,12 @@ export class PtcDispatchRow implements Component {
 
 	private renderCall(): Component {
 		const renderer = this.input.definition?.renderCall;
-		if (!renderer || !hasCompleteNativeCallArguments(this.dispatch)) {
+		const args = this.attachment?.args ?? this.dispatch.args;
+		if (!renderer || !hasCompleteNativeCallArguments(this.dispatch.name, args)) {
 			return this.renderFallbackCall();
 		}
 		return renderer(
-			sanitizeDisplayJson(this.dispatch.args) as never,
+			(this.attachment ? args : sanitizeDisplayJson(this.dispatch.args)) as never,
 			this.view.theme,
 			this.createRenderContext(this.callComponent),
 		);
@@ -171,14 +192,15 @@ export class PtcDispatchRow implements Component {
 		return new Text(this.view.theme.fg("toolTitle", this.view.theme.bold(`${name}${path}`)), 0, 0);
 	}
 
-	private renderResult(result: PtcPersistedRenderResult): Component | undefined {
+	private renderResult(result: PtcPersistedRenderResult | undefined): Component | undefined {
 		const renderer = this.input.definition?.renderResult;
 		if (!renderer) {
-			const text = result.content.find((entry) => entry.type === "text")?.text;
+			const text = result?.content.find((entry) => entry.type === "text")?.text;
 			return text ? new Text(this.view.theme.fg("toolOutput", text), 0, 0) : undefined;
 		}
+		const renderResult = this.attachment?.hasResult ? this.attachment.result : result;
 		return renderer(
-			result as unknown as AgentToolResult<unknown>,
+			renderResult as AgentToolResult<unknown>,
 			{
 				expanded: this.view.expanded,
 				isPartial: this.dispatch.status === "start",
@@ -210,7 +232,7 @@ export class PtcDispatchRow implements Component {
 
 	private createRenderContext(lastComponent: Component | undefined): NativeRenderContext {
 		return {
-			args: sanitizeDisplayJson(this.dispatch.args),
+			args: this.attachment?.args ?? sanitizeDisplayJson(this.dispatch.args),
 			toolCallId: this.input.toolCallId,
 			invalidate: () => {
 				if (!this.mounted) return;
@@ -253,10 +275,11 @@ export class PtcDispatchRow implements Component {
 	}
 }
 
-function hasCompleteNativeCallArguments(dispatch: PtcPersistedDispatch): boolean {
-	if (!isUnknownRecord(dispatch.args)) return false;
-	if (dispatch.name === "write") return typeof dispatch.args.content === "string";
-	if (dispatch.name === "edit") return Array.isArray(dispatch.args.edits);
+function hasCompleteNativeCallArguments(name: string, args: unknown): boolean {
+	if (!isCoreToolName(name)) return true;
+	if (!isUnknownRecord(args)) return false;
+	if (name === "write") return typeof args.content === "string";
+	if (name === "edit") return Array.isArray(args.edits);
 	return true;
 }
 

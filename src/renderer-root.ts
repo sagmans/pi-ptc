@@ -1,8 +1,8 @@
-import { isCoreToolName } from "./config.ts";
 import type { PtcPersistedDispatch } from "./dispatch-details.ts";
 import type {
 	PtcDefinitionRegistry,
 	PtcImageServices,
+	PtcLiveRenderAttachment,
 	PtcRendererRoot,
 	PtcRowView,
 } from "./renderer-contract.ts";
@@ -63,14 +63,15 @@ export class SafePtcRoot implements PtcRendererRoot {
 		}
 	}
 
-	updateDispatch(dispatch: PtcPersistedDispatch): void {
+	updateDispatch(dispatch: PtcPersistedDispatch, attachment?: PtcLiveRenderAttachment): void {
 		try {
 			let row = this.rows.get(dispatch.id);
 			if (!row) {
 				row = new PtcDispatchRow({
 					cwd: this.cwd,
-					definition: isCoreToolName(dispatch.name) ? this.definitions[dispatch.name] : undefined,
+					definition: this.definitions.get(dispatch.name),
 					dispatch,
+					attachment,
 					imageServices: this.imageServices,
 					toolCallId: `${this.toolCallId}${NESTED_TOOL_CALL_SEPARATOR}${dispatch.id}`,
 					view: this.view,
@@ -84,7 +85,7 @@ export class SafePtcRoot implements PtcRendererRoot {
 				}
 				return;
 			}
-			row.update(dispatch);
+			row.update(dispatch, attachment);
 		} catch (error) {
 			this.contain(error);
 		}

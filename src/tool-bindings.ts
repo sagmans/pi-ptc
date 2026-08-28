@@ -4,7 +4,7 @@ import {
 	textFromContent,
 	toToolCanonicalValue,
 } from "./canonical.ts";
-import { DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "./config.ts";
+import { DISPATCH_EVENT, DISPATCH_LOG_TYPE, isCoreToolName } from "./config.ts";
 import type {
 	DispatchLogEntry,
 	DispatchProgress,
@@ -12,6 +12,11 @@ import type {
 } from "./dispatch-contract.ts";
 import { projectDisplayArguments } from "./dispatch-details.ts";
 import { dispatchPreview } from "./dispatch-format.ts";
+import {
+	attachLiveDispatchArguments,
+	attachLiveDispatchResult,
+	attachLiveDispatchRetentionResult,
+} from "./dispatch-live.ts";
 import { type JsonValue, snapshotJsonValue } from "./json.ts";
 import type { BindingFn } from "./runtime-contract.ts";
 import type { Scheduler } from "./scheduler.ts";
@@ -45,39 +50,73 @@ export function createToolBindings(
 			const id = nextDispatchId;
 			nextDispatchId += 1;
 			const args = snapshotJsonValue(rawArgs);
+			const core = isCoreToolName(entry.name);
+			const progressArgs = projectDisplayArguments(entry.name, args);
 			return await scheduler.run(
 				classifyToolDispatch(entry),
 				async () => {
 					let settledResult: DispatchRenderResult | undefined;
-					reporting.reportDispatch?.({ id, name: entry.name, args, status: "start" });
+					let rawSettledResult: unknown;
+					let hasRawSettledResult = false;
+					reportProgress(
+						reporting,
+						{ id, name: entry.name, args: progressArgs, status: "start" },
+						args,
+					);
 					try {
 						const outcome = await executor.dispatch({
 							name: entry.name,
 							args,
 							signal,
 							onUpdate(partialResult) {
-								reporting.reportDispatch?.({
+								const renderResult = toDispatchRenderResult(partialResult, false);
+								const progress: DispatchProgress = {
 									id,
 									name: entry.name,
-									args,
+									args: progressArgs,
 									status: "start",
-									result: toDispatchRenderResult(partialResult, false),
+									...(core ? { result: renderResult } : {}),
+								};
+								reportProgress(reporting, progress, args, {
+									result: partialResult,
+									retentionResult: renderResult,
 								});
 							},
 						});
+						rawSettledResult = outcome.result;
+						hasRawSettledResult = true;
 						settledResult = toDispatchRenderResult(outcome.result, outcome.isError);
 						const value = toToolCanonicalValue(entry.name, outcome.result, outcome.isError);
 						reportSideEffects(reporting, entry.name, args, false);
-						reporting.reportDispatch?.(
-							createSuccessProgress(id, entry.name, args, outcome.result, settledResult),
+						const progress = createSuccessProgress(
+							id,
+							entry.name,
+							progressArgs,
+							outcome.result,
+							core ? settledResult : undefined,
 						);
+						reportProgress(reporting, progress, args, {
+							result: outcome.result,
+							retentionResult: settledResult,
+						});
 						return value;
 					} catch (error) {
 						reportSideEffects(reporting, entry.name, args, true);
 						const message = error instanceof Error ? error.message : String(error);
-						reporting.reportDispatch?.(
-							createErrorProgress(id, entry.name, args, message, settledResult),
+						const renderResult = createErrorRenderResult(entry.name, message, settledResult);
+						const progress = createErrorProgress(
+							id,
+							entry.name,
+							progressArgs,
+							message,
+							core ? renderResult : undefined,
 						);
+						if (hasRawSettledResult) {
+							attachLiveDispatchResult(progress, rawSettledResult, renderResult);
+						} else {
+							attachLiveDispatchRetentionResult(progress, renderResult);
+						}
+						reportProgress(reporting, progress, args);
 						if (error instanceof ToolCallError) throw error;
 						throw new ToolCallError(entry.name, message);
 					}
@@ -87,6 +126,17 @@ export function createToolBindings(
 		};
 	}
 	return bindings;
+}
+
+function reportProgress(
+	reporting: ToolBindingReporting,
+	progress: DispatchProgress,
+	args: JsonValue,
+	result?: { result: unknown; retentionResult: DispatchRenderResult },
+): void {
+	attachLiveDispatchArguments(progress, args);
+	if (result) attachLiveDispatchResult(progress, result.result, result.retentionResult);
+	reporting.reportDispatch?.(progress);
 }
 
 function reportSideEffects(
@@ -111,7 +161,7 @@ function createSuccessProgress(
 	name: string,
 	args: JsonValue,
 	result: NestedToolRuntimeResult,
-	renderResult: DispatchRenderResult,
+	renderResult: DispatchRenderResult | undefined,
 ): DispatchProgress {
 	const content = readResultContent(result);
 	const preview = dispatchPreview(name, textFromContent(projectCanonicalContent(content)), false);
@@ -120,7 +170,7 @@ function createSuccessProgress(
 		name,
 		args,
 		status: "ok",
-		result: renderResult,
+		...(renderResult ? { result: renderResult } : {}),
 	};
 	if (preview !== undefined) progress.preview = preview;
 	return progress;
@@ -131,25 +181,31 @@ function createErrorProgress(
 	name: string,
 	args: JsonValue,
 	message: string,
-	settledResult: DispatchRenderResult | undefined,
+	renderResult: DispatchRenderResult | undefined,
 ): DispatchProgress {
 	const preview = dispatchPreview(name, message, true);
-	const displayMessage = preview ?? ELLIPSIS;
 	const progress: DispatchProgress = {
 		id,
 		name,
 		args,
 		status: "err",
-		result:
-			settledResult?.isError === true
-				? settledResult
-				: {
-						content: [{ type: "text", text: displayMessage }],
-						isError: true,
-					},
+		...(renderResult ? { result: renderResult } : {}),
 	};
 	if (preview !== undefined) progress.preview = preview;
 	return progress;
+}
+
+function createErrorRenderResult(
+	name: string,
+	message: string,
+	settledResult: DispatchRenderResult | undefined,
+): DispatchRenderResult {
+	if (settledResult?.isError === true) return settledResult;
+	const preview = dispatchPreview(name, message, true);
+	return {
+		content: [{ type: "text", text: preview ?? ELLIPSIS }],
+		isError: true,
+	};
 }
 
 function readResultContent(result: NestedToolRuntimeResult): unknown {

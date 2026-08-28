@@ -2,7 +2,7 @@
 
 import { Type } from "typebox";
 
-import { type DispatchProgress, formatDispatchLine } from "./bridge.ts";
+import { type DispatchProgress, type DispatchRenderResult, formatDispatchLine } from "./bridge.ts";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
 	OUTER_OVERFLOW_BYTES_MESSAGE,
@@ -17,10 +17,15 @@ import {
 	type PtcDispatchDetails,
 	type PtcDispatchProjection,
 	projectDispatchForRetention,
-	projectLiveDisplayArguments,
 } from "./dispatch-details.ts";
+import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
 import type { JsonValue } from "./json.ts";
-import { attachPtcRenderDispatches, renderPtcCall, renderPtcResult } from "./renderer.ts";
+import {
+	attachPtcRenderDispatches,
+	type PtcDefinitionProvider,
+	renderPtcCall,
+	renderPtcResult,
+} from "./renderer.ts";
 import { type BindingFn, type CodeRunResult, logicalLineCount, runCode } from "./runtime.ts";
 
 export type PtcParams = {
@@ -94,6 +99,7 @@ export function createPtcTool(options: {
 	maxOutputBytes: number;
 	maxOutputLines: number;
 	createBindings: (ctx: PtcBindingContext) => Record<string, BindingFn>;
+	definitionProvider?: PtcDefinitionProvider;
 	failureDetails?: FailureDetailsStore;
 	run?: typeof runCode;
 }) {
@@ -103,15 +109,17 @@ export function createPtcTool(options: {
 		options.maxRenderDetailsBytes ?? SHIPPED_PTC_CONFIG.maxRenderDetailsBytes;
 	const maxPersistedDetailsBytes =
 		options.maxPersistedDetailsBytes ?? SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes;
+	const renderResult: typeof renderPtcResult = (result, renderOptions, theme, context) =>
+		renderPtcResult(result, renderOptions, theme, context, options.definitionProvider);
 	return {
 		name: TRANSPORT_NAME,
 		label: "PTC",
-		description: `Execute a TypeScript program against core tools. ${TRUST_COPY}`,
-		promptSnippet: "Run a program against core tools",
+		description: `Execute a TypeScript program against active runtime tools. ${TRUST_COPY}`,
+		promptSnippet: "Run a program against active runtime tools",
 		parameters: PTC_PARAMETERS,
 		renderShell: "self" as const,
 		renderCall: renderPtcCall,
-		renderResult: renderPtcResult,
+		renderResult,
 		async execute(
 			toolCallId: string,
 			params: PtcParams,
@@ -124,13 +132,13 @@ export function createPtcTool(options: {
 			}
 			const abortSignal = signal ?? ctx.signal;
 			const dispatches = new Map<number, PtcDispatchProjection>();
-			const liveArguments = new Map<number, JsonValue>();
+			const liveDispatches = new Map<number, DispatchProgress>();
 			let retainedRenderBytes = 0;
 			let renderBudgetExhausted = false;
 			let acceptingDispatchReports = true;
 			const reportDispatch = (progress: DispatchProgress) => {
 				if (!acceptingDispatchReports) return;
-				liveArguments.set(progress.id, projectLiveDisplayArguments(progress.name, progress.args));
+				liveDispatches.set(progress.id, progress);
 				const previous = dispatches.get(progress.id);
 				if (previous) retainedRenderBytes -= previous.renderBytes;
 				const projection = projectDispatchForRetention(
@@ -148,12 +156,7 @@ export function createPtcTool(options: {
 					projection.dispatch,
 					maxPersistedDetailsBytes,
 				);
-				attachPtcRenderDispatches(details, [
-					{
-						...progress,
-						args: liveArguments.get(progress.id) ?? progress.args,
-					},
-				]);
+				attachPtcRenderDispatches(details, [progress]);
 				onUpdate?.({
 					content: [{ type: "text", text: formatDispatchLine(projection.dispatch) }],
 					details,
@@ -162,15 +165,20 @@ export function createPtcTool(options: {
 			const terminalizeActiveDispatches = (message: string): void => {
 				for (const projection of [...dispatches.values()]) {
 					if (projection.dispatch.status !== "start") continue;
-					reportDispatch({
+					const result: DispatchRenderResult = {
+						content: [{ type: "text", text: message }],
+						isError: true,
+					};
+					const terminal: DispatchProgress = {
 						...projection.dispatch,
 						status: "err",
 						preview: message,
-						result: {
-							content: [{ type: "text", text: message }],
-							isError: true,
-						},
-					});
+						result,
+					};
+					const live = liveDispatches.get(projection.dispatch.id);
+					if (live) transferLiveDispatchAttachments(live, terminal);
+					attachLiveDispatchResult(terminal, result, result);
+					reportDispatch(terminal);
 				}
 			};
 			try {
@@ -208,10 +216,7 @@ export function createPtcTool(options: {
 				);
 				attachPtcRenderDispatches(
 					details,
-					progress.map((dispatch) => ({
-						...dispatch,
-						args: liveArguments.get(dispatch.id) ?? dispatch.args,
-					})),
+					progress.map((dispatch) => liveDispatches.get(dispatch.id) ?? dispatch),
 				);
 				return {
 					content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
@@ -230,10 +235,7 @@ export function createPtcTool(options: {
 				);
 				attachPtcRenderDispatches(
 					details,
-					progress.map((dispatch) => ({
-						...dispatch,
-						args: liveArguments.get(dispatch.id) ?? dispatch.args,
-					})),
+					progress.map((dispatch) => liveDispatches.get(dispatch.id) ?? dispatch),
 				);
 				failureDetails.remember(toolCallId, details);
 				throw error;

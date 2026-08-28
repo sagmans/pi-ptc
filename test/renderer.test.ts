@@ -13,7 +13,13 @@ import { type Component, stripTerminalSequences, Text, type TUI } from "@earendi
 import type { DispatchProgress } from "../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { createDeltaDetails, createSnapshotDetails } from "../src/dispatch-details.ts";
-import { attachPtcRenderDispatches, type PtcRenderContext } from "../src/renderer.ts";
+import {
+	attachPtcRenderDispatches,
+	createPtcDefinitionRegistry,
+	type PtcDefinitionRegistry,
+	type PtcRenderContext,
+} from "../src/renderer.ts";
+import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 import {
 	createPtcTool,
 	type PtcParams,
@@ -54,6 +60,7 @@ const ORIGINAL_THEME_TEXT = "ORIGINAL_THEME";
 const UPDATED_THEME_TEXT = "UPDATED_THEME";
 const CALLBACK_TEST_INTERVAL_MS = 60_000;
 const CHILD_RENDER_FAILURE = "child render failure";
+const CAPTURED_CORE_RENDER_MARKER = "captured core renderer";
 const CONSTRUCTOR_FAILURE = "constructor failure";
 const INVALIDATE_FAILURE = "invalidate failure";
 const OUTER_INVALIDATE_FAILURE = "outer invalidate failure";
@@ -80,6 +87,8 @@ const CONTROLLED_TOOL_NAME_CASES = [
 ] as const;
 const OVERSIZED_TOOL_NAME = "tool-name".repeat(1_000);
 const MAX_FALLBACK_RENDER_BYTES = 1_024;
+const DEEP_PROTOTYPE_LEVELS = 256;
+const MAX_EXPECTED_PROTOTYPE_TRAPS = 64;
 const LIMITS = {
 	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
@@ -183,6 +192,23 @@ function resultWith(dispatches: PtcToolResult["details"]["dispatches"]): PtcTool
 	return {
 		content: [{ type: "text", text: JSON.stringify({ logs: [], result: { hidden: true } }) }],
 		details: createSnapshotDetails(DESCRIPTION, dispatches),
+	};
+}
+
+function definitionRegistry(definitions: Record<string, unknown>): PtcDefinitionRegistry {
+	return new Map(Object.entries(definitions)) as PtcDefinitionRegistry;
+}
+
+function rendererCatalogEntry(name: string, definition: unknown): ToolCatalogEntry {
+	return {
+		name,
+		definition,
+		executable: {
+			parameters: {},
+			async execute() {
+				return { content: [] };
+			},
+		},
 	};
 }
 
@@ -414,15 +440,16 @@ test("live write arguments use native rendering while restored redacted rows use
 	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
 	attachPtcRenderDispatches(details, [rawDispatch]);
 	let nativeRenderCalls = 0;
-	const createDefinitions = () => ({
-		write: {
-			name: "write",
-			renderCall: (args: { content?: string }) => {
-				nativeRenderCalls += 1;
-				return new Text(`${NATIVE_WRITE_RENDER_MARKER}: ${args.content ?? ""}`, 0, 0);
+	const createDefinitions = () =>
+		definitionRegistry({
+			write: {
+				name: "write",
+				renderCall: (args: { content?: string }) => {
+					nativeRenderCalls += 1;
+					return new Text(`${NATIVE_WRITE_RENDER_MARKER}: ${args.content ?? ""}`, 0, 0);
+				},
 			},
-		},
-	});
+		});
 	const liveContext = createRenderContext(false);
 	Object.assign(liveContext, { createDefinitions });
 	const liveOutput = render(
@@ -478,16 +505,17 @@ test("lossy live edit projections use a safe fallback when terminal render data 
 		let nativeRenderCalls = 0;
 		const context = createRenderContext(false);
 		Object.assign(context, {
-			createDefinitions: () => ({
-				edit: {
-					name: "edit",
-					renderShell: "self",
-					renderCall: () => {
-						nativeRenderCalls += 1;
-						return new Text(NATIVE_EDIT_RENDER_MARKER, 0, 0);
+			createDefinitions: () =>
+				definitionRegistry({
+					edit: {
+						name: "edit",
+						renderShell: "self",
+						renderCall: () => {
+							nativeRenderCalls += 1;
+							return new Text(NATIVE_EDIT_RENDER_MARKER, 0, 0);
+						},
 					},
-				},
-			}),
+				}),
 		});
 		const output = render(
 			tool.renderResult(
@@ -680,24 +708,25 @@ test("unchanged deltas and width-only renders do not rebuild native slots", () =
 	let callRenders = 0;
 	let resultRenders = 0;
 	Object.assign(context, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: (_args: unknown, _theme: Theme, slot: { lastComponent?: Component }) => {
-					callRenders += 1;
-					return slot.lastComponent ?? new Text("read stable.txt", 0, 0);
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: (_args: unknown, _theme: Theme, slot: { lastComponent?: Component }) => {
+						callRenders += 1;
+						return slot.lastComponent ?? new Text("read stable.txt", 0, 0);
+					},
+					renderResult: (
+						_result: unknown,
+						_options: unknown,
+						_theme: Theme,
+						slot: { lastComponent?: Component },
+					) => {
+						resultRenders += 1;
+						return slot.lastComponent ?? new Text("done", 0, 0);
+					},
 				},
-				renderResult: (
-					_result: unknown,
-					_options: unknown,
-					_theme: Theme,
-					slot: { lastComponent?: Component },
-				) => {
-					resultRenders += 1;
-					return slot.lastComponent ?? new Text("done", 0, 0);
-				},
-			},
-		}),
+			}),
 	});
 	const update: PtcPartialResult = {
 		content: [{ type: "text", text: "ignored" }],
@@ -723,17 +752,18 @@ test("ptc root contains child rendering failures", () => {
 	const tool = createTool();
 	const context = createRenderContext(false);
 	Object.assign(context, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: () => ({
-					invalidate: () => undefined,
-					render: () => {
-						throw new Error(CHILD_RENDER_FAILURE);
-					},
-				}),
-			},
-		}),
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: () => ({
+						invalidate: () => undefined,
+						render: () => {
+							throw new Error(CHILD_RENDER_FAILURE);
+						},
+					}),
+				},
+			}),
 	});
 	const output = render(
 		tool.renderResult(
@@ -755,6 +785,561 @@ test("ptc root contains child rendering failures", () => {
 	assert.match(output, /execution/);
 	assert.match(output, new RegExp(CHILD_RENDER_FAILURE));
 	assert.doesNotMatch(output, /unsafe\.txt/);
+});
+
+test("definition provider uses a null-safe registry for unusual exact names", () => {
+	const entries = [
+		rendererCatalogEntry("__proto__", {
+			renderShell: "self",
+			renderCall: () => new Text("prototype custom call", 0, 0),
+			renderResult: () => new Text("prototype custom result", 0, 0),
+		}),
+		rendererCatalogEntry("odd/name", {
+			renderCall: () => new Text("odd custom call", 0, 0),
+		}),
+	];
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => entries,
+		createBindings: () => ({}),
+	});
+	const output = render(
+		tool.renderResult(
+			resultWith([
+				{
+					id: 1,
+					name: "__proto__",
+					args: {},
+					status: "ok",
+					result: { content: [{ type: "text", text: "generic prototype" }], isError: false },
+				},
+				{ id: 2, name: "odd/name", args: {}, status: "start" },
+			]),
+			{ expanded: false, isPartial: true },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.match(output, /prototype custom call/);
+	assert.match(output, /prototype custom result/);
+	assert.match(output, /odd custom call/);
+	assert.doesNotMatch(output, /generic prototype/);
+});
+
+test("definition providers execute class renderers and inherited data render shells", () => {
+	const shellPrototype = Object.create(Object.prototype, {
+		renderShell: { configurable: true, value: "self" },
+	});
+	class PrototypeRenderer {
+		renderCall() {
+			return new Text("class prototype call", 0, 0);
+		}
+
+		renderResult() {
+			return new Text("class prototype result", 0, 0);
+		}
+	}
+	Object.setPrototypeOf(PrototypeRenderer.prototype, shellPrototype);
+	const entry = rendererCatalogEntry("class-renderer", new PrototypeRenderer());
+	const registry = createPtcDefinitionRegistry([entry]);
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => [entry],
+		createBindings: () => ({}),
+	});
+	const component = tool.renderResult(
+		resultWith([
+			{
+				id: 1,
+				name: entry.name,
+				args: {},
+				status: "ok",
+				result: { content: [{ type: "text", text: "generic result" }], isError: false },
+			},
+		]),
+		{ expanded: false, isPartial: false },
+		THEME,
+		createRenderContext(false),
+	);
+	const output = render(component);
+	const callLine = component
+		.render(RENDER_WIDTH)
+		.find((line) => line.includes("class prototype call"));
+
+	assert.match(output, /class prototype call/);
+	assert.match(output, /class prototype result/);
+	assert.doesNotMatch(output, /generic result/);
+	assert.equal(registry.get(entry.name)?.renderShell, "self");
+	assert.ok(callLine?.startsWith("class prototype call"));
+});
+
+test("definition projection never invokes own or inherited accessors", () => {
+	let ownAccessorCalls = 0;
+	let inheritedAccessorCalls = 0;
+	const dataPrototype = {
+		renderCall: () => new Text("shadowed prototype call", 0, 0),
+		renderResult: () => new Text("shadowed prototype result", 0, 0),
+		renderShell: "self",
+	};
+	const accessorPrototype = Object.create(dataPrototype, {
+		renderResult: {
+			get() {
+				inheritedAccessorCalls += 1;
+				return dataPrototype.renderResult;
+			},
+		},
+		renderShell: {
+			get() {
+				inheritedAccessorCalls += 1;
+				return dataPrototype.renderShell;
+			},
+		},
+	});
+	const definition = Object.create(accessorPrototype, {
+		renderCall: {
+			get() {
+				ownAccessorCalls += 1;
+				return dataPrototype.renderCall;
+			},
+		},
+	});
+	const entry = rendererCatalogEntry("accessor-chain", definition);
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => [entry],
+		createBindings: () => ({}),
+	});
+	const output = render(
+		tool.renderResult(
+			resultWith([
+				{
+					id: 1,
+					name: entry.name,
+					args: { path: "safe.txt" },
+					status: "ok",
+					result: { content: [{ type: "text", text: "safe fallback" }], isError: false },
+				},
+			]),
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.equal(ownAccessorCalls, 0);
+	assert.equal(inheritedAccessorCalls, 0);
+	assert.match(output, /accessor-chain safe\.txt/);
+	assert.match(output, /safe fallback/);
+	assert.doesNotMatch(output, /shadowed prototype/);
+});
+
+test("definition projection bounds hostile cyclic and deep prototype behavior", () => {
+	let cyclicPrototypeTraps = 0;
+	let cyclicProxy: object;
+	cyclicProxy = new Proxy(
+		{},
+		{
+			getOwnPropertyDescriptor: () => undefined,
+			getPrototypeOf() {
+				cyclicPrototypeTraps += 1;
+				return cyclicProxy;
+			},
+		},
+	);
+	let deepPrototypeTraps = 0;
+	const createDeepProxy = (): object =>
+		new Proxy(
+			{},
+			{
+				getOwnPropertyDescriptor: () => undefined,
+				getPrototypeOf() {
+					deepPrototypeTraps += 1;
+					return createDeepProxy();
+				},
+			},
+		);
+	let deepPrototype = {};
+	for (let depth = 0; depth < DEEP_PROTOTYPE_LEVELS; depth += 1) {
+		deepPrototype = Object.create(deepPrototype);
+	}
+	const entries = [
+		rendererCatalogEntry(
+			"descriptor-hostile",
+			new Proxy(
+				{},
+				{
+					getOwnPropertyDescriptor() {
+						throw new Error("hostile descriptor trap");
+					},
+				},
+			),
+		),
+		rendererCatalogEntry(
+			"prototype-hostile",
+			new Proxy(
+				{},
+				{
+					getOwnPropertyDescriptor: () => undefined,
+					getPrototypeOf() {
+						throw new Error("hostile prototype trap");
+					},
+				},
+			),
+		),
+		rendererCatalogEntry("prototype-cyclic", cyclicProxy),
+		rendererCatalogEntry("prototype-deep-proxy", createDeepProxy()),
+		rendererCatalogEntry("prototype-deep-object", deepPrototype),
+	];
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => entries,
+		createBindings: () => ({}),
+	});
+	const output = render(
+		tool.renderResult(
+			resultWith(
+				entries.map((entry, index) => ({
+					id: index + 1,
+					name: entry.name,
+					args: { path: `${entry.name}.txt` },
+					status: "ok" as const,
+					result: {
+						content: [{ type: "text" as const, text: `${entry.name} fallback` }],
+						isError: false,
+					},
+				})),
+			),
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	for (const entry of entries) {
+		assert.match(output, new RegExp(`${entry.name} fallback`));
+	}
+	assert.ok(cyclicPrototypeTraps <= MAX_EXPECTED_PROTOTYPE_TRAPS);
+	assert.ok(deepPrototypeTraps <= MAX_EXPECTED_PROTOTYPE_TRAPS);
+});
+
+test("definition providers preserve native factories for core rows", () => {
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => [
+			rendererCatalogEntry("read", {
+				renderCall: () => new Text(CAPTURED_CORE_RENDER_MARKER, 0, 0),
+			}),
+		],
+		createBindings: () => ({}),
+	});
+	const output = render(
+		tool.renderResult(
+			resultWith([{ id: 1, name: "read", args: { path: "native.txt" }, status: "start" }]),
+			{ expanded: false, isPartial: true },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.match(output, /read native\.txt/);
+	assert.doesNotMatch(output, new RegExp(CAPTURED_CORE_RENDER_MARKER));
+});
+
+test("malformed captured definitions and renderers use bounded generic fallback", () => {
+	let getterCalls = 0;
+	const accessorDefinition = Object.defineProperty({}, "renderCall", {
+		enumerable: true,
+		get() {
+			getterCalls += 1;
+			return () => new Text("unsafe accessor", 0, 0);
+		},
+	});
+	const hostileDefinition = new Proxy(
+		{},
+		{
+			getOwnPropertyDescriptor() {
+				throw new Error("hostile definition");
+			},
+		},
+	);
+	const entries = [
+		rendererCatalogEntry("accessor", accessorDefinition),
+		rendererCatalogEntry("hostile", hostileDefinition),
+		rendererCatalogEntry("malformed", { renderCall: "not a function", renderShell: "other" }),
+	];
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => entries,
+		createBindings: () => ({}),
+	});
+	const output = render(
+		tool.renderResult(
+			resultWith(
+				entries.map((entry, index) => ({
+					id: index + 1,
+					name: entry.name,
+					args: { path: `${entry.name}.txt` },
+					status: "ok" as const,
+					result: {
+						content: [{ type: "text", text: `${entry.name} fallback result` }],
+						isError: false,
+					},
+				})),
+			),
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.equal(getterCalls, 0);
+	assert.match(output, /accessor accessor\.txt/);
+	assert.match(output, /accessor fallback result/);
+	assert.match(output, /hostile hostile\.txt/);
+	assert.match(output, /malformed malformed\.txt/);
+	assert.doesNotMatch(output, /unsafe accessor/);
+});
+
+test("live arbitrary renderers receive raw arguments, raw error result, and final context", () => {
+	const rawArgs = {
+		token: "live renderer secret",
+		nested: { exact: [1, 2, 3] },
+	};
+	const rawDetails: Record<string, unknown> = { final: true };
+	rawDetails.self = rawDetails;
+	const rawDispatch: DispatchProgress = {
+		id: 1,
+		name: "custom-error",
+		args: rawArgs,
+		status: "err",
+		preview: "custom failed",
+		result: {
+			content: [{ type: "text", text: "final custom failure" }],
+			details: rawDetails,
+			isError: true,
+		},
+	};
+	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
+	attachPtcRenderDispatches(details, [rawDispatch]);
+	let callArgs: unknown;
+	let resultDetails: unknown;
+	let resultOptions: { isPartial: boolean } | undefined;
+	let resultContext: { isPartial: boolean; isError: boolean; args: unknown } | undefined;
+	const entry = rendererCatalogEntry("custom-error", {
+		renderCall(args: unknown) {
+			callArgs = args;
+			return new Text("custom error call", 0, 0);
+		},
+		renderResult(
+			result: { details?: unknown },
+			options: { isPartial: boolean },
+			_theme: Theme,
+			context: { isPartial: boolean; isError: boolean; args: unknown },
+		) {
+			resultDetails = result.details;
+			resultOptions = options;
+			resultContext = context;
+			return new Text("custom error result", 0, 0);
+		},
+	});
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => [entry],
+		createBindings: () => ({}),
+	});
+	const output = render(
+		tool.renderResult(
+			{ content: [{ type: "text", text: "ignored" }], details },
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.equal(details.dispatches[0]?.renderOmitted, "incompatible");
+	assert.deepEqual(callArgs, rawArgs);
+	assert.equal(resultDetails, rawDetails);
+	assert.equal(resultOptions?.isPartial, false);
+	assert.equal(resultContext?.isPartial, false);
+	assert.equal(resultContext?.isError, true);
+	assert.deepEqual(resultContext?.args, rawArgs);
+	assert.match(output, /custom error call/);
+	assert.match(output, /custom error result/);
+	assert.equal(JSON.stringify(details).includes("live renderer secret"), false);
+});
+
+test("custom image-only and text-image results keep existing image behavior", () => {
+	const entries = [
+		rendererCatalogEntry("image-only", {
+			renderCall: () => new Text("custom image-only call", 0, 0),
+			renderResult: () => new Text("", 0, 0),
+		}),
+		rendererCatalogEntry("text-image", {
+			renderCall: () => new Text("custom text-image call", 0, 0),
+			renderResult: (result: { content: Array<{ type: string; text?: string }> }) =>
+				new Text(result.content.find((block) => block.type === "text")?.text ?? "", 0, 0),
+		}),
+	];
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => entries,
+		createBindings: () => ({}),
+	});
+	const context = { ...createRenderContext(false), showImages: true };
+	Object.assign(context, {
+		createImage: () => new Text(IMAGE_FALLBACK_TEXT, 0, 0),
+		getImageProtocol: () => null,
+	});
+	const output = render(
+		tool.renderResult(
+			resultWith([
+				{
+					id: 1,
+					name: "image-only",
+					args: {},
+					status: "ok",
+					result: {
+						content: [{ type: "image", data: PNG_IMAGE_DATA, mimeType: "image/png" }],
+						isError: false,
+					},
+				},
+				{
+					id: 2,
+					name: "text-image",
+					args: {},
+					status: "ok",
+					result: {
+						content: [
+							{ type: "text", text: "custom mixed text" },
+							{ type: "image", data: PNG_IMAGE_DATA, mimeType: "image/png" },
+						],
+						isError: false,
+					},
+				},
+			]),
+			{ expanded: false, isPartial: false },
+			THEME,
+			context,
+		),
+	);
+
+	assert.match(output, /custom image-only call/);
+	assert.match(output, /custom text-image call/);
+	assert.match(output, /custom mixed text/);
+	assert.equal(
+		output.match(new RegExp(IMAGE_FALLBACK_TEXT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))
+			?.length,
+		2,
+	);
+});
+
+test("missing arbitrary result renderer sanitizes bounded live fallback for incompatible details", () => {
+	const rawDetails: Record<string, unknown> = { stage: "final" };
+	rawDetails.self = rawDetails;
+	const rawDispatch: DispatchProgress = {
+		id: 1,
+		name: "custom-fallback",
+		args: { path: "live.txt" },
+		status: "ok",
+		result: {
+			content: [{ type: "text", text: CALL_RENDER_FAILURE }],
+			details: rawDetails,
+			isError: false,
+		},
+	};
+	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
+	attachPtcRenderDispatches(details, [rawDispatch]);
+	const output = renderRaw(
+		createTool().renderResult(
+			{ content: [{ type: "text", text: "ignored" }], details },
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.equal(details.dispatches[0]?.renderOmitted, "incompatible");
+	assert.equal(output.includes("\u001b"), false);
+	assert.match(output, new RegExp(RAW_VISIBLE_TEXT));
+	assert.equal(JSON.stringify(details).includes(RAW_VISIBLE_TEXT), false);
+});
+
+test("live arbitrary images render when raw details are incompatible with persistence", () => {
+	const rawDetails: Record<string, unknown> = { stage: "final" };
+	rawDetails.self = rawDetails;
+	const rawDispatch: DispatchProgress = {
+		id: 1,
+		name: "custom-image",
+		args: {},
+		status: "ok",
+		result: {
+			content: [{ type: "image", data: PNG_IMAGE_DATA, mimeType: "image/png" }],
+			details: rawDetails,
+			isError: false,
+		},
+	};
+	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
+	attachPtcRenderDispatches(details, [rawDispatch]);
+	const tool = createPtcTool({
+		...LIMITS,
+		definitionProvider: () => [
+			rendererCatalogEntry("custom-image", {
+				renderCall: () => new Text("custom image call", 0, 0),
+				renderResult: () => new Text("", 0, 0),
+			}),
+		],
+		createBindings: () => ({}),
+	});
+	const context = { ...createRenderContext(false), showImages: true };
+	Object.assign(context, {
+		createImage: () => new Text(IMAGE_FALLBACK_TEXT, 0, 0),
+		getImageProtocol: () => null,
+	});
+	const output = render(
+		tool.renderResult(
+			{ content: [{ type: "text", text: "ignored" }], details },
+			{ expanded: false, isPartial: false },
+			THEME,
+			context,
+		),
+	);
+
+	assert.equal(details.dispatches[0]?.renderOmitted, "incompatible");
+	assert.match(output, /custom image call/);
+	assert.match(output, new RegExp(IMAGE_FALLBACK_TEXT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+	assert.equal(JSON.stringify(details).includes(PNG_IMAGE_DATA), false);
+});
+
+test("restored arbitrary history without attachments or provider uses generic fallback", () => {
+	const tool = createTool();
+	const restored = JSON.parse(
+		JSON.stringify(
+			resultWith([
+				{
+					id: 1,
+					name: "restored/custom",
+					args: { path: "restored.txt", token: "[REDACTED]" },
+					status: "ok",
+					result: {
+						content: [{ type: "text", text: "restored generic result" }],
+						isError: false,
+					},
+				},
+			]),
+		),
+	) as PtcToolResult;
+	const output = render(
+		tool.renderResult(
+			restored,
+			{ expanded: false, isPartial: false },
+			THEME,
+			createRenderContext(false),
+		),
+	);
+
+	assert.match(output, /restored\/custom restored\.txt/);
+	assert.match(output, /restored generic result/);
 });
 
 test("ptc fallback sanitizes and bounds arbitrary tool names", () => {
@@ -838,14 +1423,15 @@ test("outer fallbacks and renderer diagnostics strip extended terminal controls"
 	);
 	const diagnosticContext = createRenderContext(false);
 	Object.assign(diagnosticContext, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: () => {
-					throw new Error(EXTENDED_RENDER_CONTROL);
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: () => {
+						throw new Error(EXTENDED_RENDER_CONTROL);
+					},
 				},
-			},
-		}),
+			}),
 	});
 	const diagnosticOutput = renderRaw(
 		tool.renderResult(
@@ -923,18 +1509,19 @@ test("call and result slot failures become sanitized diagnostics", () => {
 		const context = createRenderContext(false);
 		const failure = stage === "call" ? CALL_RENDER_FAILURE : RESULT_RENDER_FAILURE;
 		Object.assign(context, {
-			createDefinitions: () => ({
-				read: {
-					name: "read",
-					renderCall: () => {
-						if (stage === "call") throw new Error(failure);
-						return new Text("safe", 0, 0);
+			createDefinitions: () =>
+				definitionRegistry({
+					read: {
+						name: "read",
+						renderCall: () => {
+							if (stage === "call") throw new Error(failure);
+							return new Text("safe", 0, 0);
+						},
+						renderResult: () => {
+							throw new Error(failure);
+						},
 					},
-					renderResult: () => {
-						throw new Error(failure);
-					},
-				},
-			}),
+				}),
 		});
 		const output = renderRaw(
 			tool.renderResult(
@@ -966,20 +1553,21 @@ test("slot and invalidate failures become bounded diagnostics", () => {
 	let nestedInvalidate: (() => void) | undefined;
 	const context = createRenderContext(false);
 	Object.assign(context, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: (_args: unknown, _theme: Theme, slot: { invalidate(): void }) => {
-					nestedInvalidate = slot.invalidate;
-					return {
-						invalidate: () => {
-							throw new Error(INVALIDATE_FAILURE);
-						},
-						render: () => ["safe"],
-					};
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: (_args: unknown, _theme: Theme, slot: { invalidate(): void }) => {
+						nestedInvalidate = slot.invalidate;
+						return {
+							invalidate: () => {
+								throw new Error(INVALIDATE_FAILURE);
+							},
+							render: () => ["safe"],
+						};
+					},
 				},
-			},
-		}),
+			}),
 	});
 	const root = tool.renderResult(
 		{
@@ -1007,15 +1595,16 @@ test("slot and invalidate failures become bounded diagnostics", () => {
 		},
 	};
 	Object.assign(outerContext, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: (_args: unknown, _theme: Theme, slot: { invalidate(): void }) => {
-					outerInvalidate = slot.invalidate;
-					return new Text("safe", 0, 0);
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: (_args: unknown, _theme: Theme, slot: { invalidate(): void }) => {
+						outerInvalidate = slot.invalidate;
+						return new Text("safe", 0, 0);
+					},
 				},
-			},
-		}),
+			}),
 	});
 	const outerRoot = tool.renderResult(
 		{
@@ -1042,13 +1631,14 @@ test("image-only results keep a textual fallback when the terminal has no image 
 		showImages: true,
 	};
 	Object.assign(context, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: () => new Text("read image.png", 0, 0),
-				renderResult: () => new Text("", 0, 0),
-			},
-		}),
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: () => new Text("read image.png", 0, 0),
+					renderResult: () => new Text("", 0, 0),
+				},
+			}),
 		createImage: () => new Text(IMAGE_FALLBACK_TEXT, 0, 0),
 		getImageProtocol: () => null,
 	});
@@ -1092,21 +1682,23 @@ test("theme invalidation rebuilds native slots without retiring current callback
 		},
 	};
 	Object.assign(context, {
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: (
-					_args: unknown,
-					theme: Theme,
-					slot: { invalidate(): void; lastComponent?: Component },
-				) => {
-					firstInvalidate ??= slot.invalidate;
-					const text = slot.lastComponent instanceof Text ? slot.lastComponent : new Text("", 0, 0);
-					text.setText(theme.fg("toolTitle", "read themed.txt"));
-					return text;
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: (
+						_args: unknown,
+						theme: Theme,
+						slot: { invalidate(): void; lastComponent?: Component },
+					) => {
+						firstInvalidate ??= slot.invalidate;
+						const text =
+							slot.lastComponent instanceof Text ? slot.lastComponent : new Text("", 0, 0);
+						text.setText(theme.fg("toolTitle", "read themed.txt"));
+						return text;
+					},
 				},
-			},
-		}),
+			}),
 	});
 	const root = tool.renderResult(
 		{
@@ -1147,26 +1739,27 @@ test("partial rebuilds keep the active native renderer callback live", () => {
 		},
 	};
 	Object.assign(context, {
-		createDefinitions: () => ({
-			bash: {
-				name: "bash",
-				renderCall: () => new Text("bash", 0, 0),
-				renderResult: (
-					_result: unknown,
-					_options: unknown,
-					_theme: Theme,
-					slot: { invalidate(): void; state: Record<string, unknown> },
-				) => {
-					resultRenders += 1;
-					if (!slot.state.interval) {
-						activeCallback = slot.invalidate;
-						interval = setInterval(() => undefined, CALLBACK_TEST_INTERVAL_MS);
-						slot.state.interval = interval;
-					}
-					return new Text(`working-${resultRenders}`, 0, 0);
+		createDefinitions: () =>
+			definitionRegistry({
+				bash: {
+					name: "bash",
+					renderCall: () => new Text("bash", 0, 0),
+					renderResult: (
+						_result: unknown,
+						_options: unknown,
+						_theme: Theme,
+						slot: { invalidate(): void; state: Record<string, unknown> },
+					) => {
+						resultRenders += 1;
+						if (!slot.state.interval) {
+							activeCallback = slot.invalidate;
+							interval = setInterval(() => undefined, CALLBACK_TEST_INTERVAL_MS);
+							slot.state.interval = interval;
+						}
+						return new Text(`working-${resultRenders}`, 0, 0);
+					},
 				},
-			},
-		}),
+			}),
 	});
 	try {
 		for (const preview of ["first", "second"]) {
@@ -1218,13 +1811,14 @@ test("image conversion is deduplicated and bound to the current row generation",
 			conversionCalls += 1;
 			return await conversion;
 		},
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: () => new Text("read image.jpg", 0, 0),
-				renderResult: () => new Text("", 0, 0),
-			},
-		}),
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: () => new Text("read image.jpg", 0, 0),
+					renderResult: () => new Text("", 0, 0),
+				},
+			}),
 		createImage: (_data: string, _mimeType: string, maxWidthCells: number) => {
 			imageWidths.push(maxWidthCells);
 			return new Text(`image:${maxWidthCells}`, 0, 0);
@@ -1286,13 +1880,14 @@ test("image conversion is deduplicated and bound to the current row generation",
 	};
 	Object.assign(staleContext, {
 		convertImage: async () => await staleConversion,
-		createDefinitions: () => ({
-			read: {
-				name: "read",
-				renderCall: () => new Text("read image", 0, 0),
-				renderResult: () => new Text("", 0, 0),
-			},
-		}),
+		createDefinitions: () =>
+			definitionRegistry({
+				read: {
+					name: "read",
+					renderCall: () => new Text("read image", 0, 0),
+					renderResult: () => new Text("", 0, 0),
+				},
+			}),
 		createImage: () => new Text("image", 0, 0),
 		getImageProtocol: () => "kitty",
 	});
