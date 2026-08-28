@@ -1,7 +1,9 @@
 // Narrow Pi host types so tests can load the installer without a live session.
 
+export type ExtensionToolDefinition = object & { name: string };
+
 export type ExtensionAPI = {
-	registerTool(definition: unknown): void;
+	registerTool(definition: ExtensionToolDefinition): void;
 	registerCommand(
 		name: string,
 		definition: {

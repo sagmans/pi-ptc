@@ -1,7 +1,4 @@
-// Presentation owns the model-facing tool set. It never invents core tools
-// the session did not already have.
-
-import { isCoreToolName, type Presentation, TRANSPORT_NAME } from "./config.ts";
+import { type Presentation, TRANSPORT_NAME } from "./config.ts";
 
 export const COMPETING_TRANSPORT_NAMES = Object.freeze(["execute_tools", "fabric_exec", "retype"]);
 
@@ -11,30 +8,29 @@ export function hasCompetingOwner(registered: readonly string[]): boolean {
 
 export function applyPresentation(input: {
 	presentation: Presentation;
-	recorded: readonly string[];
+	logical: readonly string[];
 }): string[] {
-	const core = input.recorded.filter((name) => isCoreToolName(name));
-	const foreign = input.recorded.filter((name) => name !== TRANSPORT_NAME && !isCoreToolName(name));
-	if (input.presentation === "native") return [...core, ...foreign];
-	if (input.presentation === "both") return [...core, ...foreign, TRANSPORT_NAME];
-	return [...foreign, TRANSPORT_NAME];
+	const logical = input.logical.filter((name) => name !== TRANSPORT_NAME);
+	if (input.presentation === "native") return logical;
+	if (input.presentation === "both") return [...logical, TRANSPORT_NAME];
+	return [TRANSPORT_NAME];
 }
 
 export function resolveActiveTools(input: {
 	presentation: Presentation;
-	recorded: readonly string[];
+	logical: readonly string[];
 	registered: readonly string[];
 }): { tools: string[]; missingTransport: boolean } {
 	if (input.presentation !== "native" && !input.registered.includes(TRANSPORT_NAME)) {
 		return {
-			tools: applyPresentation({ presentation: "native", recorded: input.recorded }),
+			tools: applyPresentation({ presentation: "native", logical: input.logical }),
 			missingTransport: true,
 		};
 	}
 	return {
 		tools: applyPresentation({
 			presentation: input.presentation,
-			recorded: input.recorded,
+			logical: input.logical,
 		}),
 		missingTransport: false,
 	};

@@ -3,47 +3,26 @@ import test from "node:test";
 
 import { applyPresentation, hasCompetingOwner, resolveActiveTools } from "../src/presentation.ts";
 
-const RECORDED = ["read", "bash", "edit", "write", "grep", "find", "ls", "mcp", "mcpScript"];
+const LOGICAL = ["read", "bash", "edit", "write", "grep", "find", "ls", "mcp", "mcpScript"];
 
-test("code presentation hides core tools and keeps foreign tools", () => {
-	assert.deepEqual(applyPresentation({ presentation: "code", recorded: RECORDED }), [
-		"mcp",
-		"mcpScript",
+test("code presentation exposes exactly ptc", () => {
+	assert.deepEqual(applyPresentation({ presentation: "code", logical: LOGICAL }), ["ptc"]);
+});
+
+test("both presentation preserves logical order and adds ptc", () => {
+	assert.deepEqual(applyPresentation({ presentation: "both", logical: LOGICAL }), [
+		...LOGICAL,
 		"ptc",
 	]);
 });
 
-test("both presentation keeps core tools and adds ptc", () => {
-	assert.deepEqual(applyPresentation({ presentation: "both", recorded: RECORDED }), [
-		"read",
-		"bash",
-		"edit",
-		"write",
-		"grep",
-		"find",
-		"ls",
-		"mcp",
-		"mcpScript",
-		"ptc",
-	]);
+test("native presentation preserves logical tools without ptc", () => {
+	assert.deepEqual(applyPresentation({ presentation: "native", logical: LOGICAL }), LOGICAL);
 });
 
-test("native presentation restores recorded core tools without ptc", () => {
-	assert.deepEqual(applyPresentation({ presentation: "native", recorded: RECORDED }), [
+test("presentation always strips ptc from logical input", () => {
+	assert.deepEqual(applyPresentation({ presentation: "both", logical: ["read", "ptc", "mcp"] }), [
 		"read",
-		"bash",
-		"edit",
-		"write",
-		"grep",
-		"find",
-		"ls",
-		"mcp",
-		"mcpScript",
-	]);
-});
-
-test("code presentation does not revive a core tool the session never had", () => {
-	assert.deepEqual(applyPresentation({ presentation: "code", recorded: ["read", "mcp"] }), [
 		"mcp",
 		"ptc",
 	]);
@@ -54,15 +33,15 @@ test("competing owners are detected by reserved transport names", () => {
 	assert.equal(hasCompetingOwner(["read", "mcp"]), false);
 });
 
-test("missing ptc transport fail-closes to native core tools", () => {
+test("missing ptc transport fail-closes to native logical tools", () => {
 	assert.deepEqual(
 		resolveActiveTools({
 			presentation: "code",
-			recorded: RECORDED,
+			logical: LOGICAL,
 			registered: ["read", "bash", "mcp"],
 		}),
 		{
-			tools: ["read", "bash", "edit", "write", "grep", "find", "ls", "mcp", "mcpScript"],
+			tools: LOGICAL,
 			missingTransport: true,
 		},
 	);

@@ -18,8 +18,10 @@ import { Type } from "typebox";
 
 import * as piRuntimeModule from "../src/pi-runtime.ts";
 import {
+	ensureSharedPiRuntimeCapturePatch,
 	installPiRuntimeCapturePatch,
 	type PiRuntimeCapture,
+	type PiRuntimeEventFinalizersInstallation,
 	type PiRuntimeInstaller,
 	SUPPORTED_PI_VERSION,
 	tagPtcToolDefinition,
@@ -27,6 +29,8 @@ import {
 
 const BIND_EXTENSIONS_PROPERTY = "bindExtensions";
 const RELOAD_PROPERTY = "reload";
+const EMIT_TOOL_CALL_PROPERTY = "emitToolCall";
+const EMIT_BEFORE_AGENT_START_PROPERTY = "emitBeforeAgentStart";
 const PTC_TOOL_NAME = "ptc";
 const SAMPLE_TOOL_NAME = "sample";
 const SECOND_TOOL_NAME = "second";
@@ -42,6 +46,9 @@ const GLOBAL_REGISTRY_PATTERN = /global registry/i;
 const PATCH_REGISTRY_SYMBOL = Symbol.for("pi-ptc.pi-runtime.patch-registry.v1");
 const COORDINATOR_REGISTRY_SYMBOL = Symbol.for(
 	"pi-ptc.pi-runtime.lifecycle-coordinator-registry.v1",
+);
+const SHARED_PATCH_LEASE_REGISTRY_SYMBOL = Symbol.for(
+	"pi-ptc.pi-runtime.shared-patch-lease-registry.v1",
 );
 const CHARACTERIZATION_DIRECTORY_PREFIX = "pi-ptc-runtime-characterization-";
 const CHARACTERIZATION_TOOL_RESULT = "characterized";
@@ -60,6 +67,8 @@ type FakeTool = {
 type FakeRunner = {
 	createContext: () => object;
 	emit: () => Promise<void>;
+	emitToolCall: (...args: unknown[]) => Promise<unknown>;
+	emitBeforeAgentStart: (...args: unknown[]) => Promise<unknown>;
 	runtime: {
 		getActiveTools: () => string[];
 		setActiveTools: (names: string[]) => void;
@@ -101,16 +110,36 @@ function createTool(overrides: Partial<FakeTool> = {}): FakeTool {
 	};
 }
 
-function createRunner(onSetActiveTools?: () => void): FakeRunner {
-	return {
-		createContext: () => ({ cwd: "/tmp" }),
-		emit: async () => undefined,
-		runtime: {
+function createRunner(
+	onSetActiveTools?: () => void,
+	events: {
+		emitToolCall?: (...args: unknown[]) => Promise<unknown>;
+		emitBeforeAgentStart?: (...args: unknown[]) => Promise<unknown>;
+	} = {},
+): FakeRunner {
+	class FakeRunnerImplementation implements FakeRunner {
+		runtime = {
 			getActiveTools: () => [SAMPLE_TOOL_NAME],
 			setActiveTools: () => onSetActiveTools?.(),
 			refreshTools: () => undefined,
-		},
-	};
+		};
+
+		createContext(): object {
+			return { cwd: "/tmp" };
+		}
+
+		async emit(): Promise<void> {}
+
+		async emitToolCall(...args: unknown[]): Promise<unknown> {
+			return events.emitToolCall?.(...args);
+		}
+
+		async emitBeforeAgentStart(...args: unknown[]): Promise<unknown> {
+			return events.emitBeforeAgentStart?.(...args);
+		}
+	}
+
+	return new FakeRunnerImplementation();
 }
 
 function createInstaller(captures: PiRuntimeCapture[]): PiRuntimeInstaller {
@@ -235,6 +264,11 @@ function assertStale(adapter: ReturnType<typeof assertCompatible>): void {
 		() => adapter.beforeToolCall,
 		() => adapter.afterToolCall,
 		() => adapter.getToolDefinition(PTC_TOOL_NAME),
+		() =>
+			adapter.installRuntimeEventFinalizers({
+				finalizeToolCall: async (_args, result) => result,
+				finalizeBeforeAgentStart: async (_args, result) => result,
+			}),
 	];
 	for (const access of accesses) {
 		assert.throws(access, STALE_CAPTURE_PATTERN);
@@ -251,7 +285,7 @@ test("installed Pi exports exact patchable bind and reload runtime methods", () 
 	}
 });
 
-test("real Pi 0.84.3 binds a tagged inline ptc definition to the capture seam", async () => {
+test("real Pi 0.84.3 session_start precedes tagged post-bind capture", async () => {
 	const directory = mkdtempSync(join(tmpdir(), CHARACTERIZATION_DIRECTORY_PREFIX));
 	const cwd = join(directory, "project");
 	const agentDir = join(directory, "agent");
@@ -262,6 +296,7 @@ test("real Pi 0.84.3 binds a tagged inline ptc definition to the capture seam", 
 	let beforeHookCalls = 0;
 	let afterHookCalls = 0;
 	let toolExecutions = 0;
+	const captureCountsAtSessionStart: number[] = [];
 	const installer = createInstaller(captures);
 	const definition = tagPtcToolDefinition(
 		defineTool({
@@ -291,6 +326,9 @@ test("real Pi 0.84.3 binds a tagged inline ptc definition to the capture seam", 
 				name: "ptc-characterization",
 				factory(pi) {
 					pi.registerTool(definition);
+					pi.on("session_start", () => {
+						captureCountsAtSessionStart.push(captures.length);
+					});
 					pi.on("agent_settled", () => {
 						emittedEvents += 1;
 					});
@@ -333,6 +371,7 @@ test("real Pi 0.84.3 binds a tagged inline ptc definition to the capture seam", 
 
 		await session.bindExtensions({ mode: "print" });
 
+		assert.deepEqual(captureCountsAtSessionStart, [0]);
 		assert.equal(captures.length, EXPECTED_CAPTURE_COUNT);
 		const adapter = assertCompatible(captures[0]);
 		assert.equal(adapter.getToolDefinition(PTC_TOOL_NAME), definition);
@@ -368,6 +407,85 @@ test("real Pi 0.84.3 binds a tagged inline ptc definition to the capture seam", 
 		assert.equal(afterHookCalls, EXPECTED_CAPTURE_COUNT);
 		adapter.sharedRuntime.refreshTools();
 		assertStale(adapter);
+	} finally {
+		installation.teardown();
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("real Pi reload session_start sees prior capture before fresh post-reload capture", async () => {
+	const directory = mkdtempSync(join(tmpdir(), CHARACTERIZATION_DIRECTORY_PREFIX));
+	const cwd = join(directory, "project");
+	const agentDir = join(directory, "agent");
+	mkdirSync(cwd, { recursive: true });
+	mkdirSync(agentDir, { recursive: true });
+	const captures: PiRuntimeCapture[] = [];
+	const captureCountsAtSessionStart: number[] = [];
+	const installer = createInstaller(captures);
+	const definition = tagPtcToolDefinition(
+		defineTool({
+			name: PTC_TOOL_NAME,
+			label: "PTC reload characterization",
+			description: "Characterize capture ordering across reload",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [], details: undefined }),
+		}),
+		installer,
+	);
+	const settingsManager = SettingsManager.inMemory();
+	const resourceLoader = new DefaultResourceLoader({
+		cwd,
+		agentDir,
+		settingsManager,
+		extensionFactories: [
+			{
+				name: "ptc-reload-characterization",
+				factory(pi) {
+					pi.registerTool(definition);
+					pi.on("session_start", () => {
+						captureCountsAtSessionStart.push(captures.length);
+					});
+				},
+			},
+		],
+		noExtensions: true,
+		noSkills: true,
+		noPromptTemplates: true,
+		noThemes: true,
+		noContextFiles: true,
+		systemPrompt: "",
+	});
+	const installation = installPiRuntimeCapturePatch();
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+
+	try {
+		await resourceLoader.reload();
+		const modelRuntime = await ModelRuntime.create({
+			authPath: join(agentDir, "auth.json"),
+			modelsPath: null,
+			refreshOnCreate: false,
+		});
+		const { session } = await createAgentSession({
+			cwd,
+			agentDir,
+			modelRuntime,
+			resourceLoader,
+			sessionManager: SessionManager.inMemory(cwd),
+			settingsManager,
+			tools: [PTC_TOOL_NAME],
+		});
+		const uiContext = {
+			notify() {},
+			setStatus() {},
+		};
+
+		await session.bindExtensions({ mode: "print", uiContext: uiContext as never });
+		await session.reload();
+
+		assert.deepEqual(captureCountsAtSessionStart, [0, EXPECTED_CAPTURE_COUNT]);
+		assert.equal(captures.length, EXPECTED_REBIND_CAPTURE_COUNT);
+		assertCompatible(captures[1]);
 	} finally {
 		installation.teardown();
 		rmSync(directory, { recursive: true, force: true });
@@ -529,6 +647,44 @@ test("capture rejects every required private shape mismatch without runtime muta
 				(session.extensionRunner as unknown as { emit: unknown }).emit = undefined;
 			},
 			expected: /emit/,
+		},
+		{
+			name: "emitToolCall",
+			mutate: (session) => {
+				(session.extensionRunner as unknown as { emitToolCall: unknown }).emitToolCall = undefined;
+			},
+			expected: /emitToolCall/,
+		},
+		{
+			name: "emitBeforeAgentStart",
+			mutate: (session) => {
+				(
+					session.extensionRunner as unknown as { emitBeforeAgentStart: unknown }
+				).emitBeforeAgentStart = undefined;
+			},
+			expected: /emitBeforeAgentStart/,
+		},
+		{
+			name: "unpatchable emitToolCall",
+			mutate: (session) => {
+				Object.defineProperty(session.extensionRunner, EMIT_TOOL_CALL_PROPERTY, {
+					value: session.extensionRunner.emitToolCall,
+					configurable: false,
+					writable: false,
+				});
+			},
+			expected: /emitToolCall.*not patchable/i,
+		},
+		{
+			name: "unpatchable emitBeforeAgentStart",
+			mutate: (session) => {
+				Object.defineProperty(session.extensionRunner, EMIT_BEFORE_AGENT_START_PROPERTY, {
+					value: session.extensionRunner.emitBeforeAgentStart,
+					configurable: false,
+					writable: false,
+				});
+			},
+			expected: /emitBeforeAgentStart.*not patchable/i,
 		},
 		{
 			name: "runner runtime",
@@ -882,6 +1038,12 @@ test("retained capability facades reject after teardown", async () => {
 	assert.ok(tool);
 	const beforeToolCall = adapter.beforeToolCall;
 	const afterToolCall = adapter.afterToolCall;
+	const eventInstallation = adapter.installRuntimeEventFinalizers({
+		finalizeToolCall: async (_args, result) => result,
+		finalizeBeforeAgentStart: async (_args, result) => result,
+	});
+	const installedEmitToolCall = session.extensionRunner.emitToolCall;
+	const installedEmitBeforeAgentStart = session.extensionRunner.emitBeforeAgentStart;
 
 	installation.teardown();
 
@@ -895,6 +1057,20 @@ test("retained capability facades reject after teardown", async () => {
 	]) {
 		assert.throws(operation, STALE_CAPTURE_PATTERN);
 	}
+	await assert.rejects(
+		Reflect.apply(installedEmitToolCall, session.extensionRunner, [{}]),
+		STALE_CAPTURE_PATTERN,
+	);
+	await assert.rejects(
+		Reflect.apply(installedEmitBeforeAgentStart, session.extensionRunner, [
+			"prompt",
+			undefined,
+			"system",
+			{},
+		]),
+		STALE_CAPTURE_PATTERN,
+	);
+	eventInstallation.restore();
 });
 
 test("tag removal and invalid rebinding leave earlier generations stale", async () => {
@@ -2104,7 +2280,7 @@ test("teardown during deferred bind restores descriptors without a late capture"
 	);
 });
 
-test("teardown during deferred reload keeps prior generation stale without a late capture", async () => {
+test("teardown during deferred reload stales retained generation without a late capture", async () => {
 	const gate = createDeferred();
 	const captures: PiRuntimeCapture[] = [];
 	const installer = createInstaller(captures);
@@ -2124,9 +2300,10 @@ test("teardown during deferred reload keeps prior generation stale without a lat
 
 	const pendingReload = session.reload();
 	try {
-		assertStale(firstAdapter);
+		assert.deepEqual(firstAdapter.sharedRuntime.getActiveTools(), [SAMPLE_TOOL_NAME]);
 	} finally {
 		installation.teardown();
+		assertStale(firstAdapter);
 		gate.resolve();
 		assert.equal(await pendingReload, RELOAD_RESULT);
 	}
@@ -2172,8 +2349,11 @@ test("failed rebinding preserves rejection and leaves the prior generation stale
 
 test("failed reload preserves rejection and leaves the prior generation stale", async () => {
 	const rejection = new Error(ORIGINAL_ERROR);
+	let firstAdapter: ReturnType<typeof assertCompatible> | undefined;
 	const { Session } = createFakeSessionClass({
 		onReload() {
+			assert.ok(firstAdapter);
+			assert.deepEqual(firstAdapter.sharedRuntime.getActiveTools(), [SAMPLE_TOOL_NAME]);
 			throw rejection;
 		},
 	});
@@ -2186,7 +2366,7 @@ test("failed reload preserves rejection and leaves the prior generation stale", 
 	const session = new Session();
 	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, createInstaller(captures));
 	await session.bindExtensions();
-	const firstAdapter = assertCompatible(captures[0]);
+	firstAdapter = assertCompatible(captures[0]);
 
 	await assert.rejects(session.reload(), (error) => error === rejection);
 
@@ -2284,5 +2464,670 @@ test("failed original binding does not expose a capture", async () => {
 
 	await assert.rejects(session.bindExtensions(), new RegExp(ORIGINAL_ERROR));
 	assert.deepEqual(captures, []);
+	installation.teardown();
+});
+
+test("controlled event finalizers run after inherited Pi aggregators and restore inheritance", async () => {
+	const calls: string[] = [];
+	let contextCount = 0;
+	const rawToolCallResult = { owner: "tool-owner" };
+	const rawBeforeAgentStartResult = {
+		messages: [{ customType: "owner-message", content: [] }],
+		systemPrompt: "owner prompt",
+	};
+	const { Session } = createFakeSessionClass();
+	const captures: PiRuntimeCapture[] = [];
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	const runner = createRunner(undefined, {
+		async emitToolCall(...args) {
+			calls.push(`tool:${String((args[0] as { toolName?: string }).toolName)}`);
+			return rawToolCallResult;
+		},
+		async emitBeforeAgentStart(...args) {
+			calls.push(`before:${String(args[0])}`);
+			return rawBeforeAgentStartResult;
+		},
+	});
+	runner.createContext = () => ({ generation: ++contextCount });
+	session.extensionRunner = runner;
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, createInstaller(captures));
+	const inheritedToolCall = runner.emitToolCall;
+	const inheritedBeforeAgentStart = runner.emitBeforeAgentStart;
+	assert.equal(Object.hasOwn(runner, EMIT_TOOL_CALL_PROPERTY), false);
+	assert.equal(Object.hasOwn(runner, EMIT_BEFORE_AGENT_START_PROPERTY), false);
+	await session.bindExtensions();
+	const adapter = assertCompatible(captures[0]);
+	const eventInstallation = adapter.installRuntimeEventFinalizers({
+		async finalizeToolCall(args, result, ctx) {
+			calls.push(`tool-final:${String((ctx as { generation: number }).generation)}`);
+			assert.equal((args[0] as { toolName: string }).toolName, SAMPLE_TOOL_NAME);
+			assert.equal(result, rawToolCallResult);
+			return { finalized: result };
+		},
+		async finalizeBeforeAgentStart(args, result, ctx) {
+			calls.push(`before-final:${String((ctx as { generation: number }).generation)}`);
+			assert.equal(args[0], "prompt");
+			assert.equal(result, rawBeforeAgentStartResult);
+			return { ...(result as object), finalized: true };
+		},
+	});
+
+	assert.throws(
+		() =>
+			adapter.installRuntimeEventFinalizers({
+				finalizeToolCall: async (_args, result) => result,
+				finalizeBeforeAgentStart: async (_args, result) => result,
+			}),
+		/already/i,
+	);
+	assert.deepEqual(await runner.emitToolCall({ toolName: SAMPLE_TOOL_NAME }), {
+		finalized: rawToolCallResult,
+	});
+	assert.deepEqual(await runner.emitBeforeAgentStart("prompt", undefined, "base", { skills: [] }), {
+		...rawBeforeAgentStartResult,
+		finalized: true,
+	});
+	assert.deepEqual(calls, [
+		`tool:${SAMPLE_TOOL_NAME}`,
+		"tool-final:1",
+		"before:prompt",
+		"before-final:2",
+	]);
+
+	eventInstallation.restore();
+	eventInstallation.restore();
+	assert.equal(Object.hasOwn(runner, EMIT_TOOL_CALL_PROPERTY), false);
+	assert.equal(Object.hasOwn(runner, EMIT_BEFORE_AGENT_START_PROPERTY), false);
+	assert.equal(runner.emitToolCall, inheritedToolCall);
+	assert.equal(runner.emitBeforeAgentStart, inheritedBeforeAgentStart);
+	installation.teardown();
+});
+
+test("event finalizer installation rolls back a partial runner patch", async () => {
+	const { Session } = createFakeSessionClass();
+	const captures: PiRuntimeCapture[] = [];
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	const runnerTarget = createRunner();
+	const runner = new Proxy(runnerTarget, {
+		defineProperty(target, property, descriptor) {
+			if (property === EMIT_BEFORE_AGENT_START_PROPERTY) {
+				throw new Error("planned event patch failure");
+			}
+			return Reflect.defineProperty(target, property, descriptor);
+		},
+	});
+	session.extensionRunner = runner;
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, createInstaller(captures));
+	await session.bindExtensions();
+	const adapter = assertCompatible(captures[0]);
+
+	assert.throws(
+		() =>
+			adapter.installRuntimeEventFinalizers({
+				finalizeToolCall: async (_args, result) => result,
+				finalizeBeforeAgentStart: async (_args, result) => result,
+			}),
+		/event.*patch|could not.*event/i,
+	);
+	assert.equal(Object.hasOwn(runnerTarget, EMIT_TOOL_CALL_PROPERTY), false);
+	assert.equal(Object.hasOwn(runnerTarget, EMIT_BEFORE_AGENT_START_PROPERTY), false);
+	installation.teardown();
+});
+
+test("event finalizers stale on identity drift and restore only wrappers still owned", async () => {
+	let rawToolCalls = 0;
+	const { Session } = createFakeSessionClass();
+	const captures: PiRuntimeCapture[] = [];
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	const runner = createRunner(undefined, {
+		async emitToolCall() {
+			rawToolCalls += 1;
+			return undefined;
+		},
+	});
+	session.extensionRunner = runner;
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, createInstaller(captures));
+	await session.bindExtensions();
+	const adapter = assertCompatible(captures[0]);
+	const eventInstallation = adapter.installRuntimeEventFinalizers({
+		finalizeToolCall: async (_args, result) => result,
+		finalizeBeforeAgentStart: async (_args, result) => result,
+	});
+	const ownedToolCall = runner.emitToolCall;
+	const foreignBeforeAgentStart = async () => ({ systemPrompt: "foreign" });
+	runner.emitBeforeAgentStart = foreignBeforeAgentStart;
+
+	await assert.rejects(
+		Reflect.apply(ownedToolCall, runner, [{ toolName: SAMPLE_TOOL_NAME }]),
+		STALE_CAPTURE_PATTERN,
+	);
+	assert.equal(rawToolCalls, 0);
+	eventInstallation.restore();
+	assert.equal(Object.hasOwn(runner, EMIT_TOOL_CALL_PROPERTY), false);
+	assert.equal(runner.emitBeforeAgentStart, foreignBeforeAgentStart);
+	installation.teardown();
+});
+
+test("event finalizers retain through reload until explicit restore", async () => {
+	const captures: PiRuntimeCapture[] = [];
+	const installer = createInstaller(captures);
+	const replacementRunner = createRunner();
+	const replacementRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
+	let eventInstallation: PiRuntimeEventFinalizersInstallation | undefined;
+	let retainedResult: unknown;
+	let oldRunner: FakeRunner | undefined;
+	const { Session } = createFakeSessionClass({
+		async onReload(session) {
+			assert.ok(oldRunner);
+			retainedResult = await oldRunner.emitToolCall({ toolName: SAMPLE_TOOL_NAME });
+			eventInstallation?.restore();
+			session.extensionRunner = replacementRunner;
+			session._toolRegistry = replacementRegistry;
+			session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+		},
+	});
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	oldRunner = session.extensionRunner;
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	await session.bindExtensions();
+	const oldAdapter = assertCompatible(captures[0]);
+	eventInstallation = oldAdapter.installRuntimeEventFinalizers({
+		finalizeToolCall: async (_args, result) => ({ retained: result }),
+		finalizeBeforeAgentStart: async (_args, result) => result,
+	});
+
+	await session.reload();
+
+	assert.deepEqual(retainedResult, { retained: undefined });
+	assertStale(oldAdapter);
+	assert.equal(Object.hasOwn(oldRunner, EMIT_TOOL_CALL_PROPERTY), false);
+	assert.equal(Object.hasOwn(oldRunner, EMIT_BEFORE_AGENT_START_PROPERTY), false);
+	assertCompatible(captures[1]);
+	installation.teardown();
+});
+
+test("shared patch ensure keeps one process-global lease across module copies", async () => {
+	const { Session, originalDescriptor, originalReloadDescriptor } = createFakeSessionClass();
+	const globalObject = {};
+	const firstEnsure = ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+	assert.equal(firstEnsure.compatible, true);
+	const patchedBind = Object.getOwnPropertyDescriptor(
+		Session.prototype,
+		BIND_EXTENSIONS_PROPERTY,
+	)?.value;
+	const patchedReload = Object.getOwnPropertyDescriptor(Session.prototype, RELOAD_PROPERTY)?.value;
+	const patchRegistry = Object.getOwnPropertyDescriptor(globalObject, PATCH_REGISTRY_SYMBOL)
+		?.value as WeakMap<object, { installations: number }>;
+	assert.equal(patchRegistry.get(Session.prototype)?.installations, 1);
+	const copyUrl = new URL("../src/pi-runtime.ts?cross-copy-shared-lease", import.meta.url);
+	const runtimeCopy = (await import(copyUrl.href)) as typeof piRuntimeModule;
+
+	const secondEnsure = runtimeCopy.ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+
+	assert.equal(secondEnsure.compatible, true);
+	assert.equal(patchRegistry.get(Session.prototype)?.installations, 1);
+	assert.equal(
+		Object.getOwnPropertyDescriptor(Session.prototype, BIND_EXTENSIONS_PROPERTY)?.value,
+		patchedBind,
+	);
+	assert.equal(
+		Object.getOwnPropertyDescriptor(Session.prototype, RELOAD_PROPERTY)?.value,
+		patchedReload,
+	);
+	const sharedRegistry = Object.getOwnPropertyDescriptor(
+		globalObject,
+		SHARED_PATCH_LEASE_REGISTRY_SYMBOL,
+	)?.value as WeakMap<object, unknown>;
+	assert.equal(sharedRegistry.has(Session.prototype), true);
+	assert.notDeepEqual(
+		Object.getOwnPropertyDescriptor(Session.prototype, BIND_EXTENSIONS_PROPERTY),
+		originalDescriptor,
+	);
+	assert.notDeepEqual(
+		Object.getOwnPropertyDescriptor(Session.prototype, RELOAD_PROPERTY),
+		originalReloadDescriptor,
+	);
+});
+
+test("shared patch ensure rejects malformed stored lease without incrementing patch ownership", () => {
+	const { Session } = createFakeSessionClass();
+	const globalObject = {};
+	const firstEnsure = ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+	assert.equal(firstEnsure.compatible, true);
+	const patchRegistry = Object.getOwnPropertyDescriptor(globalObject, PATCH_REGISTRY_SYMBOL)
+		?.value as WeakMap<object, { installations: number }>;
+	const sharedRegistry = Object.getOwnPropertyDescriptor(
+		globalObject,
+		SHARED_PATCH_LEASE_REGISTRY_SYMBOL,
+	)?.value as WeakMap<object, unknown>;
+	sharedRegistry.set(Session.prototype, Object.create({ installation: {} }));
+
+	const repeatedEnsure = ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+
+	assert.equal(repeatedEnsure.compatible, false);
+	if (repeatedEnsure.compatible) throw new Error("expected malformed shared lease rejection");
+	assert.match(repeatedEnsure.diagnostic, GLOBAL_REGISTRY_PATTERN);
+	assert.equal(patchRegistry.get(Session.prototype)?.installations, 1);
+});
+
+test("shared patch ensure rejects lifecycle ownership drift without acquiring another lease", () => {
+	const { Session, originalReloadDescriptor } = createFakeSessionClass();
+	const globalObject = {};
+	const firstEnsure = ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+	assert.equal(firstEnsure.compatible, true);
+	const patchRegistry = Object.getOwnPropertyDescriptor(globalObject, PATCH_REGISTRY_SYMBOL)
+		?.value as WeakMap<object, { installations: number }>;
+	const foreignReload = async () => undefined;
+	Object.defineProperty(Session.prototype, RELOAD_PROPERTY, {
+		...originalReloadDescriptor,
+		value: foreignReload,
+	});
+
+	const repeatedEnsure = ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+
+	assert.equal(repeatedEnsure.compatible, false);
+	if (repeatedEnsure.compatible) throw new Error("expected shared patch conflict");
+	assert.match(repeatedEnsure.diagnostic, /changed/);
+	assert.equal(patchRegistry.get(Session.prototype)?.installations, 1);
+	assert.equal(
+		Object.getOwnPropertyDescriptor(Session.prototype, RELOAD_PROPERTY)?.value,
+		foreignReload,
+	);
+});
+
+test("runtime action installation validates all replacements before mutation", async () => {
+	const { Session } = createFakeSessionClass();
+	const captures: PiRuntimeCapture[] = [];
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, createInstaller(captures));
+	await session.bindExtensions();
+	const adapter = assertCompatible(captures[0]);
+	const runtime = session.extensionRunner.runtime;
+	const originalActions = {
+		getActiveTools: runtime.getActiveTools,
+		setActiveTools: runtime.setActiveTools,
+		refreshTools: runtime.refreshTools,
+	};
+
+	assert.throws(
+		() =>
+			adapter.installRuntimeActions({
+				getActiveTools: () => [],
+				setActiveTools: undefined,
+				refreshTools: () => undefined,
+			} as never),
+		/replacement/i,
+	);
+	assert.deepEqual(
+		{
+			getActiveTools: runtime.getActiveTools,
+			setActiveTools: runtime.setActiveTools,
+			refreshTools: runtime.refreshTools,
+		},
+		originalActions,
+	);
+	Object.defineProperty(runtime, "getActiveTools", {
+		value: originalActions.getActiveTools,
+		configurable: false,
+		writable: false,
+	});
+	assert.throws(
+		() =>
+			adapter.installRuntimeActions({
+				getActiveTools: () => [],
+				setActiveTools: () => undefined,
+				refreshTools: () => undefined,
+			}),
+		/not patchable/i,
+	);
+	assert.equal(runtime.setActiveTools, originalActions.setActiveTools);
+	assert.equal(runtime.refreshTools, originalActions.refreshTools);
+	installation.teardown();
+});
+
+test("reload retains controlled adapter until shutdown restore and then publishes fresh capture", async () => {
+	const captures: PiRuntimeCapture[] = [];
+	const installer = createInstaller(captures);
+	const replacementRunner = createRunner();
+	const replacementRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
+	let adapter: ReturnType<typeof assertCompatible> | undefined;
+	let runtimeInstallation:
+		| ReturnType<ReturnType<typeof assertCompatible>["installRuntimeActions"]>
+		| undefined;
+	const calls: string[] = [];
+	const { Session } = createFakeSessionClass({
+		onReload(session) {
+			assert.ok(adapter);
+			assert.ok(runtimeInstallation);
+			const active = adapter.sharedRuntime.getActiveTools();
+			adapter.sharedRuntime.setActiveTools(active);
+			adapter.sharedRuntime.refreshTools();
+			calls.push(`retained:${active.join(",")}`);
+			runtimeInstallation.restore([SAMPLE_TOOL_NAME]);
+			assertStale(adapter);
+			session.extensionRunner = replacementRunner;
+			session._toolRegistry = replacementRegistry;
+			session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+		},
+	});
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	await session.bindExtensions();
+	adapter = assertCompatible(captures[0]);
+	runtimeInstallation = adapter.installRuntimeActions({
+		getActiveTools: () => [SAMPLE_TOOL_NAME, PTC_TOOL_NAME],
+		setActiveTools: (names) => {
+			calls.push(`set:${names.join(",")}`);
+		},
+		refreshTools: () => {
+			calls.push("refresh");
+		},
+	});
+
+	await session.reload();
+
+	assert.deepEqual(calls, [
+		`set:${SAMPLE_TOOL_NAME},${PTC_TOOL_NAME}`,
+		"refresh",
+		`retained:${SAMPLE_TOOL_NAME},${PTC_TOOL_NAME}`,
+	]);
+	assert.equal(captures.length, EXPECTED_REBIND_CAPTURE_COUNT);
+	assertStale(adapter);
+	const freshAdapter = assertCompatible(captures[1]);
+	assertFacadeAssociation(freshAdapter, session);
+	assertRegistryNames(freshAdapter, replacementRegistry);
+	installation.teardown();
+});
+
+test("reload identity drift detaches retained access without consuming reload ownership", async () => {
+	const captures: PiRuntimeCapture[] = [];
+	const installer = createInstaller(captures);
+	const replacementRunner = createRunner();
+	const replacementRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
+	let adapter: ReturnType<typeof assertCompatible> | undefined;
+	let activeBeforeDrift: string[] | undefined;
+	const { Session } = createFakeSessionClass({
+		onReload(session) {
+			assert.ok(adapter);
+			activeBeforeDrift = adapter.sharedRuntime.getActiveTools();
+			session.extensionRunner = replacementRunner;
+			session._toolRegistry = replacementRegistry;
+			session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+			assertStale(adapter);
+		},
+	});
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	await session.bindExtensions();
+	adapter = assertCompatible(captures[0]);
+
+	await session.reload();
+
+	assert.deepEqual(activeBeforeDrift, [SAMPLE_TOOL_NAME]);
+	assert.equal(captures.length, EXPECTED_REBIND_CAPTURE_COUNT);
+	assertStale(adapter);
+	const freshAdapter = assertCompatible(captures[1]);
+	assertFacadeAssociation(freshAdapter, session);
+	assertRegistryNames(freshAdapter, replacementRegistry);
+	installation.teardown();
+});
+
+test("overlapping reloads retain only current invocation ownership", async () => {
+	const firstGate = createDeferred();
+	const secondGate = createDeferred();
+	const captures: PiRuntimeCapture[] = [];
+	const installer = createInstaller(captures);
+	const firstRunner = createRunner();
+	const secondRunner = createRunner();
+	const firstRegistry = new Map([[SAMPLE_TOOL_NAME, createTool()]]);
+	const secondRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
+	let reloadCount = 0;
+	const { Session } = createFakeSessionClass({
+		async onReload(session) {
+			reloadCount += 1;
+			const invocation = reloadCount;
+			await (invocation === 1 ? firstGate.promise : secondGate.promise);
+			session.extensionRunner = invocation === 1 ? firstRunner : secondRunner;
+			session._toolRegistry = invocation === 1 ? firstRegistry : secondRegistry;
+			session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+		},
+	});
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	await session.bindExtensions();
+	const oldAdapter = assertCompatible(captures[0]);
+
+	const firstReload = session.reload();
+	assert.deepEqual(oldAdapter.sharedRuntime.getActiveTools(), [SAMPLE_TOOL_NAME]);
+	const secondReload = session.reload();
+	assert.deepEqual(oldAdapter.sharedRuntime.getActiveTools(), [SAMPLE_TOOL_NAME]);
+	firstGate.resolve();
+	assert.equal(await firstReload, RELOAD_RESULT);
+	assertStale(oldAdapter);
+	assert.equal(captures.length, EXPECTED_CAPTURE_COUNT);
+	secondGate.resolve();
+	assert.equal(await secondReload, RELOAD_RESULT);
+
+	assert.equal(captures.length, EXPECTED_REBIND_CAPTURE_COUNT);
+	const freshAdapter = assertCompatible(captures[1]);
+	assertFacadeAssociation(freshAdapter, session);
+	assertRegistryNames(freshAdapter, secondRegistry);
+	installation.teardown();
+});
+
+test("controlled runtime originals stale after reload while cleanup restores the old runner", async () => {
+	const captures: PiRuntimeCapture[] = [];
+	const installer = createInstaller(captures);
+	const { Session } = createFakeSessionClass({
+		onReload(session) {
+			session.extensionRunner = createRunner();
+			session._toolRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
+			session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+		},
+	});
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	session.ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	await session.bindExtensions();
+	const oldRuntime = session.extensionRunner.runtime;
+	const originalIdentities = {
+		getActiveTools: oldRuntime.getActiveTools,
+		setActiveTools: oldRuntime.setActiveTools,
+		refreshTools: oldRuntime.refreshTools,
+	};
+	const runtimeInstallation = assertCompatible(captures[0]).installRuntimeActions({
+		getActiveTools: () => [SAMPLE_TOOL_NAME, PTC_TOOL_NAME],
+		setActiveTools: () => undefined,
+		refreshTools: () => undefined,
+	});
+
+	await session.reload();
+
+	for (const operation of [
+		() => runtimeInstallation.original.getActiveTools(),
+		() => runtimeInstallation.original.setActiveTools([]),
+		() => runtimeInstallation.original.refreshTools(),
+		() => runtimeInstallation.original.snapshotTools(),
+	]) {
+		assert.throws(operation, STALE_CAPTURE_PATTERN);
+	}
+	runtimeInstallation.restore();
+	assert.equal(oldRuntime.getActiveTools, originalIdentities.getActiveTools);
+	assert.equal(oldRuntime.setActiveTools, originalIdentities.setActiveTools);
+	assert.equal(oldRuntime.refreshTools, originalIdentities.refreshTools);
+	installation.teardown();
+});
+
+test("controlled runtime actions retain guarded originals, refresh snapshots, and owned restore", async () => {
+	const captures: PiRuntimeCapture[] = [];
+	const installer = createInstaller(captures);
+	const replacementDefinition = { name: SECOND_TOOL_NAME };
+	const replacementRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
+	const { Session } = createFakeSessionClass();
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	const sampleDefinition = { name: SAMPLE_TOOL_NAME };
+	const ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	session.ptcDefinition = ptcDefinition;
+	session.getToolDefinition = (name) => {
+		if (name === PTC_TOOL_NAME) return ptcDefinition;
+		if (name === SAMPLE_TOOL_NAME) return sampleDefinition;
+		if (name === SECOND_TOOL_NAME) return replacementDefinition;
+		return undefined;
+	};
+	let physical = [SAMPLE_TOOL_NAME, PTC_TOOL_NAME];
+	const rawRuntime = session.extensionRunner.runtime;
+	rawRuntime.getActiveTools = () => [...physical];
+	rawRuntime.setActiveTools = (names) => {
+		physical = names.filter((name) => session._toolRegistry.has(name));
+	};
+	rawRuntime.refreshTools = () => {
+		session._toolRegistry = replacementRegistry;
+		physical = [SECOND_TOOL_NAME];
+	};
+	const originalIdentities = {
+		getActiveTools: rawRuntime.getActiveTools,
+		setActiveTools: rawRuntime.setActiveTools,
+		refreshTools: rawRuntime.refreshTools,
+	};
+	await session.bindExtensions();
+	const adapter = assertCompatible(captures[0]);
+	const calls: string[] = [];
+	const runtimeInstallation = adapter.installRuntimeActions({
+		getActiveTools: () => {
+			calls.push("virtual-get");
+			return [SAMPLE_TOOL_NAME, PTC_TOOL_NAME];
+		},
+		setActiveTools: (names) => {
+			calls.push(`virtual-set:${names.join(",")}`);
+		},
+		refreshTools: () => {
+			calls.push("virtual-refresh");
+		},
+	});
+
+	assert.notEqual(rawRuntime.getActiveTools, originalIdentities.getActiveTools);
+	assert.notEqual(rawRuntime.setActiveTools, originalIdentities.setActiveTools);
+	assert.notEqual(rawRuntime.refreshTools, originalIdentities.refreshTools);
+	assert.deepEqual(adapter.sharedRuntime.getActiveTools(), [SAMPLE_TOOL_NAME, PTC_TOOL_NAME]);
+	adapter.sharedRuntime.setActiveTools([SECOND_TOOL_NAME]);
+	adapter.sharedRuntime.refreshTools();
+	assert.deepEqual(calls, ["virtual-get", `virtual-set:${SECOND_TOOL_NAME}`, "virtual-refresh"]);
+	assert.deepEqual(runtimeInstallation.original.getActiveTools(), [
+		SAMPLE_TOOL_NAME,
+		PTC_TOOL_NAME,
+	]);
+	const firstSnapshot = runtimeInstallation.original.snapshotTools();
+	assert.deepEqual(
+		firstSnapshot.map((entry) => entry.name),
+		[SAMPLE_TOOL_NAME],
+	);
+	assert.equal(firstSnapshot[0]?.definition, sampleDefinition);
+
+	runtimeInstallation.original.refreshTools();
+
+	assert.equal(adapter.version, SUPPORTED_PI_VERSION);
+	assert.throws(
+		() => firstSnapshot[0]?.executable.execute(CHARACTERIZATION_TOOL_CALL_ID, {}),
+		STALE_CAPTURE_PATTERN,
+	);
+	const secondSnapshot = runtimeInstallation.original.snapshotTools();
+	assert.deepEqual(
+		secondSnapshot.map((entry) => entry.name),
+		[SECOND_TOOL_NAME],
+	);
+	assert.equal(secondSnapshot[0]?.definition, replacementDefinition);
+	assert.deepEqual(runtimeInstallation.original.getActiveTools(), [SECOND_TOOL_NAME]);
+
+	const foreignGet = () => ["foreign"];
+	rawRuntime.getActiveTools = foreignGet;
+	runtimeInstallation.restore([SECOND_TOOL_NAME]);
+	assert.equal(rawRuntime.getActiveTools, foreignGet);
+	assert.equal(rawRuntime.setActiveTools, originalIdentities.setActiveTools);
+	assert.equal(rawRuntime.refreshTools, originalIdentities.refreshTools);
+	assert.deepEqual(physical, [SECOND_TOOL_NAME]);
+	assert.throws(() => runtimeInstallation.original.getActiveTools(), STALE_CAPTURE_PATTERN);
 	installation.teardown();
 });
