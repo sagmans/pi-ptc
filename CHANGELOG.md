@@ -1,26 +1,35 @@
 # Changelog
 
-All notable changes to this project are documented here. This format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and releases follow
+All notable changes are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Added
 
-- Programmatic Tool Call presentation for Pi core tools.
-- Pi-native TUI rows for nested dispatches while the PTC transport stays hidden.
-- Versioned, bounded nested display state for deterministic session restoration.
+- Programmatic Tool Call presentations for all active Pi runtime tools.
+- Exact Pi `0.84.3` runtime capture with logical and model-visible tool virtualization.
+- Dynamic, schema-derived TypeScript bindings for built-in, SDK, extension, and adapter tools.
+- Nested Pi policy hooks, execution events, scheduling, and additive tool activation.
+- Pi-native nested rows with captured custom renderers and deterministic session restoration.
+
+### Changed
+
+- Expanded the original seven-core-tool design to the complete logical active set.
+- Fixed each running program to one catalog and renderer snapshot; refreshes apply to later runs.
+
+### Security
+
+- Fail closed to native tools on runtime drift, missing transport, competing ownership, or rollback failure.
+- Bound worker time, memory, dispatches, orphaned bindings, output, render data, and persisted details.
+- Sanitize terminal controls, display arguments, results, images, and diagnostics.
+- Keep worker environment variables empty while documenting user-equivalent host authority.
 
 ### Fixed
 
-- Keep nested renderer, invalidation, terminal-control, image, and timer failures inside PTC-owned rows.
-- Bound cancellation drains, quarantine late display reports, and terminalize stalled nested rows.
-- Bound complete persisted display payloads and strip C0, C1, and ECMA-48 control families.
-- Restore current and historical nested rows with explicit preview-only fallback for omitted render data.
-- Bound worker memory and log output while removing inherited worker environment variables.
-- Preserve live foreign-tool activation without reviving intentionally disabled tools.
-- Reserve unique factory call IDs before concurrent dispatches start.
-- Bound peer dependency ranges to tested compatible versions.
+- Drain or terminalize cancelled nested work without accepting late display updates.
+- Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
+- Restore current and historical display details with explicit bounded fallbacks.
 
-## [0.1.0] - unreleased
+## [0.1.0] - Unreleased

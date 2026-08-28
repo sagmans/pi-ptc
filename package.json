@@ -1,7 +1,7 @@
 {
 	"name": "pi-ptc",
 	"version": "0.1.0",
-	"description": "Programmatic Tool Call presentation for Pi core tools",
+	"description": "Programmatic Tool Call presentation for Pi active runtime tools",
 	"license": "MIT",
 	"files": [
 		"index.ts",

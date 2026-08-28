@@ -1,66 +1,70 @@
-# pi-ptc
+# pi-ptc language
 
-Programmatic Tool Call for Pi. The model writes one program against core tools.
-Only the curated outer result re-enters model context.
+Use these terms consistently in code, documentation, and reviews.
 
-## Language
+**PTC**  
+The presentation where the model reaches Pi tools through one program instead
+of direct tool calls.
 
-**PTC**:
-The presentation where the model reaches core tools only through a program,
-not through native JSON tool calls.
-_Avoid_: Code Mode, code execution, eval, REPL
-
-**Transport**:
-The single model-visible tool that accepts a program and a short description.
+**Transport**  
+The single model-visible tool that accepts a TypeScript program and UI label.
 Shipped name: `ptc`.
-_Avoid_: run_code, exec, eval, codemode
 
-**Binding**:
-An async host function the program calls, such as `tools.read(args)`.
-_Avoid_: native tool, proxy, wrapper
+**Active runtime tool**  
+A built-in, SDK, extension, or adapter-provided tool in Pi's logical active set.
+Registered but inactive tools are not included.
 
-**Dispatch**:
-One nested execution of a core tool started by a binding.
-_Avoid_: sub-tool, inner call, invoke
+**Core tool**  
+One of Pi's built-in file and shell tools: `read`, `bash`, `edit`,
+`write`, `grep`, `find`, or `ls`. Core tools have specialized canonical
+return shapes and built-in renderer fallbacks.
 
-**Presentation**:
-What the model is allowed to call on the wire: `code` (transport only for
-core tools), `both`, or `native` (PTC off).
-_Avoid_: mode (overloaded with Pi run mode), full code mode
+**Logical active set**  
+The tools Pi and its extensions consider active. PTC preserves this set while
+changing model visibility.
 
-**Core tool**:
-One of Pi's built-in file/shell tools: `read`, `bash`, `edit`, `write`,
-`grep`, `find`, `ls`.
-_Avoid_: builtin (too broad), host tool
+**Model-visible set**  
+The schemas sent to the model: `ptc` only for `code`, `ptc` plus the
+logical set for `both`, or the logical set for `native`.
 
-**Foreign tool**:
-Any non-core tool still registered by Pi or another extension (`mcp`,
-`mcpScript`, web search, and similar).
-_Avoid_: MCP tool, extension tool (those are subsets)
+**Catalog snapshot**  
+The fixed, sorted active-tool definitions used by one PTC execution for
+bindings, SDK guidance, validation, and rendering.
 
-**Canonical value**:
-The lossless JSON a successful dispatch returns to the program.
-_Avoid_: rendered content, Native text, tool result card
+**Binding**  
+An async function exposed to the program, such as `tools.read(args)` or
+`tools.mcp(args)`.
 
-**Outer result**:
-The only PTC output that re-enters model context: captured logs plus the
-program's return value.
-_Avoid_: transcript, tool result (ambiguous with dispatch)
+**Dispatch**  
+One nested tool execution started by a binding.
 
-**Dispatch log**:
-A session-local record of each dispatch for UI and reconstruction. It does
-not enter model context.
-_Avoid_: telemetry, trace (overloaded)
+**Canonical value**  
+Lossless JSON returned from a successful dispatch to the program. Core tools
+use specialized shapes; other tools receive `text`, `content`, and optional
+`details` and `usage`.
 
-**ToolCallError**:
-The program-visible rejection for a failed dispatch. It carries `toolName`
-and `message` only.
-_Avoid_: failure union, error code
+**Outer result**  
+The only PTC value sent back to model context: captured logs plus the program's
+optional return value.
 
-**Exclusive dispatch**:
-A mutating core tool that must run alone (`bash`, `edit`, `write`).
-_Avoid_: serial, barrier (implementation words)
+**Dispatch log**  
+A model-hidden session entry emitted for each settled dispatch. Persisted row
+details are stored separately.
 
-**Parallel dispatch**:
-A read-only core tool that may overlap (`read`, `grep`, `find`, `ls`).
-_Avoid_: concurrent (too broad)
+**ToolCallError**  
+The program-visible rejection for a failed dispatch. It contains `toolName`
+and `message`.
+
+**Parallel dispatch**  
+A dispatch allowed to overlap under the configured limit.
+
+**Exclusive dispatch**  
+A dispatch that drains parallel work and runs alone. Sequential Pi tools are
+exclusive; `bash`, `edit`, and `write` are exclusive fallbacks.
+
+**Presentation**  
+The tool-surface setting: `code`, `both`, or `native`.
+
+**Inert**  
+Fail-closed state where PTC does not own the tool surface and Pi keeps native
+tools active.

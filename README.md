@@ -1,12 +1,22 @@
 # pi-ptc
 
 Programmatic Tool Call for Pi. The model writes one TypeScript program against
-Pi core tools. Only the curated outer result re-enters model context.
+the tools active in the current Pi session. Nested results stay inside the
+program; only its captured logs and return value re-enter model context.
 
-Default presentation is `code`: core tools are hidden, `ptc` is registered, and
-foreign tools stay native. MCP is out of v1.
+The default `code` presentation exposes only `ptc` to the model. `both`
+exposes `ptc` and the active tools; `native` disables PTC.
 
-The worker isolate is bash-equivalent containment, not a sandbox.
+> PTC runs model-written code with user-equivalent authority. Its worker is
+> containment, not a sandbox.
+
+## Requirements
+
+- Node `>=22.19.0`
+- Pi `0.84.3`
+
+PTC uses an exact-version, fail-closed adapter for Pi runtime state. An
+unsupported host stays native and reports `ptc: inert`.
 
 ## Install
 
@@ -16,71 +26,125 @@ Local checkout:
 pi install /absolute/path/to/pi-ptc
 ```
 
-One-off load:
+One-off test:
 
 ```bash
 pi -e /absolute/path/to/pi-ptc
 ```
 
-Requires Node `>=22.19.0`. TUI integration is verified against Pi `0.84.3`.
-Pi supplies the bundled coding-agent, TUI, and TypeBox peer dependencies; local
-compatibility tests keep those development dependencies pinned to the verified host.
-
-Repeat the Node and Bun compatibility gates with:
-
-```bash
-npm run verify
-npm run test:bun
-```
-
 ## Usage
 
-The model calls `ptc` with a program body:
+The model calls `ptc` with an async function body:
 
 ```ts
 const [pkg, ts] = await Promise.all([
   tools.read({ path: "package.json" }),
   tools.read({ path: "tsconfig.json" }),
 ]);
-return { pkg: pkg.text, ts: ts.text };
+return {
+  packageName: JSON.parse(pkg.text).name,
+  compilerOptions: JSON.parse(ts.text).compilerOptions,
+};
 ```
 
-Slash command:
+Every active tool receives a generated `tools.<name>(args)` binding. Tool
+names that are not JavaScript identifiers use bracket notation.
+
+Failed dispatches reject with `ToolCallError(toolName, message)`:
+
+```ts
+try {
+  return await tools.bash({ command: "exit 7" });
+} catch (error) {
+  return {
+    caught: error instanceof ToolCallError,
+    toolName: error.toolName,
+  };
+}
+```
+
+## Presentation
+
+| Setting | Model-visible tools |
+|---|---|
+| `code` | `ptc` only |
+| `both` | `ptc` plus the logical active set |
+| `native` | Logical active set only |
+
+Set it with:
 
 ```text
-/ptc on     # hide core tools, keep ptc
-/ptc both   # core tools + ptc
-/ptc off    # native core tools, no ptc
+/ptc on
+/ptc both
+/ptc off
 ```
 
-Project `.pi/ptc.json` wins over `~/.pi/agent/ptc.json`.
+With no argument, `/ptc` cycles through the three settings. A trusted project
+`.pi/ptc.json` overrides `~/.pi/agent/ptc.json`; the shipped default is
+`code`.
+
+PTC preserves Pi's logical active-tool state while changing what the model sees.
+Tool refreshes and additive dynamic loading update later PTC runs. Each running
+program keeps a fixed tool and renderer snapshot.
+
+## Execution
+
+Each `ptc` call:
+
+1. Type-strips erasable TypeScript and starts a fresh worker.
+2. Exposes bindings from the active-tool snapshot.
+3. Validates arguments and runs captured Pi before/after tool hooks.
+4. Emits Pi tool execution start, update, and end events.
+5. Returns lossless JSON to the program.
+6. Sends only `{ logs, result? }` to model context.
+
+Tools honor their Pi `executionMode`. Without one, `bash`, `edit`, and
+`write` run exclusively; other tools may run in parallel.
+
+The worker has an empty environment, but nested tools retain their normal Pi
+behavior and operating-system authority.
 
 ## Display
 
-PTC owns each nested row and invokes Pi's public built-in tool-definition renderers.
-This preserves native read ranges, streaming output, edit diffs, expansion, and
-error states without nesting Pi's host tool component. The outer `ptc` shell,
-program, and curated return stay hidden.
+PTC hides its outer shell and renders one row per nested dispatch. It reuses Pi's
+built-in renderers and captures extension tool renderers for that execution.
+Missing or failing renderers fall back to bounded text.
 
-Version-2 display details persist bounded native results so resumed sessions rebuild
-rows without an in-memory cache. When the configured render-detail byte budget is
-exhausted, the whole native result is omitted deterministically and the row uses its
-bounded preview. Historical unversioned details are migrated on read; malformed
-records produce a display diagnostic instead of disappearing.
+Display arguments, results, images, diagnostics, and persisted details are
+sanitized and bounded. Versioned details restore rows after session resume.
+When a retention budget is exhausted, PTC keeps a deterministic preview instead
+of a partial native result.
 
-Nested images are limited to the row's current viewport width. Pi `0.84.3` does not
-expose the host image-width preference through its renderer context, so PTC cannot
-mirror that separate setting.
+## Limits
 
-## Coexistence
+Shipped limits live in [`config.json`](config.json). Defaults include:
 
-Keep `pi-mcp-adapter`. `mcp` and `mcpScript` stay native.
+- 120-second program timeout;
+- 100 dispatches per program;
+- 10 parallel dispatches;
+- 128 MiB worker old-generation heap;
+- 256,000-byte or 10,000-line outer output;
+- 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
-Do not install `pi-fabric` or `pi-retype` beside this package. Both steal
-`setActiveTools`. If those transports are already registered, pi-ptc stays inert.
+Only presentation has project and user overrides.
 
-## Honest gap
+## Compatibility
 
-Pi 0.84 has no public `invokeTool`. Nested factory execute skips other
-extensions' `tool_call` gates. Cooperating extensions can observe
-`pi-ptc:dispatch`.
+Active built-in, SDK, extension, and adapter-provided tools are eligible for PTC.
+Inactive registered tools remain unavailable. If a tool activates additional
+registered tools, later PTC runs can use them.
+
+`pi-fabric`, `pi-retype`, and other transports registered as
+`fabric_exec`, `retype`, or `execute_tools` compete for the same tool
+surface. PTC stays inert when one is present.
+
+## Development
+
+```bash
+npm ci --ignore-scripts
+npm run verify
+npm run test:bun
+```
+
+`npm run verify` runs formatting, type checks, and Node tests.
+`npm run test:bun` covers the shipped Pi/Bun worker and renderer bindings.
