@@ -45,6 +45,7 @@ export const PI_RUNTIME_DIAGNOSTICS = Object.freeze({
 	MISSING_BEFORE_TOOL_CALL: "Bound agent.beforeToolCall hook is unavailable",
 	MISSING_AFTER_TOOL_CALL: "Bound agent.afterToolCall hook is unavailable",
 	GLOBAL_REGISTRY: "Pi runtime global registry is unavailable",
+	TRANSPORT_OWNERSHIP_CHECK_FAILED: "Owned ptc transport could not be verified",
 	STALE_CAPTURE: "Captured Pi runtime session is no longer associated with this installer",
 } as const);
 
@@ -194,9 +195,21 @@ export type CapturedPiSession = {
 	): PiRuntimeEventFinalizersInstallation;
 };
 
+export type PtcTransportOwnership = {
+	isCurrent(): boolean;
+};
+
 export type PiRuntimeCapture =
-	| { compatible: true; session: CapturedPiSession }
-	| { compatible: false; diagnostic: string };
+	| {
+			compatible: true;
+			session: CapturedPiSession;
+			transportOwnership?: PtcTransportOwnership;
+	  }
+	| {
+			compatible: false;
+			diagnostic: string;
+			transportOwnership?: PtcTransportOwnership;
+	  };
 
 export type PiRuntimeInstaller = {
 	capturePiRuntime(capture: PiRuntimeCapture): void;
@@ -385,8 +398,11 @@ export function getPiRuntimeVersionDiagnostic(
 	return undefined;
 }
 
-function incompatible(message: string): PiRuntimeCapture {
-	return { compatible: false, diagnostic: message };
+function incompatible(
+	message: string,
+	transportOwnership?: PtcTransportOwnership,
+): PiRuntimeCapture {
+	return { compatible: false, diagnostic: message, transportOwnership };
 }
 
 function isUsableWeakMap(value: unknown): value is WeakMap<object, unknown> {
@@ -669,6 +685,27 @@ function getTaggedInstaller(definition: unknown): PiRuntimeInstaller | undefined
 	return typeof installer.capturePiRuntime === "function"
 		? (installer as PiRuntimeInstaller)
 		: undefined;
+}
+
+function createTransportOwnership(
+	session: object,
+	getToolDefinition: (name: string) => unknown,
+	definition: object,
+	installer: PiRuntimeInstaller,
+): PtcTransportOwnership {
+	return Object.freeze({
+		isCurrent(): boolean {
+			try {
+				if (Reflect.get(session, GET_TOOL_DEFINITION_PROPERTY) !== getToolDefinition) return false;
+				const current = Reflect.apply(getToolDefinition, session, [PTC_TOOL_NAME]);
+				return current === definition && getTaggedInstaller(current) === installer;
+			} catch (error) {
+				throw new PiRuntimeCompatibilityError(
+					diagnostic(PI_RUNTIME_DIAGNOSTICS.TRANSPORT_OWNERSHIP_CHECK_FAILED, String(error)),
+				);
+			}
+		},
+	});
 }
 
 function validateToolRegistry(registry: unknown):
@@ -1474,14 +1511,6 @@ function installCapturedRuntimeActions(
 		},
 		snapshotTools(): readonly PiRuntimeToolEntry[] {
 			const parts = requireInstalledParts();
-			const toolGeneration = association.toolGeneration;
-			const validateTool = (): SessionParts => {
-				const current = requireInstalledParts();
-				if (association.toolGeneration !== toolGeneration) {
-					throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.STALE_CAPTURE);
-				}
-				return current;
-			};
 			const entries = parts.toolSnapshots.map((snapshot) => {
 				let definition: unknown;
 				try {
@@ -1491,7 +1520,7 @@ function installCapturedRuntimeActions(
 				}
 				return Object.freeze({
 					name: snapshot.name,
-					executable: createToolFacade(validateTool, snapshot),
+					executable: createToolFacade(requireInstalledParts, snapshot),
 					definition,
 				});
 			});
@@ -1513,7 +1542,8 @@ function installCapturedRuntimeActions(
 				restored = true;
 				installed = false;
 				association.runtimeActionsInstalled = false;
-				restoreError ??= restoreOwnedDescriptors();
+				const descriptorError = restoreOwnedDescriptors();
+				restoreError ??= descriptorError;
 				clearCurrentSlot(slotBySession, session, association);
 			}
 			if (restoreError) throw restoreError;
@@ -1782,10 +1812,16 @@ function inspectBoundSession(
 		clearCurrentSlot(slotBySession, session, invocation);
 		return;
 	}
+	const transportOwnership = createTransportOwnership(
+		session,
+		session[GET_TOOL_DEFINITION_PROPERTY] as (name: string) => unknown,
+		definition as object,
+		installer,
+	);
 	const validation = validateSession(session);
 	if (!validation.compatible) {
 		try {
-			installer.capturePiRuntime(incompatible(validation.diagnostic));
+			installer.capturePiRuntime(incompatible(validation.diagnostic, transportOwnership));
 		} catch (error) {
 			clearCurrentSlot(slotBySession, session, invocation);
 			throw error;
@@ -1810,6 +1846,7 @@ function inspectBoundSession(
 		installer.capturePiRuntime({
 			compatible: true,
 			session: createCapturedSession(state, slotBySession, session, association),
+			transportOwnership,
 		});
 	} catch (error) {
 		clearCurrentSlot(slotBySession, session, association);

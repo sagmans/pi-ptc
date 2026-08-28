@@ -611,6 +611,30 @@ test("tagged ptc definition receives a validated captured-session adapter after 
 	installation.teardown();
 });
 
+test("capture exposes session-scoped ownership evidence for the exact tagged ptc definition", async () => {
+	const { Session } = createFakeSessionClass();
+	const captures: PiRuntimeCapture[] = [];
+	const installation = installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+	});
+	assert.equal(installation.compatible, true);
+	if (!installation.compatible) throw new Error("expected compatible installation");
+	const session = new Session();
+	const installer = createInstaller(captures);
+	const definition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
+	session.ptcDefinition = definition;
+
+	await session.bindExtensions();
+
+	const capture = captures[0];
+	assert.ok(capture);
+	assert.equal(capture.transportOwnership?.isCurrent(), true);
+	session.ptcDefinition = { name: PTC_TOOL_NAME };
+	assert.equal(capture.transportOwnership?.isCurrent(), false);
+	installation.teardown();
+});
+
 test("capture rejects every required private shape mismatch without runtime mutation", async () => {
 	const cases: Array<{
 		name: string;
@@ -3035,9 +3059,12 @@ test("controlled runtime originals stale after reload while cleanup restores the
 	installation.teardown();
 });
 
-test("controlled runtime actions retain guarded originals, refresh snapshots, and owned restore", async () => {
+test("controlled runtime actions keep issued snapshots through compatible refresh and owned restore", async () => {
 	const captures: PiRuntimeCapture[] = [];
 	const installer = createInstaller(captures);
+	const originalTool = createTool({
+		execute: async () => ({ owner: "sample-v1" }),
+	});
 	const replacementDefinition = { name: SECOND_TOOL_NAME };
 	const replacementRegistry = new Map([[SECOND_TOOL_NAME, createTool()]]);
 	const { Session } = createFakeSessionClass();
@@ -3048,6 +3075,7 @@ test("controlled runtime actions retain guarded originals, refresh snapshots, an
 	assert.equal(installation.compatible, true);
 	if (!installation.compatible) throw new Error("expected compatible installation");
 	const session = new Session();
+	session._toolRegistry = new Map([[SAMPLE_TOOL_NAME, originalTool]]);
 	const sampleDefinition = { name: SAMPLE_TOOL_NAME };
 	const ptcDefinition = tagPtcToolDefinition({ name: PTC_TOOL_NAME }, installer);
 	session.ptcDefinition = ptcDefinition;
@@ -3109,10 +3137,10 @@ test("controlled runtime actions retain guarded originals, refresh snapshots, an
 	runtimeInstallation.original.refreshTools();
 
 	assert.equal(adapter.version, SUPPORTED_PI_VERSION);
-	assert.throws(
-		() => firstSnapshot[0]?.executable.execute(CHARACTERIZATION_TOOL_CALL_ID, {}),
-		STALE_CAPTURE_PATTERN,
-	);
+	assert.equal(firstSnapshot[0]?.definition, sampleDefinition);
+	assert.deepEqual(await firstSnapshot[0]?.executable.execute(CHARACTERIZATION_TOOL_CALL_ID, {}), {
+		owner: "sample-v1",
+	});
 	const secondSnapshot = runtimeInstallation.original.snapshotTools();
 	assert.deepEqual(
 		secondSnapshot.map((entry) => entry.name),

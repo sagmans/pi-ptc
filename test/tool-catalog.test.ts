@@ -9,7 +9,7 @@ import {
 	SUPPORTED_PI_VERSION,
 	tagPtcToolDefinition,
 } from "../src/pi-runtime.ts";
-import { createToolCatalog } from "../src/tool-catalog.ts";
+import { createToolCatalog, type ToolCatalogRefreshFailure } from "../src/tool-catalog.ts";
 
 const PTC_TOOL_NAME = "ptc";
 const ALPHA_TOOL_NAME = "alpha";
@@ -276,6 +276,58 @@ test("virtual actions preserve hidden names through read-modify-write and refres
 			BETA_TOOL_NAME,
 		]);
 		assert.deepEqual(harness.physical(), [PTC_TOOL_NAME]);
+	} finally {
+		catalog.restore();
+		harness.teardownPatch();
+	}
+});
+
+test("failed refresh restores native logical state and invalidates the catalog", async () => {
+	const alpha = createTool("alpha-v1");
+	const ptc = createTool("ptc-v1");
+	const invalid = { execute: async () => ({}) } as unknown as FakeTool;
+	const harness = await initializedHarness({
+		active: [ALPHA_TOOL_NAME, PTC_TOOL_NAME],
+		registry: [
+			[ALPHA_TOOL_NAME, alpha, { name: ALPHA_TOOL_NAME }],
+			[PTC_TOOL_NAME, ptc, { name: PTC_TOOL_NAME }],
+		],
+	});
+	const failures: ToolCatalogRefreshFailure[] = [];
+	const catalog = createToolCatalog({
+		session: harness.adapter,
+		getPresentation: () => "code",
+		onRefreshFailure(error) {
+			failures.push(error);
+		},
+	});
+	const runtime = harness.adapter.sharedRuntime;
+
+	try {
+		catalog.applyPhysical();
+		assert.deepEqual(harness.physical(), [PTC_TOOL_NAME]);
+		harness.queueRegistry([
+			[ALPHA_TOOL_NAME, alpha, { name: ALPHA_TOOL_NAME }],
+			[BETA_TOOL_NAME, invalid, { name: BETA_TOOL_NAME }],
+			[PTC_TOOL_NAME, ptc, { name: PTC_TOOL_NAME }],
+		]);
+		let refreshError: unknown;
+		try {
+			runtime.refreshTools();
+		} catch (error) {
+			refreshError = error;
+		}
+
+		assert.ok(refreshError);
+		assert.match(String(refreshError), /no longer associated/);
+		assert.equal(failures.length, 1);
+		assert.equal(failures[0]?.refreshError, refreshError);
+		assert.equal(failures[0]?.rollbackFailed, false);
+		assert.equal(failures[0]?.rollbackError, undefined);
+		assert.deepEqual(failures[0]?.previousLogicalActiveTools, [ALPHA_TOOL_NAME]);
+		assert.deepEqual(harness.physical(), [ALPHA_TOOL_NAME]);
+		assert.throws(() => catalog.snapshot(), /restored|stale/i);
+		assert.throws(() => catalog.applyPhysical(), /restored|stale/i);
 	} finally {
 		catalog.restore();
 		harness.teardownPatch();

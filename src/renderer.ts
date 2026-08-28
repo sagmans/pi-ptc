@@ -94,8 +94,9 @@ export function renderPtcResult(
 	theme: Theme,
 	context: PtcRenderContext,
 	definitionProvider?: PtcDefinitionProvider,
+	executionDefinitions?: PtcDefinitionRegistry,
 ): Component {
-	const root = getRoot(context, theme, definitionProvider);
+	const root = getRoot(context, theme, definitionProvider, executionDefinitions);
 	const details = parseDispatchDetails(result.details);
 	const attachments =
 		typeof result.details === "object" && result.details !== null
@@ -160,6 +161,7 @@ function getRoot(
 	context: PtcRenderContext,
 	theme: Theme,
 	definitionProvider: PtcDefinitionProvider | undefined,
+	executionDefinitions: PtcDefinitionRegistry | undefined,
 ): PtcRendererRoot {
 	const existing = context.state.root;
 	if (existing?.cwd === context.cwd) return existing;
@@ -175,6 +177,8 @@ function getRoot(
 	try {
 		if (context.createDefinitions) {
 			mergeDefinitions(definitions, context.createDefinitions(context.cwd), true);
+		} else if (executionDefinitions) {
+			mergeDefinitions(definitions, executionDefinitions, false);
 		} else if (definitionProvider) {
 			mergeDefinitions(
 				definitions,

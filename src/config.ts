@@ -14,11 +14,11 @@ export const DISPATCH_LOG_TYPE = "ptc-dispatch";
 export const PRESENTATION_FILE_NAME = "ptc.json";
 export const STATUS_KEY = "ptc";
 export const LEAK_BLOCK_REASON =
-	"only `ptc` may call core tools — use tools.<name>(args) inside a ptc program";
+	"only `ptc` may call active runtime tools — use tools.<name>(args) inside a ptc program";
 export const COMPETING_OWNER_MESSAGE =
 	"pi-ptc staying inert: another code-mode owner is already registered";
 export const MISSING_TRANSPORT_MESSAGE =
-	"pi-ptc restored native core tools because the ptc transport is missing";
+	"pi-ptc restored native active runtime tools because the ptc transport is missing";
 export const TRUST_COPY =
 	"bash-equivalent containment, not a sandbox. Treat the program as user-equivalent peer code.";
 export const OUTER_OVERFLOW_BYTES_MESSAGE = "outer result exceeds maxOutputBytes";

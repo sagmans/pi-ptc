@@ -17,9 +17,17 @@ export type ToolCatalog = {
 	restore(): void;
 };
 
+export type ToolCatalogRefreshFailure = {
+	readonly refreshError: unknown;
+	readonly rollbackFailed: boolean;
+	readonly rollbackError: unknown;
+	readonly previousLogicalActiveTools: readonly string[];
+};
+
 export type CreateToolCatalogOptions = {
 	session: CapturedPiSession;
 	getPresentation(): Presentation;
+	onRefreshFailure?(failure: ToolCatalogRefreshFailure): void;
 };
 
 function compareNames(left: string, right: string): number {
@@ -63,6 +71,17 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 		if (restored || !runtimeInstallation) throw new Error(RESTORED_CATALOG_MESSAGE);
 		return runtimeInstallation;
 	};
+	const deactivate = (activeToolNames: readonly string[]): void => {
+		if (restored) return;
+		try {
+			runtimeInstallation?.restore(activeToolNames);
+		} finally {
+			restored = true;
+			runtimeInstallation = undefined;
+			entriesByName.clear();
+			logicalActiveTools = [];
+		}
+	};
 	const replaceEntries = (entries: readonly ToolCatalogEntry[]): void => {
 		entriesByName = new Map(entries.map((entry) => [entry.name, entry]));
 	};
@@ -98,23 +117,44 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 		},
 		refreshTools(): void {
 			const installation = requireActive();
-			const previousLogical = [...logicalActiveTools];
+			const previousLogical = Object.freeze([...logicalActiveTools]);
 			const previousRegistryNames = new Set(entriesByName.keys());
-			installation.original.refreshTools();
-			const rawActiveTools = installation.original.getActiveTools();
-			const refreshedEntries = installation.original.snapshotTools();
-			replaceEntries(refreshedEntries);
-			const preserved = uniqueAvailableNames(previousLogical, entriesByName);
-			const preservedNames = new Set(preserved);
-			const adopted = rawActiveTools.filter(
-				(name) =>
-					name !== TRANSPORT_NAME &&
-					!previousRegistryNames.has(name) &&
-					!preservedNames.has(name) &&
-					entriesByName.has(name),
-			);
-			logicalActiveTools = uniqueAvailableNames([...preserved, ...adopted], entriesByName);
-			applyPhysical();
+			try {
+				installation.original.refreshTools();
+				const rawActiveTools = installation.original.getActiveTools();
+				const refreshedEntries = installation.original.snapshotTools();
+				replaceEntries(refreshedEntries);
+				const preserved = uniqueAvailableNames(previousLogical, entriesByName);
+				const preservedNames = new Set(preserved);
+				const adopted = rawActiveTools.filter(
+					(name) =>
+						name !== TRANSPORT_NAME &&
+						!previousRegistryNames.has(name) &&
+						!preservedNames.has(name) &&
+						entriesByName.has(name),
+				);
+				logicalActiveTools = uniqueAvailableNames([...preserved, ...adopted], entriesByName);
+				applyPhysical();
+			} catch (error) {
+				let rollbackFailed = false;
+				let rollbackError: unknown;
+				try {
+					deactivate(previousLogical);
+				} catch (restoreError) {
+					rollbackFailed = true;
+					rollbackError = restoreError;
+				}
+				const failure: ToolCatalogRefreshFailure = Object.freeze({
+					refreshError: error,
+					rollbackFailed,
+					rollbackError,
+					previousLogicalActiveTools: previousLogical,
+				});
+				try {
+					options.onRefreshFailure?.(failure);
+				} catch {}
+				throw error;
+			}
 		},
 	});
 	try {
@@ -143,15 +183,7 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 		},
 		applyPhysical,
 		restore(): void {
-			if (restored) return;
-			try {
-				runtimeInstallation?.restore(logicalActiveTools);
-			} finally {
-				restored = true;
-				runtimeInstallation = undefined;
-				entriesByName.clear();
-				logicalActiveTools = [];
-			}
+			deactivate(logicalActiveTools);
 		},
 	});
 }

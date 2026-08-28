@@ -1,13 +1,10 @@
 import { join } from "node:path";
 
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
-
-import { createCoreBindings, createOfficialExecutor, type DispatchLogEntry } from "./bridge.ts";
 import {
 	COMPETING_OWNER_MESSAGE,
 	cyclePresentation,
 	DISPATCH_LOG_TYPE,
-	isCoreToolName,
 	LEAK_BLOCK_REASON,
 	loadPresentation,
 	MISSING_TRANSPORT_MESSAGE,
@@ -19,20 +16,29 @@ import {
 	savePresentation,
 	TRANSPORT_NAME,
 } from "./config.ts";
+import type { DispatchLogEntry } from "./dispatch-contract.ts";
 import type { ExtensionAPI, ExtensionContext } from "./host.ts";
 import {
+	type CapturedPiSession,
 	ensureSharedPiRuntimeCapturePatch,
 	type PiRuntimeEventFinalizersInstallation,
 	type PiRuntimeInstaller,
 	type PiRuntimePatchInstallation,
 	type PiRuntimeSharedPatchEnsure,
+	type PtcTransportOwnership,
 	tagPtcToolDefinition,
 } from "./pi-runtime.ts";
 import { hasCompetingOwner } from "./presentation.ts";
+import { createPtcDefinitionRegistry } from "./renderer.ts";
 import { createScheduler } from "./scheduler.ts";
 import { renderSdkPrompt, renderSkillsPrompt, type SkillPromptInput } from "./sdk.ts";
-import { createToolCatalog, type ToolCatalog } from "./tool-catalog.ts";
-import { isNestedPtcToolCall } from "./tool-executor.ts";
+import { createToolBindings } from "./tool-bindings.ts";
+import {
+	createToolCatalog,
+	type ToolCatalog,
+	type ToolCatalogRefreshFailure,
+} from "./tool-catalog.ts";
+import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
 import { createFailureDetailsStore, createPtcTool } from "./transport.ts";
 
 export type PathResolver = (cwd: string) => { projectFile: string; userFile: string };
@@ -49,6 +55,12 @@ const PTC_COMMAND_USAGE = "Usage: /ptc [on|both|off]";
 const INERT_STATUS = "ptc: inert";
 const MISSING_RUNTIME_CAPTURE_MESSAGE = "pi-ptc staying inert: ptc runtime capture is missing";
 const RUNTIME_INCOMPATIBILITY_PREFIX = "pi-ptc staying inert";
+const PTC_RUNTIME_UNAVAILABLE_MESSAGE = "ptc runtime capture is unavailable";
+const OWNED_TRANSPORT_CLEANUP_FAILURE_PREFIX = "owned ptc transport cleanup failed";
+const CATALOG_ROLLBACK_FAILURE_PREFIX = "catalog rollback failed";
+const NATIVE_RESTORATION_RETRY_FAILURE_PREFIX = "native active-tool restoration retry failed";
+const NATIVE_RESTORATION_VERIFICATION_FAILURE =
+	"native active-tool restoration verification failed";
 const TOOL_CALL_EVENT_ARGUMENT_INDEX = 0;
 const BEFORE_AGENT_START_SYSTEM_PROMPT_ARGUMENT_INDEX = 2;
 const BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX = 3;
@@ -72,6 +84,16 @@ function isBlockingToolCallResult(value: unknown): value is AggregatedToolCallRe
 	return isRecord(value) && value.block === true;
 }
 
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function sameNames(actual: readonly string[], expected: readonly string[]): boolean {
+	return (
+		actual.length === expected.length && actual.every((name, index) => name === expected[index])
+	);
+}
+
 export function defaultPathResolver(cwd: string): { projectFile: string; userFile: string } {
 	return {
 		projectFile: join(cwd, CONFIG_DIR_NAME, PRESENTATION_FILE_NAME),
@@ -85,7 +107,10 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	const shipped = SHIPPED_PTC_CONFIG;
 	let presentation: Presentation = shipped.presentation;
 	let catalog: ToolCatalog | undefined;
+	let capturedSession: CapturedPiSession | undefined;
 	let eventFinalizers: PiRuntimeEventFinalizersInstallation | undefined;
+	let transportOwnership: PtcTransportOwnership | undefined;
+	let transportTool: ReturnType<typeof createPtcTool> | undefined;
 	let captureReadiness: CaptureReadiness = "pending";
 	let lastContext: ExtensionContext | undefined;
 	let inertMessage: string | undefined;
@@ -98,21 +123,29 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		ctx.ui.setStatus(STATUS_KEY, INERT_STATUS);
 		reportedInertMessage = inertMessage;
 	};
+	const deactivateOwnedTransport = (): void => {
+		const ownership = transportOwnership;
+		transportOwnership = undefined;
+		if (!ownership?.isCurrent()) return;
+		const activeTools = pi.getActiveTools();
+		if (!activeTools.includes(TRANSPORT_NAME)) return;
+		pi.setActiveTools(activeTools.filter((name) => name !== TRANSPORT_NAME));
+	};
 	const restoreCatalog = (): void => {
-		if (!catalog) return;
-		try {
-			catalog.restore();
-		} finally {
-			catalog = undefined;
+		const activeCatalog = catalog;
+		catalog = undefined;
+		capturedSession = undefined;
+		if (activeCatalog) {
+			transportOwnership = undefined;
+			activeCatalog.restore();
+			return;
 		}
+		deactivateOwnedTransport();
 	};
 	const restoreEventFinalizers = (): void => {
-		if (!eventFinalizers) return;
-		try {
-			eventFinalizers.restore();
-		} finally {
-			eventFinalizers = undefined;
-		}
+		const activeFinalizers = eventFinalizers;
+		eventFinalizers = undefined;
+		activeFinalizers?.restore();
 	};
 	const restoreControlledRuntime = (): void => {
 		let firstError: unknown;
@@ -129,12 +162,56 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		if (firstError !== undefined) throw firstError;
 	};
 	const hasActiveCatalog = (): boolean =>
-		captureReadiness === "active" && catalog !== undefined && inertMessage === undefined;
-	const becomeCompetingOwnerInert = (ctx: ExtensionContext): void => {
-		restoreControlledRuntime();
+		captureReadiness === "active" &&
+		catalog !== undefined &&
+		capturedSession !== undefined &&
+		inertMessage === undefined;
+	const becomeRuntimeInert = (message: string, ctx?: ExtensionContext): void => {
+		transportTool?.clearRenderSnapshots();
+		let cleanupError: unknown;
+		try {
+			restoreControlledRuntime();
+		} catch (error) {
+			cleanupError = error;
+		}
 		captureReadiness = "inert";
-		inertMessage = COMPETING_OWNER_MESSAGE;
-		reportInert(ctx);
+		inertMessage =
+			cleanupError === undefined
+				? message
+				: `${message}: ${OWNED_TRANSPORT_CLEANUP_FAILURE_PREFIX}: ${
+						cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+					}`;
+		if (ctx) reportInert(ctx);
+	};
+	const becomeCapturedRuntimeInert = (error: unknown, ctx?: ExtensionContext): void => {
+		becomeRuntimeInert(`${RUNTIME_INCOMPATIBILITY_PREFIX}: ${describeError(error)}`, ctx);
+	};
+	const becomeRefreshFailureInert = (
+		failure: ToolCatalogRefreshFailure,
+		ctx?: ExtensionContext,
+	): void => {
+		let message = `${RUNTIME_INCOMPATIBILITY_PREFIX}: ${describeError(failure.refreshError)}`;
+		if (failure.rollbackFailed) {
+			message += `: ${CATALOG_ROLLBACK_FAILURE_PREFIX}: ${describeError(failure.rollbackError)}`;
+			let retryFailed = false;
+			let retryFailure: unknown;
+			try {
+				pi.setActiveTools([...failure.previousLogicalActiveTools]);
+				if (!sameNames(pi.getActiveTools(), failure.previousLogicalActiveTools)) {
+					throw new Error(NATIVE_RESTORATION_VERIFICATION_FAILURE);
+				}
+			} catch (error) {
+				retryFailed = true;
+				retryFailure = error;
+			}
+			if (retryFailed) {
+				message += `: ${NATIVE_RESTORATION_RETRY_FAILURE_PREFIX}: ${describeError(retryFailure)}`;
+			}
+		}
+		becomeRuntimeInert(message, ctx);
+	};
+	const becomeCompetingOwnerInert = (ctx: ExtensionContext): void => {
+		becomeRuntimeInert(COMPETING_OWNER_MESSAGE, ctx);
 	};
 	const becomeMissingCaptureInert = (ctx: ExtensionContext): void => {
 		if (captureReadiness === "pending" && !catalog && !inertMessage) {
@@ -163,7 +240,13 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		}
 		const activeCatalog = catalog;
 		if (!activeCatalog) return;
-		const resolved = activeCatalog.applyPhysical();
+		let resolved: { missingTransport: boolean };
+		try {
+			resolved = activeCatalog.applyPhysical();
+		} catch (error) {
+			becomeCapturedRuntimeInert(error, ctx);
+			return;
+		}
 		if (resolved.missingTransport) {
 			presentation = "native";
 			ctx.ui.notify(MISSING_TRANSPORT_MESSAGE, "warning");
@@ -200,9 +283,15 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 			return result;
 		}
 		if (isBlockingToolCallResult(result) || presentation !== "code") return result;
-		return typeof event?.toolName === "string" && isCoreToolName(event.toolName)
-			? { block: true, reason: LEAK_BLOCK_REASON }
-			: result;
+		if (typeof event?.toolName !== "string") return result;
+		try {
+			return catalog?.getLogicalActiveTools().includes(event.toolName)
+				? { block: true, reason: LEAK_BLOCK_REASON }
+				: result;
+		} catch (error) {
+			becomeCapturedRuntimeInert(error, ctx);
+			return result;
+		}
 	};
 	const finalizeBeforeAgentStart = (
 		args: readonly unknown[],
@@ -219,6 +308,15 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 			if (inertMessage) reportInert(ctx);
 			return result;
 		}
+		let sdkPrompt: string;
+		try {
+			const sdkCatalog = catalog?.snapshot();
+			if (!sdkCatalog) return result;
+			sdkPrompt = renderSdkPrompt(sdkCatalog);
+		} catch (error) {
+			becomeCapturedRuntimeInert(error, ctx);
+			return result;
+		}
 		const aggregate = isRecord(result) ? (result as AggregatedBeforeAgentStartResult) : undefined;
 		const originalSystemPrompt = args[BEFORE_AGENT_START_SYSTEM_PROMPT_ARGUMENT_INDEX];
 		const effectiveSystemPrompt =
@@ -227,7 +325,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 				: typeof originalSystemPrompt === "string"
 					? originalSystemPrompt
 					: "";
-		let systemPrompt = `${effectiveSystemPrompt}\n\n${renderSdkPrompt()}`;
+		let systemPrompt = `${effectiveSystemPrompt}\n\n${sdkPrompt}`;
 		if (presentation === "code") {
 			const options = args[BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX] as
 				| { skills?: SkillPromptInput[] }
@@ -238,19 +336,21 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	};
 	const runtimeInstaller: PiRuntimeInstaller = {
 		capturePiRuntime(capture) {
-			restoreControlledRuntime();
+			try {
+				restoreControlledRuntime();
+			} catch (error) {
+				becomeCapturedRuntimeInert(error, lastContext);
+				return;
+			}
 			captureReadiness = "pending";
+			transportOwnership = capture.transportOwnership;
 			if (!capture.compatible) {
-				captureReadiness = "inert";
-				inertMessage = capture.diagnostic;
-				if (lastContext) reportInert(lastContext);
+				becomeRuntimeInert(capture.diagnostic, lastContext);
 				return;
 			}
 			const registered = pi.getAllTools().map((tool) => tool.name);
 			if (hasCompetingOwner(registered)) {
-				captureReadiness = "inert";
-				inertMessage = COMPETING_OWNER_MESSAGE;
-				if (lastContext) reportInert(lastContext);
+				becomeRuntimeInert(COMPETING_OWNER_MESSAGE, lastContext);
 				return;
 			}
 			inertMessage = undefined;
@@ -259,18 +359,17 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 				catalog = createToolCatalog({
 					session: capture.session,
 					getPresentation: () => presentation,
+					onRefreshFailure: (failure) => {
+						becomeRefreshFailureInert(failure, lastContext);
+					},
 				});
 				eventFinalizers = capture.session.installRuntimeEventFinalizers({
 					finalizeToolCall,
 					finalizeBeforeAgentStart,
 				});
+				capturedSession = capture.session;
 			} catch (error) {
-				restoreControlledRuntime();
-				captureReadiness = "inert";
-				inertMessage = `${RUNTIME_INCOMPATIBILITY_PREFIX}: ${
-					error instanceof Error ? error.message : String(error)
-				}`;
-				if (lastContext) reportInert(lastContext);
+				becomeCapturedRuntimeInert(error, lastContext);
 				return;
 			}
 			captureReadiness = "active";
@@ -284,33 +383,85 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	}
 
 	if (patchInstallation.compatible) {
-		const definition = tagPtcToolDefinition(
-			createPtcTool({
-				timeoutMs: shipped.timeoutMs,
-				drainTimeoutMs: shipped.drainTimeoutMs,
-				maxOrphanedBindings: shipped.maxOrphanedBindings,
-				maxDispatches: shipped.maxDispatches,
-				maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,
-				maxPersistedDetailsBytes: shipped.maxPersistedDetailsBytes,
-				maxOutputBytes: shipped.maxOutputBytes,
-				maxOutputLines: shipped.maxOutputLines,
-				failureDetails,
-				createBindings: (ctx) =>
-					createCoreBindings({
-						execute: createOfficialExecutor(ctx.cwd),
-						scheduler: createScheduler(shipped.maxParallelDispatches),
-						acceptSideEffects: ctx.isOpen,
-						appendLog: (entry: DispatchLogEntry) => {
-							pi.appendEntry(DISPATCH_LOG_TYPE, entry);
+		transportTool = createPtcTool({
+			timeoutMs: shipped.timeoutMs,
+			drainTimeoutMs: shipped.drainTimeoutMs,
+			maxOrphanedBindings: shipped.maxOrphanedBindings,
+			maxDispatches: shipped.maxDispatches,
+			maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,
+			maxPersistedDetailsBytes: shipped.maxPersistedDetailsBytes,
+			maxOutputBytes: shipped.maxOutputBytes,
+			maxOutputLines: shipped.maxOutputLines,
+			failureDetails,
+			createExecution: (ctx) => {
+				const executionCatalog = catalog;
+				const executionSession = capturedSession;
+				if (!hasActiveCatalog() || !executionCatalog || !executionSession) {
+					if (captureReadiness === "pending" && lastContext) {
+						becomeMissingCaptureInert(lastContext);
+					}
+					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
+				}
+				let snapshot: ReturnType<ToolCatalog["snapshot"]>;
+				try {
+					snapshot = executionCatalog.snapshot();
+				} catch (error) {
+					becomeCapturedRuntimeInert(error, lastContext);
+					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
+				}
+				try {
+					const executor = createToolExecutor({
+						catalog: snapshot,
+						session: executionSession,
+						activateTools(names) {
+							if (
+								catalog !== executionCatalog ||
+								capturedSession !== executionSession ||
+								!hasActiveCatalog()
+							) {
+								return;
+							}
+							try {
+								const additions = [
+									...new Set(
+										names.filter(
+											(name): name is string => typeof name === "string" && name !== TRANSPORT_NAME,
+										),
+									),
+								];
+								const logical = executionCatalog.getLogicalActiveTools();
+								executionSession.sharedRuntime.setActiveTools([...logical, ...additions]);
+							} catch (error) {
+								becomeCapturedRuntimeInert(error, lastContext);
+								throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
+							}
 						},
-						emit: (name, payload) => {
-							pi.events.emit(name, payload);
-						},
-						reportDispatch: ctx.reportDispatch,
-					}),
-			}),
-			runtimeInstaller,
-		);
+					});
+					return {
+						definitions: createPtcDefinitionRegistry(snapshot),
+						bindings: createToolBindings(
+							snapshot,
+							executor,
+							createScheduler(shipped.maxParallelDispatches),
+							{
+								acceptSideEffects: ctx.isOpen,
+								appendLog: (entry: DispatchLogEntry) => {
+									pi.appendEntry(DISPATCH_LOG_TYPE, entry);
+								},
+								emit: (name, payload) => {
+									pi.events.emit(name, payload);
+								},
+								reportDispatch: ctx.reportDispatch,
+							},
+						),
+					};
+				} catch (error) {
+					becomeCapturedRuntimeInert(error, lastContext);
+					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
+				}
+			},
+		});
+		const definition = tagPtcToolDefinition(transportTool, runtimeInstaller);
 		pi.registerTool(definition);
 	}
 
@@ -367,6 +518,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 
 	pi.on("session_shutdown", () => {
 		failureDetails.clear();
+		transportTool?.clearRenderSnapshots();
 		restoreControlledRuntime();
 		if (patchInstallation.compatible) {
 			captureReadiness = "pending";
