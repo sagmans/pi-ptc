@@ -32,6 +32,7 @@ import { hasCompetingOwner } from "./presentation.ts";
 import { createScheduler } from "./scheduler.ts";
 import { renderSdkPrompt, renderSkillsPrompt, type SkillPromptInput } from "./sdk.ts";
 import { createToolCatalog, type ToolCatalog } from "./tool-catalog.ts";
+import { isNestedPtcToolCall } from "./tool-executor.ts";
 import { createFailureDetailsStore, createPtcTool } from "./transport.ts";
 
 export type PathResolver = (cwd: string) => { projectFile: string; userFile: string };
@@ -192,8 +193,13 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 			if (inertMessage) reportInert(ctx);
 			return result;
 		}
+		const event = args[TOOL_CALL_EVENT_ARGUMENT_INDEX] as
+			| { toolCallId?: unknown; toolName?: unknown }
+			| undefined;
+		if (typeof event?.toolCallId === "string" && isNestedPtcToolCall(event.toolCallId)) {
+			return result;
+		}
 		if (isBlockingToolCallResult(result) || presentation !== "code") return result;
-		const event = args[TOOL_CALL_EVENT_ARGUMENT_INDEX] as { toolName?: unknown } | undefined;
 		return typeof event?.toolName === "string" && isCoreToolName(event.toolName)
 			? { block: true, reason: LEAK_BLOCK_REASON }
 			: result;
