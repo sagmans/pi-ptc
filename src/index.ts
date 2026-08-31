@@ -71,7 +71,6 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		transportTool = createPtcTool({
 			timeoutMs: shipped.timeoutMs,
 			drainTimeoutMs: shipped.drainTimeoutMs,
-			maxOrphanedBindings: shipped.maxOrphanedBindings,
 			maxDispatches: shipped.maxDispatches,
 			maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,
 			maxPersistedDetailsBytes: shipped.maxPersistedDetailsBytes,

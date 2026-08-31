@@ -5,7 +5,6 @@ import { createPtcTool } from "../src/transport.ts";
 import {
 	CUSTOM_DRAIN_TIMEOUT_MS,
 	CUSTOM_MAX_DISPATCHES,
-	CUSTOM_MAX_ORPHANED_BINDINGS,
 	CUSTOM_MAX_OUTPUT_BYTES,
 	CUSTOM_MAX_OUTPUT_LINES,
 	CUSTOM_MAX_PERSISTED_DETAILS_BYTES,
@@ -88,7 +87,6 @@ test("ptc forwards output and dispatch limits into the runtime seam", async () =
 		| {
 				drainTimeoutMs?: number;
 				maxBindingCalls?: number;
-				maxOrphanedBindings?: number;
 				maxOutputBytes?: number;
 				maxOutputLines?: number;
 		  }
@@ -97,7 +95,6 @@ test("ptc forwards output and dispatch limits into the runtime seam", async () =
 		timeoutMs: LIMITS.timeoutMs,
 		drainTimeoutMs: CUSTOM_DRAIN_TIMEOUT_MS,
 		maxDispatches: CUSTOM_MAX_DISPATCHES,
-		maxOrphanedBindings: CUSTOM_MAX_ORPHANED_BINDINGS,
 		maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES,
 		maxOutputLines: CUSTOM_MAX_OUTPUT_LINES,
 		maxPersistedDetailsBytes: CUSTOM_MAX_PERSISTED_DETAILS_BYTES,
@@ -118,7 +115,6 @@ test("ptc forwards output and dispatch limits into the runtime seam", async () =
 
 	assert.equal(captured?.drainTimeoutMs, CUSTOM_DRAIN_TIMEOUT_MS);
 	assert.equal(captured?.maxBindingCalls, CUSTOM_MAX_DISPATCHES);
-	assert.equal(captured?.maxOrphanedBindings, CUSTOM_MAX_ORPHANED_BINDINGS);
 	assert.equal(captured?.maxOutputBytes, CUSTOM_MAX_OUTPUT_BYTES);
 	assert.equal(captured?.maxOutputLines, CUSTOM_MAX_OUTPUT_LINES);
 });

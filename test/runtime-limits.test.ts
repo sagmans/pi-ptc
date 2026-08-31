@@ -2,6 +2,11 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
+import {
+	createOrphanBindingGovernor,
+	type OrphanBindingReservation,
+	processOrphanBindingGovernor,
+} from "../src/orphan-binding-governor.ts";
 import { runCode } from "../src/runtime.ts";
 import {
 	CR_ONLY_WORKER_FAILURE_MESSAGE,
@@ -9,7 +14,6 @@ import {
 	NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	NEVER_SETTLING_TIMEOUT_MS,
 	nextTurn,
-	ORPHAN_LIMIT,
 	ORPHAN_RESERVATION_PROGRAM,
 	OVERSIZED_WORKER_FAILURE_MESSAGE,
 	RUNTIME_TEST_TIMEOUT_MS,
@@ -18,11 +22,38 @@ import {
 	WORKER_FAILURE_MAX_LINES,
 } from "./support/runtime-harness.ts";
 
+function reserveAllButOneOrphanSlot(): OrphanBindingReservation[] {
+	const reservations: OrphanBindingReservation[] = [];
+	for (let index = 1; index < SHIPPED_PTC_CONFIG.maxOrphanedBindings; index += 1) {
+		const reservation = processOrphanBindingGovernor.acquire();
+		assert.ok(reservation);
+		reservations.push(reservation);
+	}
+	return reservations;
+}
+
+function releaseReservations(reservations: readonly OrphanBindingReservation[]): void {
+	for (const reservation of reservations) reservation.release();
+}
+
+test("orphan governor owns one fixed ceiling and idempotent release", () => {
+	const governor = createOrphanBindingGovernor(1);
+	const reservation = governor.acquire();
+	assert.ok(reservation);
+	assert.equal(governor.active, 1);
+	assert.equal(governor.acquire(), undefined);
+	reservation.release();
+	reservation.release();
+	assert.equal(governor.active, 0);
+	assert.ok(governor.acquire());
+});
+
 test("runCode reserves orphan capacity before parallel bindings start", async () => {
 	const firstStarted = deferred();
 	const firstAbortObserved = deferred();
 	const allowFirstToSettle = deferred();
 	let secondBindingCalls = 0;
+	const reservations = reserveAllButOneOrphanSlot();
 	const pending = runCode({
 		program: ORPHAN_RESERVATION_PROGRAM,
 		bindings: {
@@ -45,7 +76,6 @@ test("runCode reserves orphan capacity before parallel bindings start", async ()
 			},
 		},
 		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
-		maxOrphanedBindings: ORPHAN_LIMIT,
 	});
 
 	await firstStarted.promise;
@@ -57,9 +87,11 @@ test("runCode reserves orphan capacity before parallel bindings start", async ()
 	assert.equal(returnedBeforeDrain, false);
 	assert.equal(secondBindingCalls, 0);
 	assert.deepEqual(outcome.error, { kind: "orphan-limit" });
+	releaseReservations(reservations);
 });
 
 test("runCode caps unresolved binding orphans across invocations", async () => {
+	const reservations = reserveAllButOneOrphanSlot();
 	const firstStarted = deferred();
 	const allowFirstToSettle = deferred();
 	const first = runCode({
@@ -75,7 +107,6 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 		},
 		timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
 		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
-		maxOrphanedBindings: ORPHAN_LIMIT,
 	});
 	await firstStarted.promise;
 	assert.deepEqual((await first).error, { kind: "timeout" });
@@ -92,13 +123,13 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 			},
 		},
 		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
-		maxOrphanedBindings: ORPHAN_LIMIT,
 	});
 	allowFirstToSettle.resolve();
 	await nextTurn();
 
 	assert.equal(secondBindingCalls, 0);
 	assert.deepEqual(second.error, { kind: "orphan-limit" });
+	releaseReservations(reservations);
 });
 
 test("runCode terminates when serialized logs exceed the byte limit", async () => {

@@ -24,7 +24,6 @@ type WorkerSessionInput = {
 	maxOutputBytes: number;
 	maxOutputLines: number;
 	maxBindingCalls: number;
-	maxOrphanedBindings: number;
 };
 
 export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResult> {
@@ -38,7 +37,6 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			maxOutputBytes,
 			maxOutputLines,
 			maxBindingCalls,
-			maxOrphanedBindings,
 		} = input;
 		const logs: string[] = [];
 		let logOutputBytes = EMPTY_LOGS_SERIALIZED_BYTES;
@@ -116,10 +114,6 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const handleCall = (message: Extract<WorkerToHost, { type: "call" }>): void => {
-			if (processOrphanBindingGovernor.active >= maxOrphanedBindings) {
-				finish({ logs: [...logs], error: { kind: "orphan-limit" } }, true);
-				return;
-			}
 			if (!Number.isSafeInteger(message.id) || message.id <= lastWorkerCallId) {
 				finish(
 					{
@@ -148,7 +142,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				});
 				return;
 			}
-			const reservation = processOrphanBindingGovernor.acquire(maxOrphanedBindings);
+			const reservation = processOrphanBindingGovernor.acquire();
 			if (!reservation) {
 				finish({ logs: [...logs], error: { kind: "orphan-limit" } }, true);
 				return;

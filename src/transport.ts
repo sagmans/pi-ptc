@@ -107,7 +107,6 @@ export type PtcExecution = {
 export type PtcToolOptions = {
 	timeoutMs: number;
 	drainTimeoutMs?: number;
-	maxOrphanedBindings?: number;
 	maxDispatches: number;
 	maxRenderDetailsBytes?: number;
 	maxPersistedDetailsBytes?: number;
@@ -237,7 +236,6 @@ export function createPtcTool(options: PtcToolOptions) {
 					timeoutMs: options.timeoutMs,
 					drainTimeoutMs: options.drainTimeoutMs,
 					maxBindingCalls: options.maxDispatches,
-					maxOrphanedBindings: options.maxOrphanedBindings,
 					maxOutputBytes: options.maxOutputBytes,
 					maxOutputLines: options.maxOutputLines,
 				});

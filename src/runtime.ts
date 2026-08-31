@@ -40,7 +40,6 @@ ${request.program}
 	const maxOutputBytes = request.maxOutputBytes ?? SHIPPED_PTC_CONFIG.maxOutputBytes;
 	const maxOutputLines = request.maxOutputLines ?? SHIPPED_PTC_CONFIG.maxOutputLines;
 	const maxBindingCalls = request.maxBindingCalls ?? SHIPPED_PTC_CONFIG.maxDispatches;
-	const maxOrphanedBindings = request.maxOrphanedBindings ?? SHIPPED_PTC_CONFIG.maxOrphanedBindings;
 	const worker = new Worker(WORKER_PATH, {
 		env: {},
 		resourceLimits: {
@@ -63,6 +62,5 @@ ${request.program}
 		maxOutputBytes,
 		maxOutputLines,
 		maxBindingCalls,
-		maxOrphanedBindings,
 	});
 }

@@ -1,16 +1,18 @@
+import { SHIPPED_PTC_CONFIG } from "./config.ts";
+
 export type OrphanBindingReservation = {
 	release(): void;
 };
 
 export type OrphanBindingGovernor = {
-	acquire(limit: number): OrphanBindingReservation | undefined;
+	acquire(): OrphanBindingReservation | undefined;
 	readonly active: number;
 };
 
-export function createOrphanBindingGovernor(): OrphanBindingGovernor {
+export function createOrphanBindingGovernor(limit: number): OrphanBindingGovernor {
 	let active = 0;
 	return {
-		acquire(limit) {
+		acquire() {
 			if (active >= limit) return undefined;
 			active += 1;
 			let released = false;
@@ -28,4 +30,6 @@ export function createOrphanBindingGovernor(): OrphanBindingGovernor {
 	};
 }
 
-export const processOrphanBindingGovernor = createOrphanBindingGovernor();
+export const processOrphanBindingGovernor = createOrphanBindingGovernor(
+	SHIPPED_PTC_CONFIG.maxOrphanedBindings,
+);

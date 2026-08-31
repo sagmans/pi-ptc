@@ -25,7 +25,6 @@ export type CodeRunRequest = {
 	maxOutputBytes?: number;
 	maxOutputLines?: number;
 	maxBindingCalls?: number;
-	maxOrphanedBindings?: number;
 };
 
 export type CodeRunResult = {
