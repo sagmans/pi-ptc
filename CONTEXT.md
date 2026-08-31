@@ -31,6 +31,11 @@ logical set for `both`, or the logical set for `native`.
 The fixed, sorted active-tool definitions used by one PTC execution for
 bindings, SDK guidance, validation, and rendering.
 
+**Execution lease**  
+The immutable per-call capabilities issued by lifecycle ownership: catalog
+snapshot, dispatch adapter, renderer definitions, generation guard, and failure
+transition.
+
 **Binding**  
 An async function exposed to the program, such as `tools.read(args)` or
 `tools.mcp(args)`.
@@ -52,8 +57,19 @@ A model-hidden session entry emitted for each settled dispatch. Persisted row
 details are stored separately.
 
 **ToolCallError**  
-The program-visible rejection for a failed dispatch. It contains `toolName`
-and `message`.
+The program-visible rejection for a failed tool dispatch. It contains
+`toolName` and `message`.
+
+**ToolResultDeliveryError**  
+The program-visible rejection when execution may have completed but its result
+could not be delivered. It must not be treated as proof that retry is safe.
+
+**Renderer definition**  
+A bounded renderer capability restorable by execution token and call ID.
+
+**Raw renderer attachment**  
+Sensitive custom-renderer arguments and result retained only for the exact
+in-memory details object. Call-ID lookup is forbidden.
 
 **Parallel dispatch**  
 A dispatch allowed to overlap under the configured limit.
@@ -68,3 +84,10 @@ The tool-surface setting: `code`, `both`, or `native`.
 **Inert**  
 Fail-closed state where PTC does not own the tool surface and Pi keeps native
 tools active.
+
+**Process governor**  
+Process-wide owner of unresolved worker-binding capacity across concurrent PTC
+runs.
+
+**Retention ledger**  
+Execution-scoped accounting for bounded renderer and persisted dispatch data.

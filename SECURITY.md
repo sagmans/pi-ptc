@@ -8,7 +8,8 @@ Use GitHub private vulnerability reporting:
 
 <https://github.com/sagmans/pi-ptc/security/advisories/new>
 
-If unavailable, email the maintainer listed in [`LICENSE`](LICENSE).
+The route requires GitHub authentication. No public fallback channel is
+currently declared; do not disclose a vulnerability in an issue.
 
 Include:
 
@@ -41,9 +42,22 @@ processes, and network resources available to Pi. Nested tool bindings also
 retain the authority and side effects of their underlying Pi tools.
 
 The `code` presentation hides direct tool schemas; it is not an authorization
-boundary. Nested dispatches re-enter captured Pi before/after tool hooks, but a
-host-version mismatch or invalid private runtime shape makes PTC inert instead
-of weakening native behavior.
+boundary. MCP and other adapter tools keep their own approval, authentication,
+and OAuth policy. PTC does not bypass those controls.
+
+Nested dispatches re-enter captured Pi before/after tool hooks. Package bootstrap
+checks the host version before importing private-runtime-dependent
+implementation; a host-version mismatch or invalid private runtime shape makes
+PTC inert instead of weakening native behavior.
+
+Raw custom-renderer arguments and results are available only through exact
+in-memory details-object identity. Call-ID fallback is restricted to bounded
+renderer definitions. Retention ledgers and the process governor bound stored
+data and unresolved worker bindings across concurrent runs.
+
+`ToolResultDeliveryError` means a tool may already have produced side effects.
+It is deliberately distinct from `ToolCallError`; automatic retry is unsafe
+unless the underlying tool operation is independently idempotent.
 
 Security reports are in scope when they demonstrate:
 

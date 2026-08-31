@@ -13,11 +13,15 @@ All notable changes are documented here. The format follows
 - Dynamic, schema-derived TypeScript bindings for built-in, SDK, extension, and adapter tools.
 - Nested Pi policy hooks, execution events, scheduling, and additive tool activation.
 - Pi-native nested rows with captured custom renderers and deterministic session restoration.
+- Real MCP adapter coverage for discovery, direct and scripted calls, updates, approval denial, cancellation, and dynamic tool changes.
+- Mixed-copy runtime and persisted-details rollback compatibility checks against the branch baseline.
 
 ### Changed
 
 - Expanded the original seven-core-tool design to the complete logical active set.
-- Fixed each running program to one catalog and renderer snapshot; refreshes apply to later runs.
+- Fixed each running program to one immutable execution lease; refreshes apply to later runs.
+- Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.
+- Bootstrap unsupported Pi hosts before loading private-runtime-dependent implementation.
 
 ### Security
 
@@ -25,11 +29,15 @@ All notable changes are documented here. The format follows
 - Bound worker time, memory, dispatches, orphaned bindings, output, render data, and persisted details.
 - Sanitize terminal controls, display arguments, results, images, and diagnostics.
 - Keep worker environment variables empty while documenting user-equivalent host authority.
+- Keep raw renderer attachments identity-only while allowing bounded call-ID recovery only for renderer definitions.
+- Preserve adapter-owned approval and authentication policy for MCP and other active runtime tools.
 
 ### Fixed
 
 - Drain or terminalize cancelled nested work without accepting late display updates.
 - Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
 - Restore current and historical display details with explicit bounded fallbacks.
+- Distinguish retry-unsafe result-delivery failures from ordinary tool-call failures.
+- Enforce one process-wide unresolved-binding ceiling across concurrent workers.
 
 ## [0.1.0] - Unreleased

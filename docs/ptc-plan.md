@@ -29,25 +29,38 @@ PTC never activates a registered tool merely because it exists.
 
 ## Runtime capture
 
-`src/pi-runtime.ts` installs an exact-version adapter around Pi's bound
-session. It captures:
+`src/package-bootstrap.ts` checks Pi's exact supported version before importing
+private-runtime, TUI, or TypeBox-dependent implementation. Host peer ranges stay
+open for Pi package resolution, while the adapter accepts only Pi `0.84.3`.
+
+`src/pi-runtime.ts` is the façade for the exact-version adapter. Internal
+modules own shape checks, global registries and patch leases, session
+association, active-tool actions, hooks/events, argument preparation, and
+session capture. Association state and stale/current guards have one owner;
+pure shape validation does not mutate lifecycle state.
+
+The adapter captures:
 
 - executable tools and render definitions;
 - active-tool actions and refreshes;
+- Pi argument preparation and schema validation;
 - before/after tool hooks;
 - tool execution events;
 - reload and shutdown ownership.
 
-The adapter validates private runtime shapes before taking ownership. Version
-or shape drift leaves PTC inert and preserves native tools.
+Version or private-shape drift leaves PTC inert and preserves native tools.
+Mixed module copies share versioned global registries and release independent
+leases without removing another copy's patches.
 
-`src/tool-catalog.ts` virtualizes active state. Refreshes preserve still-valid
-logical tools, drop removed tools, and adopt newly active registrations. A
-failed refresh attempts rollback and native restoration. Unverified recovery stays
-inert and reports diagnostics.
+`src/tool-catalog.ts` owns logical active state and additive activation.
+Refreshes preserve still-valid logical tools, drop removed tools, and adopt
+newly active registrations. A failed refresh attempts rollback and native
+restoration. Unverified recovery stays inert and reports diagnostics.
 
-Each PTC call receives a sorted catalog snapshot. Tool and renderer changes
-apply to the next call, never midway through a running program.
+Lifecycle issues each PTC call an immutable execution lease containing its
+sorted catalog snapshot, dispatch capability, renderer definitions, generation
+guard, and failure transition. Tool and renderer changes apply to the next call,
+never midway through a running program.
 
 ## Program execution
 
@@ -67,9 +80,12 @@ Execution follows this path:
 3. A fresh `worker_threads.Worker` starts with an empty environment and bounded heap.
 4. `src/worker.ts` exposes one async binding per snapshot entry.
 5. Calls cross the worker boundary as lossless JSON.
-6. `src/tool-executor.ts` prepares, validates, gates, executes, and finalizes the Pi tool.
+6. `src/tool-executor.ts` orchestrates the captured Pi argument, hook, event,
+   execution, and finalization capabilities.
 7. `src/canonical.ts` returns canonical JSON or throws `ToolCallError`.
-8. The worker returns captured logs and an optional JSON result.
+8. Retry-unsafe post-execution delivery failure uses the distinct
+   `ToolResultDeliveryError` protocol path.
+9. The worker returns captured logs and an optional JSON result.
 
 The worker is killable containment, not a sandbox. Model code has
 user-equivalent host authority.
@@ -93,8 +109,10 @@ retain specialized return shapes. Other tools receive this canonical envelope:
 }
 ```
 
-A tool result with additive `addedToolNames` updates the logical set for later
-PTC runs.
+A tool result with additive `addedToolNames` asks the catalog owner to activate
+available registrations for later PTC runs. Built-in, SDK, extension, and
+adapter-backed tools such as MCP all use this schema-derived path; no fixed-name
+allowlist selects arbitrary tools.
 
 ## Scheduling and cancellation
 
@@ -105,6 +123,8 @@ Tools with `executionMode: "sequential"` run exclusively; tools with
 Exclusive work waits for active parallel work to drain. Queue order is stable.
 Abort propagates to queued and active tools, terminates the worker, drains host
 bindings within the configured deadline, and rejects late reports.
+`src/orphan-binding-governor.ts` enforces the unresolved-binding ceiling across
+all concurrent PTC workers in the process rather than once per run.
 
 ## Context and persistence
 
@@ -112,9 +132,11 @@ Only serialized `{ logs, result? }` content reaches the model. Dispatch logs,
 render details, and live attachments stay model-hidden.
 
 Versioned dispatch details retain bounded arguments, previews, and render data.
-Whole native results are omitted when a budget is exhausted; partial native
-objects are never persisted. Historical unversioned details migrate on read,
-and malformed details render a diagnostic.
+`src/dispatch-retention.ts` owns execution-scoped accounting. Whole native
+results are omitted when a budget is exhausted; partial native objects are never
+persisted. Failure details are consume-once and cleared by lifecycle shutdown,
+reload, or inert recovery. Historical unversioned details migrate on read, and
+malformed details render a diagnostic.
 
 ## Rendering
 
@@ -125,6 +147,11 @@ empty. Rows use:
 2. captured execution-scoped definitions for other tools;
 3. bounded generic text when no safe renderer is available.
 
+Renderer storage separates two policies. Raw custom arguments/results require
+the exact in-memory details object and never permit call-ID lookup. Bounded
+renderer definitions may be restored by execution token and call ID after
+versioned details replacement.
+
 Renderer failures, timers, invalidation, terminal controls, images, and theme
 changes remain contained inside the affected PTC row.
 
@@ -132,7 +159,7 @@ changes remain contained inside the affected PTC row.
 
 PTC restores or preserves native tools when:
 
-- Pi is not the verified version or runtime validation fails;
+- package bootstrap cannot verify Pi `0.84.3`, or runtime validation fails;
 - the `ptc` transport is missing;
 - `fabric_exec`, `retype`, or `execute_tools` owns the tool surface;
 - catalog refresh, rollback, or restoration cannot be verified.
@@ -147,6 +174,8 @@ PTC restores or preserves native tools when:
 6. Exclusive dispatches never overlap another dispatch.
 7. Abort owns worker and nested-dispatch lifetime.
 8. PTC never claims to be a security boundary.
+9. Adapter approval, authentication, and OAuth remain adapter-owned.
+10. Result-delivery failure never masquerades as a retry-safe tool failure.
 
 ## Verification
 
@@ -156,6 +185,6 @@ npm run test:bun
 ```
 
 Node tests cover runtime capture, virtualization, schemas, execution lifecycle,
-scheduling, cancellation, canonical JSON, retention, persistence, and rendering.
-Bun smoke tests cover the worker and Pi renderer bindings used by the shipped
-host.
+scheduling, cancellation, canonical JSON, retention, persistence, rendering,
+mixed-copy rollback, and a real MCP adapter path. Bun smoke tests cover the
+worker and Pi renderer bindings used by the shipped host.

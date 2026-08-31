@@ -15,8 +15,9 @@ exposes `ptc` and the active tools; `native` disables PTC.
 - Node `>=22.19.0`
 - Pi `0.84.3`
 
-PTC uses an exact-version, fail-closed adapter for Pi runtime state. An
-unsupported host stays native and reports `ptc: inert`.
+PTC uses an exact-version, fail-closed adapter for Pi runtime state. Package
+bootstrap checks the host before loading Pi-private, TUI, or TypeBox-dependent
+implementation. An unsupported host stays native and reports `ptc: inert`.
 
 ## Install
 
@@ -47,10 +48,13 @@ return {
 };
 ```
 
-Every active tool receives a generated `tools.<name>(args)` binding. Tool
-names that are not JavaScript identifiers use bracket notation.
+Every active runtime tool receives a generated `tools.<name>(args)` binding,
+including built-ins, SDK and extension tools, and adapter-backed tools such as
+MCP. Tool names that are not JavaScript identifiers use bracket notation.
 
-Failed dispatches reject with `ToolCallError(toolName, message)`:
+Failed tool dispatches reject with `ToolCallError(toolName, message)`. A result
+that cannot be delivered after tool execution rejects with the distinct
+`ToolResultDeliveryError`; callers must not infer that retry is safe.
 
 ```ts
 try {
@@ -62,6 +66,9 @@ try {
   };
 }
 ```
+
+Adapter authorization remains adapter-owned. PTC neither bypasses approval
+brokers nor performs OAuth on the program's behalf.
 
 ## Presentation
 
@@ -85,7 +92,9 @@ With no argument, `/ptc` cycles through the three settings. A trusted project
 
 PTC preserves Pi's logical active-tool state while changing what the model sees.
 Tool refreshes and additive dynamic loading update later PTC runs. Each running
-program keeps a fixed tool and renderer snapshot.
+program uses an immutable execution lease with fixed catalog, dispatch, and
+renderer capabilities. Tools announced during a run become available only to a
+later run.
 
 ## Execution
 
@@ -111,9 +120,10 @@ built-in renderers and captures extension tool renderers for that execution.
 Missing or failing renderers fall back to bounded text.
 
 Display arguments, results, images, diagnostics, and persisted details are
-sanitized and bounded. Versioned details restore rows after session resume.
-When a retention budget is exhausted, PTC keeps a deterministic preview instead
-of a partial native result.
+sanitized and bounded. Raw custom-renderer attachments require the exact details
+object identity; only renderer definitions permit bounded call-ID restoration.
+Versioned details restore rows after session resume. When a retention budget is
+exhausted, PTC keeps a deterministic preview instead of a partial native result.
 
 ## Limits
 
@@ -130,9 +140,10 @@ Only presentation has project and user overrides.
 
 ## Compatibility
 
-Active built-in, SDK, extension, and adapter-provided tools are eligible for PTC.
-Inactive registered tools remain unavailable. If a tool activates additional
-registered tools, later PTC runs can use them.
+Active built-in, SDK, extension, and adapter-provided tools—including MCP
+adapter tools—are eligible for PTC. Selection is schema-derived, not a fixed
+name allowlist. Inactive registered tools remain unavailable. If a tool
+activates additional registered tools, later PTC runs can use them.
 
 `pi-fabric`, `pi-retype`, and other transports registered as
 `fabric_exec`, `retype`, or `execute_tools` compete for the same tool
