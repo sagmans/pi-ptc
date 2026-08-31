@@ -171,4 +171,5 @@ test("published root defers implementation and peers use the host bundle", () =>
 		packageJson.devDependencies?.["@earendil-works/pi-coding-agent"],
 		SUPPORTED_PI_VERSION,
 	);
+	assert.equal(packageJson.devDependencies?.["pi-mcp-adapter"], "2.29.0");
 });
