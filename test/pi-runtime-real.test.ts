@@ -252,16 +252,13 @@ test("real Pi reload session_start sees prior capture before fresh post-reload c
 	}
 });
 
-test("package metadata pins the Pi peer to the supported version", () => {
+test("package metadata defers exact Pi support to the runtime bootstrap", () => {
 	const manifest = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
 		peerDependencies: Record<string, string>;
 	};
 	const lock = JSON.parse(readFileSync(PACKAGE_LOCK_PATH, "utf8")) as {
 		packages: Record<string, { peerDependencies?: Record<string, string> }>;
 	};
-	assert.equal(manifest.peerDependencies["@earendil-works/pi-coding-agent"], SUPPORTED_PI_VERSION);
-	assert.equal(
-		lock.packages[""]?.peerDependencies?.["@earendil-works/pi-coding-agent"],
-		SUPPORTED_PI_VERSION,
-	);
+	assert.equal(manifest.peerDependencies["@earendil-works/pi-coding-agent"], "*");
+	assert.equal(lock.packages[""]?.peerDependencies?.["@earendil-works/pi-coding-agent"], "*");
 });

@@ -1,3 +1,6 @@
-// Published package surface: Pi loads this installer from the declared extension entry point.
+import type { ExtensionAPI } from "./src/host.ts";
+import { bootstrapPtcPackage } from "./src/package-bootstrap.ts";
 
-export { default } from "./src/index.ts";
+export default async function installPtcPackage(pi: ExtensionAPI): Promise<void> {
+	await bootstrapPtcPackage(pi);
+}
