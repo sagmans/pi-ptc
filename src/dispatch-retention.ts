@@ -33,6 +33,45 @@ const JSON_FALSE_BYTES = 5;
 const RENDER_BUDGET_EXCEEDED = Symbol("render-budget-exceeded");
 const RENDER_VALUE_INCOMPATIBLE = Symbol("render-value-incompatible");
 
+export type DispatchRetentionLedger = {
+	retain(progress: DispatchProgress): PtcDispatchProjection;
+	snapshot(): readonly PtcDispatchProjection[];
+	clear(): void;
+};
+
+export function createDispatchRetentionLedger(
+	maxRenderDetailsBytes: number,
+): DispatchRetentionLedger {
+	const projections = new Map<number, PtcDispatchProjection>();
+	let retainedRenderBytes = 0;
+	let renderBudgetExhausted = false;
+	return {
+		retain(progress) {
+			const previous = projections.get(progress.id);
+			if (previous) retainedRenderBytes -= previous.renderBytes;
+			const projection = projectDispatchForRetention(
+				progress,
+				Math.max(0, maxRenderDetailsBytes - retainedRenderBytes),
+				renderBudgetExhausted,
+			);
+			retainedRenderBytes += projection.renderBytes;
+			if (projection.dispatch.renderOmitted === RENDER_OMITTED_BUDGET) {
+				renderBudgetExhausted = true;
+			}
+			projections.set(progress.id, projection);
+			return projection;
+		},
+		snapshot() {
+			return Object.freeze([...projections.values()]);
+		},
+		clear() {
+			projections.clear();
+			retainedRenderBytes = 0;
+			renderBudgetExhausted = false;
+		},
+	};
+}
+
 export function projectDispatchForRetention(
 	dispatch: DispatchProgress,
 	maxRenderDetailsBytes: number,

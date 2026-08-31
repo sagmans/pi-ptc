@@ -14,10 +14,9 @@ import {
 	createDeltaDetailsFromProjection,
 	createSnapshotDetailsFromProjections,
 	type PtcDispatchDetails,
-	type PtcDispatchProjection,
-	projectDispatchForRetention,
 } from "./dispatch-details.ts";
 import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
+import { createDispatchRetentionLedger } from "./dispatch-retention.ts";
 import type { JsonValue } from "./json.ts";
 import {
 	attachPtcRenderDispatches,
@@ -175,27 +174,14 @@ export function createPtcTool(options: PtcToolOptions) {
 			}
 			const rendererToken = rendererTokens.begin(toolCallId);
 			const abortSignal = signal ?? ctx.signal;
-			const dispatches = new Map<number, PtcDispatchProjection>();
+			const retention = createDispatchRetentionLedger(maxRenderDetailsBytes);
 			const liveDispatches = new Map<number, DispatchProgress>();
 			let definitionsProvided = false;
-			let retainedRenderBytes = 0;
-			let renderBudgetExhausted = false;
 			let acceptingDispatchReports = true;
 			const reportDispatch = (progress: DispatchProgress) => {
 				if (!acceptingDispatchReports) return;
 				liveDispatches.set(progress.id, progress);
-				const previous = dispatches.get(progress.id);
-				if (previous) retainedRenderBytes -= previous.renderBytes;
-				const projection = projectDispatchForRetention(
-					progress,
-					Math.max(0, maxRenderDetailsBytes - retainedRenderBytes),
-					renderBudgetExhausted,
-				);
-				retainedRenderBytes += projection.renderBytes;
-				if (projection.dispatch.renderOmitted === RENDER_BUDGET_OMISSION) {
-					renderBudgetExhausted = true;
-				}
-				dispatches.set(progress.id, projection);
+				const projection = retention.retain(progress);
 				const details = createDeltaDetailsFromProjection(
 					params.description,
 					projection.dispatch,
@@ -208,7 +194,7 @@ export function createPtcTool(options: PtcToolOptions) {
 				});
 			};
 			const terminalizeActiveDispatches = (message: string): void => {
-				for (const projection of [...dispatches.values()]) {
+				for (const projection of retention.snapshot()) {
 					if (projection.dispatch.status !== "start") continue;
 					const result: DispatchRenderResult = {
 						content: [{ type: "text", text: message }],
@@ -259,7 +245,7 @@ export function createPtcTool(options: PtcToolOptions) {
 					);
 				}
 				acceptingDispatchReports = false;
-				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
+				const progress = retention.snapshot().map((projection) => projection.dispatch);
 				const details = createSnapshotDetailsFromProjections(
 					params.description,
 					progress,
@@ -281,7 +267,7 @@ export function createPtcTool(options: PtcToolOptions) {
 				const executionError = error instanceof Error ? error.message : String(error);
 				terminalizeActiveDispatches(executionError);
 				acceptingDispatchReports = false;
-				const progress = [...dispatches.values()].map((projection) => projection.dispatch);
+				const progress = retention.snapshot().map((projection) => projection.dispatch);
 				const details = createSnapshotDetailsFromProjections(
 					params.description,
 					progress,
