@@ -17,7 +17,6 @@ export type CodeRunFailure =
 export type CodeRunRequest = {
 	program: string;
 	bindings?: {
-		global: "tools";
 		functions: Record<string, BindingFn>;
 	};
 	signal?: AbortSignal;

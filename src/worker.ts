@@ -4,20 +4,15 @@ import { parentPort, workerData } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
 import { type JsonValue, snapshotJsonValue } from "./json.ts";
-
-type BootData = {
-	program: string;
-	bindingNames: string[];
-	maxOutputBytes: number;
-	maxOutputLines: number;
-};
+import {
+	type HostToWorker,
+	logicalLineCount,
+	WORKER_BINDING_NAME,
+	type WorkerBootData,
+} from "./worker-protocol.ts";
 
 const EMPTY_FAILURE_MESSAGE = "";
 const UTF8_ENCODING = "utf8";
-
-type ReplyMessage =
-	| { type: "reply"; id: number; ok: true; value: JsonValue }
-	| { type: "reply"; id: number; ok: false; toolName: string; message: string };
 
 class ToolCallError extends Error {
 	readonly toolName: string;
@@ -34,20 +29,16 @@ if (port === null) {
 	throw new Error("ptc worker must run as a worker thread");
 }
 
-const boot = workerData as BootData;
+const boot = workerData as WorkerBootData;
 const pending = new Map<
 	number,
 	{ resolve: (value: JsonValue) => void; reject: (error: Error) => void }
 >();
 let nextCallId = 1;
 
-function logicalLineCount(text: string): number {
-	return text.split(/\r\n|\r|\n/).length;
-}
-
 port.on("message", (raw: unknown) => {
 	if (typeof raw !== "object" || raw === null) return;
-	const message = raw as ReplyMessage;
+	const message = raw as HostToWorker;
 	if (message.type !== "reply" || typeof message.id !== "number") return;
 	const waiter = pending.get(message.id);
 	if (!waiter) return;
@@ -56,9 +47,9 @@ port.on("message", (raw: unknown) => {
 	else waiter.reject(new ToolCallError(message.toolName, message.message));
 });
 
-const tools: Record<string, (args: JsonValue) => Promise<JsonValue>> = Object.create(null);
+const bindings: Record<string, (args: JsonValue) => Promise<JsonValue>> = Object.create(null);
 for (const name of boot.bindingNames) {
-	tools[name] = async (args: JsonValue) => {
+	bindings[name] = async (args: JsonValue) => {
 		const id = nextCallId;
 		nextCallId += 1;
 		const snapshot = snapshotJsonValue(args);
@@ -89,7 +80,8 @@ void (async () => {
 			toolCallError: unknown,
 			console: unknown,
 		) => Promise<unknown>;
-		const value = await create()(tools, ToolCallError, consoleShim);
+		const workerGlobals = { [WORKER_BINDING_NAME]: bindings };
+		const value = await create()(workerGlobals[WORKER_BINDING_NAME], ToolCallError, consoleShim);
 		if (value === undefined) {
 			port.postMessage({ type: "done" });
 		} else {

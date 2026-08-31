@@ -228,7 +228,6 @@ export function createPtcTool(options: PtcToolOptions) {
 				const outcome = await run({
 					program: params.code,
 					bindings: {
-						global: "tools",
 						functions: execution.bindings,
 					},
 					signal: abortSignal,

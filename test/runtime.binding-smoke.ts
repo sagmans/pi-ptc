@@ -35,7 +35,6 @@ const started = Date.now();
 const outcome = await runCode({
 	program: "return await tools.echo({ n: 1 });",
 	bindings: {
-		global: "tools",
 		functions: {
 			echo: async (args) => args,
 		},
@@ -98,7 +97,6 @@ const controller = new AbortController();
 const pendingAbort = runCode({
 	program: "return await tools.slow(null);",
 	bindings: {
-		global: "tools",
 		functions: {
 			slow: async (_args, signal) => {
 				markBindingStarted?.();
@@ -146,7 +144,6 @@ const neverSettlingStarted = new Promise<void>((resolve) => {
 const pendingDrainDeadline = runCode({
 	program: "return await tools.never(null);",
 	bindings: {
-		global: "tools",
 		functions: {
 			never: async () => {
 				markNeverSettlingStarted?.();

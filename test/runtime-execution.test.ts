@@ -29,7 +29,6 @@ test("runCode calls host bindings and returns their JSON value", async () => {
 	const outcome = await runCode({
 		program: "return await tools.echo({ n: 3 });",
 		bindings: {
-			global: "tools",
 			functions: {
 				echo: async (args) => args,
 			},
@@ -55,7 +54,6 @@ try {
 }
 `,
 		bindings: {
-			global: "tools",
 			functions: {
 				fail: async () => {
 					throw Object.assign(new Error("denied"), { toolName: "fail" });

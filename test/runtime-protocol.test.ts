@@ -31,7 +31,6 @@ test("runCode rejects worker call IDs that are not positive, safe, and increasin
 		const outcome = await runCode({
 			program: hostileWorkerCallsProgram(testCase.ids),
 			bindings: {
-				global: "tools",
 				functions: {
 					[HOSTILE_BINDING_NAME]: async (args) => {
 						bindingCalls += 1;
@@ -67,7 +66,6 @@ void pending;
 return null;
 `,
 		bindings: {
-			global: "tools",
 			functions: {
 				[HOSTILE_BINDING_NAME]: async (_args, signal) => {
 					bindingCalls += 1;

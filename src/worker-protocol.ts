@@ -1,5 +1,14 @@
 import { type JsonValue, snapshotJsonValue } from "./json.ts";
 
+export const WORKER_BINDING_NAME = "tools";
+
+export type WorkerBootData = {
+	program: string;
+	bindingNames: string[];
+	maxOutputBytes: number;
+	maxOutputLines: number;
+};
+
 export const INVALID_WORKER_CALL_ID_MESSAGE =
 	"worker call id must be a positive safe integer that strictly increases";
 const INVALID_WORKER_MESSAGE = "worker emitted an invalid protocol message";

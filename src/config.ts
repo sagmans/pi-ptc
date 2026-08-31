@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 const SHIPPED_CONFIG_PATH = fileURLToPath(new URL("../config.json", import.meta.url));
 
 export const TRANSPORT_NAME = "ptc";
-export const BINDING_GLOBAL = "tools";
 export const PROGRAM_WRAPPER_NAME = "__ptc_main__";
 export const DISPATCH_EVENT = "pi-ptc:dispatch";
 export const DISPATCH_LOG_TYPE = "ptc-dispatch";

@@ -32,7 +32,6 @@ test("runCode aborts an active binding signal on timeout", async () => {
 	const outcome = await runCode({
 		program: "await tools.hang(null); return 1;",
 		bindings: {
-			global: "tools",
 			functions: {
 				hang: async (_args, signal) => {
 					bindingStarted = true;
@@ -61,7 +60,6 @@ test("runCode returns after the drain deadline when a timed-out binding never se
 	const pending = runCode({
 		program: "await tools.hang(null); return 1;",
 		bindings: {
-			global: "tools",
 			functions: {
 				hang: async () => {
 					bindingStarted.resolve();
@@ -91,7 +89,6 @@ test("runCode returns after the drain deadline when an aborted binding never set
 	const pending = runCode({
 		program: "await tools.hang(null); return 1;",
 		bindings: {
-			global: "tools",
 			functions: {
 				hang: async () => {
 					bindingStarted.resolve();
@@ -131,7 +128,6 @@ await writeFile(${JSON.stringify(markerPath)}, "late");
 return null;
 `,
 			bindings: {
-				global: "tools",
 				functions: {
 					hang: async () => {
 						bindingStarted.resolve();
@@ -162,7 +158,6 @@ test("runCode waits for an abort-aware binding after outer abort", async () => {
 	const pending = runCode({
 		program: "await tools.hang(null); return 1;",
 		bindings: {
-			global: "tools",
 			functions: {
 				hang: async (_args, signal) => {
 					bindingStarted.resolve();
@@ -201,7 +196,6 @@ test("runCode reports and drains a dangling fire-and-forget dispatch", async () 
 	const pending = runCode({
 		program: "void tools.slow(null); return 1;",
 		bindings: {
-			global: "tools",
 			functions: {
 				slow: async (_args, signal) => {
 					bindingStarted.resolve();
@@ -240,7 +234,6 @@ for (let index = 0; index < ${EXCESS_BINDING_CALLS}; index += 1) {
 return "unreachable";
 `,
 		bindings: {
-			global: "tools",
 			functions: {
 				echo: async (args) => {
 					bindingCalls += 1;
@@ -264,7 +257,6 @@ test("runCode aborts and drains active work when an override limit is exceeded",
 	const pending = runCode({
 		program: ACTIVE_LIMIT_PROGRAM,
 		bindings: {
-			global: "tools",
 			functions: {
 				first: async (_args, signal) => {
 					firstStarted.resolve();
@@ -312,7 +304,6 @@ test("runCode drains a late binding rejection without an unhandled rejection", a
 		const pending = runCode({
 			program: "void tools.late(null); return null;",
 			bindings: {
-				global: "tools",
 				functions: {
 					late: (_args, _signal) => {
 						bindingStarted.resolve();

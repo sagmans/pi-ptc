@@ -1,6 +1,7 @@
 import type { Worker } from "node:worker_threads";
 
 import { snapshotJsonValue } from "./json.ts";
+import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
 import type { BindingFn, CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
 import {
 	type HostToWorker,
@@ -13,8 +14,6 @@ import {
 const LOG_SEPARATOR_BYTES = 1;
 const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
 const UTF8_ENCODING = "utf8";
-const bindingReservations = new Set<Promise<void>>();
-
 type WorkerSessionInput = {
 	worker: Worker;
 	request: CodeRunRequest;
@@ -116,7 +115,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const handleCall = (message: Extract<WorkerToHost, { type: "call" }>): void => {
-			if (bindingReservations.size >= maxOrphanedBindings) {
+			if (processOrphanBindingGovernor.active >= maxOrphanedBindings) {
 				finish({ logs: [...logs], error: { kind: "orphan-limit" } }, true);
 				return;
 			}
@@ -147,6 +146,11 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				});
 				return;
 			}
+			const reservation = processOrphanBindingGovernor.acquire(maxOrphanedBindings);
+			if (!reservation) {
+				finish({ logs: [...logs], error: { kind: "orphan-limit" } }, true);
+				return;
+			}
 			const settlement = Promise.resolve()
 				.then(() => binding(message.args, invocation.signal))
 				.then((value) => {
@@ -172,12 +176,11 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 					});
 				})
 				.finally(() => {
-					bindingReservations.delete(settlement);
+					reservation.release();
 					if (activeBindings.get(message.id) === settlement) {
 						activeBindings.delete(message.id);
 					}
 				});
-			bindingReservations.add(settlement);
 			activeBindings.set(message.id, settlement);
 		};
 

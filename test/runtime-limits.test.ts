@@ -26,7 +26,6 @@ test("runCode reserves orphan capacity before parallel bindings start", async ()
 	const pending = runCode({
 		program: ORPHAN_RESERVATION_PROGRAM,
 		bindings: {
-			global: "tools",
 			functions: {
 				first: async (_args, signal) => {
 					firstStarted.resolve();
@@ -66,7 +65,6 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 	const first = runCode({
 		program: "await tools.hang(null); return null;",
 		bindings: {
-			global: "tools",
 			functions: {
 				hang: async () => {
 					firstStarted.resolve();
@@ -86,7 +84,6 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 	const second = await runCode({
 		program: "await tools.echo(null); return null;",
 		bindings: {
-			global: "tools",
 			functions: {
 				echo: async () => {
 					secondBindingCalls += 1;
