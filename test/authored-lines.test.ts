@@ -5,8 +5,8 @@ import { extname, join, relative, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const AUTHORED_FILE_MAXIMUM_LINES = 499;
-const REJECTED_FIXTURE_LINES = AUTHORED_FILE_MAXIMUM_LINES + 1;
+const AUTHORED_FILE_MAXIMUM_LINES = 449;
+const REJECTED_FIXTURE_LINES = 500;
 const REPOSITORY_ROOT = new URL("..", import.meta.url);
 const TEMPORARY_DIRECTORY_PREFIX = "pi-ptc-authored-lines-";
 const AUTHORED_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".json", ".mjs", ".mts", ".ts"]);
@@ -58,7 +58,7 @@ function assertAuthoredLineBounds(root: string): void {
 	assert.deepEqual(failures, []);
 }
 
-test("every authored file stays below 500 physical lines", () => {
+test("every authored file keeps decomposition headroom below 450 physical lines", () => {
 	const root = relative(process.cwd(), fileURLToPath(REPOSITORY_ROOT)) || ".";
 	assertAuthoredLineBounds(root);
 });
@@ -69,7 +69,7 @@ test("authored-line detector rejects a 500-line temporary fixture", () => {
 		writeFileSync(join(directory, "fixture.ts"), "export {};\n".repeat(REJECTED_FIXTURE_LINES));
 		assert.throws(
 			() => assertAuthoredLineBounds(directory),
-			/fixture\.ts: 500 physical lines exceeds 499/,
+			/fixture\.ts: 500 physical lines exceeds 449/,
 		);
 	} finally {
 		rmSync(directory, { force: true, recursive: true });
