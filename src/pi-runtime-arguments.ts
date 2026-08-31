@@ -273,9 +273,7 @@ export function validateToolArguments(
 			.Errors(args)
 			.map((error) => `  - ${formatValidationPath(error)}: ${error.message}`)
 			.join("\n") || "Unknown validation error";
-	throw new Error(
-		`Validation failed for tool "${toolName}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(rawArguments, null, 2)}`,
-	);
+	throw new Error(`Validation failed for tool "${toolName}":\n${errors}`);
 }
 
 export function createPiToolArgumentPreparer(

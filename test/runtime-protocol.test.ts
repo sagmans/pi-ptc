@@ -70,6 +70,24 @@ test("runCode preserves retry-unsafe result delivery failures", async () => {
 	});
 });
 
+test("runCode preserves uncaught retry-unsafe delivery failures", async () => {
+	const outcome = await runCode({
+		program: "return await tools.delivery({});",
+		bindings: {
+			functions: {
+				async delivery() {
+					throw new ToolResultDeliveryError("delivery", "delivery failed");
+				},
+			},
+		},
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+	assert.deepEqual(outcome, {
+		logs: [],
+		error: { kind: "result-delivery", message: "delivery failed" },
+	});
+});
+
 test("runCode rejects a duplicate worker call ID without replacing an active binding", async () => {
 	const bindingStarted = deferred();
 	const bindingAbortObserved = deferred();

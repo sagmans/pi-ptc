@@ -18,6 +18,8 @@ import {
 	TOOL_NAME,
 } from "./support/tool-executor-harness.ts";
 
+const NATIVE_ARGUMENT_DIAGNOSTIC_SEPARATOR = "\n\nReceived arguments:";
+
 test("dispatch mirrors native raw/prepared argument flow and lifecycle ordering", async () => {
 	const sequence: string[] = [];
 	const events: RuntimeEvent[] = [];
@@ -160,10 +162,9 @@ test("validation clones prepared args, applies Pi coercion, and preserves Pi dia
 		args: { count: "nope", enabled: true },
 	});
 	assert.equal(failure.isError, true);
-	assert.equal(
-		resultText(failure.result),
-		'Validation failed for tool "demo":\n  - count: must be integer\n\nReceived arguments:\n{\n  "count": "nope",\n  "enabled": true\n}',
-	);
+	const failureText = resultText(failure.result);
+	assert.equal(failureText, 'Validation failed for tool "demo":\n  - count: must be integer');
+	assert.doesNotMatch(failureText ?? "", /nope|enabled/);
 	assert.equal(failure.executionArgs, undefined);
 });
 
@@ -232,6 +233,9 @@ test("nullable object union validation matches Pi 0.84.3", async (t) => {
 		}
 		const nested = await dispatchNested(args);
 		assert.equal(nested.outcome.isError, true);
-		assert.equal(resultText(nested.outcome.result), nativeMessage);
+		assert.equal(
+			resultText(nested.outcome.result),
+			nativeMessage?.split(NATIVE_ARGUMENT_DIAGNOSTIC_SEPARATOR)[0],
+		);
 	});
 });

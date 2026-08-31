@@ -44,6 +44,7 @@ test("supplied catalog prose omits inactive core guidance", () => {
 	]);
 
 	assert.match(prompt, /Call active runtime tools only/);
+	assert.match(prompt, /ToolResultDeliveryError.*retryUnsafe.*repeat effects/);
 	for (const name of CORE_TOOL_NAMES) {
 		assert.doesNotMatch(prompt, new RegExp(`\\b${name}\\b`), name);
 	}

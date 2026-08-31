@@ -66,6 +66,8 @@ export type PtcToolResult = {
 };
 
 export const RENDER_BUDGET_OMISSION = "budget";
+const RESULT_DELIVERY_FAILURE_PREFIX =
+	"tool execution may have succeeded; retry may repeat effects";
 
 export type FailureDetailsStore = {
 	remember(toolCallId: string, details: PtcDispatchDetails): void;
@@ -240,11 +242,7 @@ export function createPtcTool(options: PtcToolOptions) {
 					maxOutputBytes: options.maxOutputBytes,
 					maxOutputLines: options.maxOutputLines,
 				});
-				if (outcome.error) {
-					terminalizeActiveDispatches(
-						"message" in outcome.error ? outcome.error.message : outcome.error.kind,
-					);
-				}
+				if (outcome.error) terminalizeActiveDispatches(describeRunFailure(outcome.error));
 				acceptingDispatchReports = false;
 				const progress = retention.snapshot().map((projection) => projection.dispatch);
 				const details = createSnapshotDetailsFromProjections(
@@ -300,13 +298,19 @@ export function attachExecutionRenderData(
 	rendererTokens.attach(details, token);
 }
 
+function describeRunFailure(error: NonNullable<CodeRunResult["error"]>): string {
+	const message = "message" in error ? error.message : error.kind;
+	return error.kind === "result-delivery"
+		? `${RESULT_DELIVERY_FAILURE_PREFIX}: ${message}`
+		: message;
+}
+
 export function serializeOuterResult(
 	outcome: CodeRunResult,
 	limits: { maxOutputBytes: number; maxOutputLines: number },
 ): string {
 	if (outcome.error) {
-		const message = "message" in outcome.error ? outcome.error.message : outcome.error.kind;
-		const failure = `ptc failed (${outcome.error.kind}): ${message}`;
+		const failure = `ptc failed (${outcome.error.kind}): ${describeRunFailure(outcome.error)}`;
 		assertOuterResultWithinLimits(failure, limits);
 		throw new Error(failure);
 	}

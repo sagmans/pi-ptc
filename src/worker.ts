@@ -122,7 +122,12 @@ void (async () => {
 			});
 			return;
 		}
-		const kind = message.includes("lossless JSON") ? "invalid-output" : "throw";
+		const kind =
+			error instanceof ToolResultDeliveryError
+				? "result-delivery"
+				: message.includes("lossless JSON")
+					? "invalid-output"
+					: "throw";
 		port.postMessage({ type: "fail", kind, message });
 	}
 })();

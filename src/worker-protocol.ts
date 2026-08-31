@@ -17,7 +17,11 @@ export type WorkerToHost =
 	| { type: "log"; text: string }
 	| { type: "call"; id: number; name: string; args: JsonValue }
 	| { type: "done"; value?: JsonValue }
-	| { type: "fail"; kind: "throw" | "invalid-output" | "output-limit"; message: string };
+	| {
+			type: "fail";
+			kind: "throw" | "invalid-output" | "output-limit" | "result-delivery";
+			message: string;
+	  };
 
 export type BindingFailureKind = "tool-call" | "result-delivery";
 
@@ -84,8 +88,15 @@ function parseFailureMessage(value: Record<string, unknown>): WorkerToHost {
 	return { type: "fail", kind: value.kind, message: value.message };
 }
 
-function isWorkerFailureKind(value: unknown): value is "throw" | "invalid-output" | "output-limit" {
-	return value === "throw" || value === "invalid-output" || value === "output-limit";
+function isWorkerFailureKind(
+	value: unknown,
+): value is "throw" | "invalid-output" | "output-limit" | "result-delivery" {
+	return (
+		value === "throw" ||
+		value === "invalid-output" ||
+		value === "output-limit" ||
+		value === "result-delivery"
+	);
 }
 
 function invalidWorkerMessage(): Error {

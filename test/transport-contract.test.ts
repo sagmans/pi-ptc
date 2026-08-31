@@ -17,7 +17,7 @@ import { createScheduler } from "../src/scheduler.ts";
 import { createToolBindings } from "../src/tool-bindings.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 import { createToolExecutor } from "../src/tool-executor.ts";
-import { createPtcTool } from "../src/transport.ts";
+import { createPtcTool, serializeOuterResult } from "../src/transport.ts";
 import {
 	CUSTOM_CALL_MARKER,
 	CUSTOM_RESULT_MARKER,
@@ -36,6 +36,20 @@ test("ptc description names bash-equivalent trust and active runtime tools", () 
 	assert.match(tool.description, /active runtime tools/);
 	assert.equal(tool.promptSnippet, "Run a program against active runtime tools");
 	assert.equal(tool.name, "ptc");
+});
+
+test("uncaught delivery failures warn that retry may repeat effects", () => {
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{
+					logs: [],
+					error: { kind: "result-delivery", message: "delivery failed" },
+				},
+				LIMITS,
+			),
+		/execution may have succeeded; retry may repeat effects: delivery failed/,
+	);
 });
 
 test("live custom renderers receive raw args and finalized non-JSON results without leaks", async () => {

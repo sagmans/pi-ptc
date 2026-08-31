@@ -8,6 +8,7 @@ export type CodeRunFailure =
 	| { kind: "timeout" }
 	| { kind: "abort" }
 	| { kind: "invalid-output"; message: string }
+	| { kind: "result-delivery"; message: string }
 	| { kind: "output-limit" }
 	| { kind: "dispatch-limit" }
 	| { kind: "dangling-dispatch" }

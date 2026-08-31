@@ -21,7 +21,8 @@ const BINDING_SIGNATURES = Object.freeze({
 const ACTIVE_SDK_HEADER = `tools:sdk
 Call active runtime tools only from a ptc program. The code argument is the body of an async function.
 Top-level await and return are legal. Use erasable TypeScript only.
-Successful bindings resolve to canonical JSON. Failed bindings reject ToolCallError(toolName, message).
+Successful bindings resolve to canonical JSON. Failed tool calls reject ToolCallError(toolName, message).
+ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true because retry may repeat effects.
 Tool calls follow active runtime scheduling modes.
 `;
 const SKILL_COMMAND_GUIDANCE = "/skill:name still works.\n";
