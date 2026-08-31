@@ -86,10 +86,12 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 	const replaceEntries = (entries: readonly ToolCatalogEntry[]): void => {
 		entriesByName = new Map(entries.map((entry) => [entry.name, entry]));
 	};
-	const resolveCurrentPresentation = (): { tools: string[]; missingTransport: boolean } =>
+	const resolvePresentation = (
+		logical: readonly string[],
+	): { tools: string[]; missingTransport: boolean } =>
 		resolveActiveTools({
 			presentation: options.getPresentation(),
-			logical: logicalActiveTools,
+			logical,
 			registered: [...entriesByName.keys()],
 		});
 	const getVirtualActiveTools = (): string[] => {
@@ -101,7 +103,7 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 	};
 	const applyPhysical = (): { missingTransport: boolean } => {
 		const installation = requireActive();
-		const resolved = resolveCurrentPresentation();
+		const resolved = resolvePresentation(logicalActiveTools);
 		installation.original.setActiveTools(resolved.tools);
 		return { missingTransport: resolved.missingTransport };
 	};
@@ -184,11 +186,20 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 		},
 		applyPhysical,
 		activateAvailable(names: readonly string[]): readonly string[] {
-			requireActive();
-			const previousNames = new Set(logicalActiveTools);
-			logicalActiveTools = uniqueAvailableNames([...logicalActiveTools, ...names], entriesByName);
-			applyPhysical();
-			return Object.freeze(logicalActiveTools.filter((name) => !previousNames.has(name)));
+			const installation = requireActive();
+			const previous = logicalActiveTools;
+			const previousNames = new Set(previous);
+			const candidate = uniqueAvailableNames([...previous, ...names], entriesByName);
+			try {
+				installation.original.setActiveTools(resolvePresentation(candidate).tools);
+			} catch (error) {
+				try {
+					installation.original.setActiveTools(resolvePresentation(previous).tools);
+				} catch {}
+				throw error;
+			}
+			logicalActiveTools = candidate;
+			return Object.freeze(candidate.filter((name) => !previousNames.has(name)));
 		},
 		restore(): void {
 			deactivate(logicalActiveTools);

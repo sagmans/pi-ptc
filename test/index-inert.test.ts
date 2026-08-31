@@ -116,6 +116,30 @@ test("compatibility mismatch stays inert, preserves actions, and reports once wi
 	assert.equal(harness.statuses.at(-1), "ptc: inert");
 });
 
+test("obsolete mixed-copy capture contract fails inert before execution", async () => {
+	const harness = createFakePi(["read"]);
+	installHarness(harness);
+	harness.handlers.get("session_start")?.({}, harness.ctx);
+	harness.captureObsoleteRuntime();
+
+	assert.deepEqual(harness.physicalActive(), ["read"]);
+	assert.equal(harness.statuses.at(-1), "ptc: inert");
+	assert.match(harness.notifications[0] ?? "", /argument preparation|inert/i);
+	const tool = harness.tools.get(TRANSPORT_NAME);
+	assert.ok(tool);
+	await assert.rejects(
+		() =>
+			tool.execute(
+				"obsolete-capture",
+				{ code: "return true;", description: "reject obsolete capture" },
+				undefined,
+				undefined,
+				harness.ctx,
+			),
+		/capture|unavailable/,
+	);
+});
+
 test("same-name untagged ptc shadow becomes inert at first post-bind readiness event", async () => {
 	const harness = createFakePi(["read", TRANSPORT_NAME], ["read", TRANSPORT_NAME], {
 		shadowTransport: true,

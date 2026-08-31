@@ -161,6 +161,7 @@ export function createToolExecutor(options: CreateToolExecutorOptions): ToolExec
 			const token: NestedPtcToolCallToken = { toolCallId: toolCall.id, active: true };
 			return nestedPtcToolCallStorage.run(token, async () => {
 				try {
+					let activationFailure: unknown;
 					await options.session.extensionRunner.emit({
 						type: "tool_execution_start",
 						toolCallId: toolCall.id,
@@ -202,6 +203,7 @@ export function createToolExecutor(options: CreateToolExecutorOptions): ToolExec
 						try {
 							await options.activateTools?.(addedToolNames);
 						} catch (error) {
+							activationFailure = error;
 							finalized = { result: errorResult(errorMessage(error)), isError: true };
 						}
 					}
@@ -212,6 +214,9 @@ export function createToolExecutor(options: CreateToolExecutorOptions): ToolExec
 						result: finalized.result,
 						isError: finalized.isError,
 					});
+					if (activationFailure !== undefined) {
+						options.onActivationFailure?.(activationFailure);
+					}
 					return {
 						toolCallId: toolCall.id,
 						name: toolCall.name,

@@ -26,13 +26,15 @@ import {
 	type ToolCatalog,
 	type ToolCatalogRefreshFailure,
 } from "./tool-catalog.ts";
-import { isNestedPtcToolCall } from "./tool-executor.ts";
+import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
 import type { FailureDetailsStore, PtcBindingContext, PtcExecution } from "./transport.ts";
 
 const INERT_STATUS = "ptc: inert";
 const MISSING_RUNTIME_CAPTURE_MESSAGE = "pi-ptc staying inert: ptc runtime capture is missing";
 const RUNTIME_INCOMPATIBILITY_PREFIX = "pi-ptc staying inert";
 const PTC_RUNTIME_UNAVAILABLE_MESSAGE = "ptc runtime capture is unavailable";
+const OBSOLETE_CAPTURE_CONTRACT_MESSAGE =
+	"captured Pi runtime does not provide exact argument preparation";
 const OWNED_TRANSPORT_CLEANUP_FAILURE_PREFIX = "owned ptc transport cleanup failed";
 const CATALOG_ROLLBACK_FAILURE_PREFIX = "catalog rollback failed";
 const NATIVE_RESTORATION_RETRY_FAILURE_PREFIX = "native active-tool restoration retry failed";
@@ -80,6 +82,13 @@ function describeError(error: unknown): string {
 function sameNames(actual: readonly string[], expected: readonly string[]): boolean {
 	return (
 		actual.length === expected.length && actual.every((name, index) => name === expected[index])
+	);
+}
+
+function supportsCurrentCaptureContract(session: CapturedPiSession): boolean {
+	return (
+		typeof (session as unknown as { prepareToolArguments?: unknown }).prepareToolArguments ===
+		"function"
 	);
 }
 
@@ -143,6 +152,7 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 		capturedSession !== undefined &&
 		inertMessage === undefined;
 	const becomeRuntimeInert = (message: string, context?: ExtensionContext): void => {
+		options.failureDetails.clear();
 		options.clearRenderSnapshots();
 		let cleanupError: unknown;
 		try {
@@ -259,6 +269,13 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 				becomeRuntimeInert(COMPETING_OWNER_MESSAGE, lastContext);
 				return;
 			}
+			if (!supportsCurrentCaptureContract(capture.session)) {
+				becomeRuntimeInert(
+					`${RUNTIME_INCOMPATIBILITY_PREFIX}: ${OBSOLETE_CAPTURE_CONTRACT_MESSAGE}`,
+					lastContext,
+				);
+				return;
+			}
 			inertMessage = undefined;
 			reportedInertMessage = undefined;
 			try {
@@ -301,20 +318,28 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
 				}
 			};
+			const transitionToInert = (error: unknown, context?: ExtensionContext): void => {
+				if (!released && leaseGeneration === generation) {
+					becomeCapturedRuntimeInert(error, context);
+				}
+			};
+			const dispatch = createToolExecutor({
+				catalog: snapshot,
+				session: activeSession,
+				activateTools(names) {
+					assertCurrent();
+					activeCatalog.activateAvailable(names);
+				},
+				onActivationFailure(error) {
+					transitionToInert(error, lastContext);
+				},
+			});
 			return Object.freeze({
 				generation: leaseGeneration,
 				catalog: snapshot,
-				session: activeSession,
+				dispatch,
 				assertCurrent,
-				activateAvailable(names: readonly string[]) {
-					assertCurrent();
-					return activeCatalog.activateAvailable(names);
-				},
-				transitionToInert(error: unknown, context?: ExtensionContext) {
-					if (!released && leaseGeneration === generation) {
-						becomeCapturedRuntimeInert(error, context);
-					}
-				},
+				transitionToInert,
 				release() {
 					released = true;
 				},

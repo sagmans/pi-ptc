@@ -5,7 +5,6 @@ import type { PtcExecutionLease } from "./ptc-tool-contract.ts";
 import { createPtcDefinitionRegistry } from "./renderer.ts";
 import { createScheduler } from "./scheduler.ts";
 import { createToolBindings } from "./tool-bindings.ts";
-import { createToolExecutor } from "./tool-executor.ts";
 
 const PTC_RUNTIME_UNAVAILABLE_MESSAGE = "ptc runtime capture is unavailable";
 
@@ -24,18 +23,11 @@ export function createPtcExecution(options: CreatePtcExecutionOptions) {
 	try {
 		options.lease.assertCurrent();
 		const snapshot = options.lease.catalog;
-		const executor = createToolExecutor({
-			catalog: snapshot,
-			session: options.lease.session,
-			activateTools(names) {
-				options.lease.activateAvailable(names);
-			},
-		});
 		return {
 			definitions: createPtcDefinitionRegistry(snapshot),
 			bindings: createToolBindings(
 				snapshot,
-				executor,
+				options.lease.dispatch,
 				createScheduler(options.maxParallelDispatches),
 				{
 					acceptSideEffects: options.context.isOpen,

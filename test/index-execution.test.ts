@@ -282,6 +282,60 @@ test("addedToolNames updates logical state without exposing physical tools under
 	assert.deepEqual(harness.physicalActive(), [TRANSPORT_NAME]);
 });
 
+test("activation publication failure terminalizes once and makes future runs inert", async () => {
+	const activationMessage = "activation publication failed";
+	let codePresentationWrites = 0;
+	const harness = createFakePi(["activator"], ["activator", "dormant"], {
+		setActiveToolsError(names) {
+			if (names.length !== 1 || names[0] !== TRANSPORT_NAME) return undefined;
+			codePresentationWrites += 1;
+			return codePresentationWrites === 2 ? new Error(activationMessage) : undefined;
+		},
+	});
+	harness.registerRuntimeTool("activator", {
+		parameters: Type.Object({}),
+		async execute() {
+			return {
+				content: [{ type: "text", text: "executed" }],
+				addedToolNames: ["dormant"],
+			};
+		},
+	});
+	installHarness(harness);
+	startAndCapture(harness);
+	const tool = harness.tools.get(TRANSPORT_NAME);
+	assert.ok(tool);
+	const updates: unknown[] = [];
+
+	const first = parseOuterResult(
+		await tool.execute(
+			"activation-failure",
+			{
+				code: "try { await tools.activator({}); } catch (error) { return String(error); }",
+				description: "fail activation publication",
+			},
+			undefined,
+			(partial) => updates.push(partial),
+			harness.ctx,
+		),
+	);
+	assert.match(String(first.result), new RegExp(activationMessage));
+	assert.equal(updates.length, 2);
+	assert.deepEqual(harness.physicalActive(), ["activator"]);
+	assert.equal(harness.statuses.at(-1), "ptc: inert");
+	await assert.rejects(
+		() =>
+			tool.execute(
+				"activation-after-inert",
+				{ code: "return true;", description: "reject stale execution" },
+				undefined,
+				undefined,
+				harness.ctx,
+			),
+		/capture|unavailable/,
+	);
+});
+
 test("execution renderers remain fixed across mutation and concurrent production runs", async () => {
 	let releaseFirst!: () => void;
 	const firstGate = new Promise<void>((resolve) => {

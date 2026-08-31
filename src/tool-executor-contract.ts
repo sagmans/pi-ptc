@@ -33,4 +33,5 @@ export type CreateToolExecutorOptions = {
 	readonly catalog: readonly ToolCatalogEntry[];
 	readonly session: CapturedPiSession;
 	readonly activateTools?: (names: readonly string[]) => Promise<void> | void;
+	readonly onActivationFailure?: (error: unknown) => void;
 };

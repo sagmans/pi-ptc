@@ -30,6 +30,7 @@ export type FakePiHarness = {
 	ctx: ExtensionContext;
 	installOptions: InstallPtcOptions;
 	captureRuntime(): void;
+	captureObsoleteRuntime(): void;
 	captureIncompatible(diagnostic?: string, transportOwnership?: { isCurrent(): boolean }): void;
 	physicalActive(): string[];
 	physicalWriteCount(): number;
@@ -56,6 +57,7 @@ export type FakePiOptions = {
 	shadowTransport?: boolean;
 	beforeToolCall?: CapturedPiSession["beforeToolCall"];
 	afterToolCall?: CapturedPiSession["afterToolCall"];
+	setActiveToolsError?(names: readonly string[]): Error | undefined;
 };
 
 export function createFakePi(
@@ -90,6 +92,8 @@ export function createFakePi(
 	const rawGetActiveTools = () => [...physical];
 	const rawSetActiveTools = (names: string[]) => {
 		physicalWrites += 1;
+		const error = options.setActiveToolsError?.(names);
+		if (error) throw error;
 		physical = names.filter((name) => registry.has(name));
 	};
 	const rawRefreshTools = () => {
@@ -258,6 +262,14 @@ export function createFakePi(
 			runtimeBound = true;
 			assert.ok(captureInstaller);
 			captureInstaller.capturePiRuntime({ compatible: true, session: capturedSession });
+		},
+		captureObsoleteRuntime() {
+			assert.ok(captureInstaller);
+			const obsolete = { ...capturedSession, prepareToolArguments: undefined } as unknown;
+			captureInstaller.capturePiRuntime({
+				compatible: true,
+				session: obsolete as CapturedPiSession,
+			});
 		},
 		captureIncompatible(diagnostic = INERT_RUNTIME_DIAGNOSTIC, transportOwnership) {
 			assert.ok(captureInstaller);
