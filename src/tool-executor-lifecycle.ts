@@ -1,28 +1,26 @@
 import type { CapturedPiSession } from "./pi-runtime.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 import type {
-	AfterToolCallResult,
-	BeforeToolCallResult,
-	ExecutedCall,
-	Preparation,
-	PreparedCall,
-	SyntheticAgentContext,
-	SyntheticAgentTool,
-	SyntheticAssistantMessage,
-	ToolCall,
-	UpdateDeliveryOutcome,
-} from "./tool-executor.ts";
-import {
-	isRecord,
-	OPERATION_ABORTED_MESSAGE,
-	SYNTHETIC_RUNTIME_NAME,
-	TOOL_EXECUTION_BLOCKED_MESSAGE,
-	ZERO_USAGE,
-} from "./tool-executor.ts";
-import type {
 	NestedToolDispatchRequest,
 	NestedToolRuntimeResult,
 } from "./tool-executor-contract.ts";
+import {
+	type AfterToolCallResult,
+	type BeforeToolCallResult,
+	type ExecutedCall,
+	isRecord,
+	OPERATION_ABORTED_MESSAGE,
+	type Preparation,
+	type PreparedCall,
+	SYNTHETIC_RUNTIME_NAME,
+	type SyntheticAgentContext,
+	type SyntheticAgentTool,
+	type SyntheticAssistantMessage,
+	TOOL_EXECUTION_BLOCKED_MESSAGE,
+	type ToolCall,
+	type UpdateDeliveryOutcome,
+	ZERO_USAGE,
+} from "./tool-executor-state.ts";
 
 export function errorResult(message: string): NestedToolRuntimeResult {
 	return {

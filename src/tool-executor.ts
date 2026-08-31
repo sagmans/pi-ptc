@@ -1,7 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { isExclusiveToolName } from "./config.ts";
-import type { PiRuntimeTool } from "./pi-runtime.ts";
 import type { DispatchKind } from "./scheduler.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 import type {
@@ -19,6 +18,7 @@ import {
 	finalizeExecutedToolCall,
 	prepareToolCall,
 } from "./tool-executor-lifecycle.ts";
+import type { ExecutedCall, ToolCall } from "./tool-executor-state.ts";
 
 export type {
 	CreateToolExecutorOptions,
@@ -30,101 +30,12 @@ export type {
 
 export const NESTED_PTC_TOOL_CALL_ID_PREFIX = "pi-ptc-nested-";
 
-export const OPERATION_ABORTED_MESSAGE = "Operation aborted";
-
-export const TOOL_EXECUTION_BLOCKED_MESSAGE = "Tool execution was blocked";
-
-export const SYNTHETIC_RUNTIME_NAME = "pi-ptc";
-
 export type NestedPtcToolCallToken = {
 	readonly toolCallId: string;
 	active: boolean;
 };
 
 export const nestedPtcToolCallStorage = new AsyncLocalStorage<NestedPtcToolCallToken>();
-
-export const ZERO_USAGE = Object.freeze({
-	input: 0,
-	output: 0,
-	cacheRead: 0,
-	cacheWrite: 0,
-	totalTokens: 0,
-	cost: Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }),
-});
-
-export type ToolCall = {
-	type: "toolCall";
-	id: string;
-	name: string;
-	arguments: unknown;
-};
-
-export type SyntheticAssistantMessage = {
-	role: "assistant";
-	content: [ToolCall];
-	api: string;
-	provider: string;
-	model: string;
-	usage: typeof ZERO_USAGE;
-	stopReason: "toolUse";
-	timestamp: number;
-};
-
-export type SyntheticAgentTool = PiRuntimeTool & {
-	name: string;
-	label: string;
-	description: string;
-};
-
-export type SyntheticAgentContext = {
-	systemPrompt: string;
-	messages: [SyntheticAssistantMessage];
-	tools: SyntheticAgentTool[];
-};
-
-export type BeforeToolCallResult = {
-	block?: unknown;
-	reason?: unknown;
-	terminate?: unknown;
-};
-
-export type AfterToolCallResult = {
-	content?: unknown;
-	details?: unknown;
-	usage?: unknown;
-	terminate?: unknown;
-	isError?: unknown;
-};
-
-export type ImmediatePreparation = {
-	kind: "immediate";
-	result: NestedToolRuntimeResult;
-	isError: true;
-	hasExecutionArgs: boolean;
-	executionArgs?: unknown;
-};
-
-export type PreparedCall = {
-	kind: "prepared";
-	toolCall: ToolCall;
-	tool: PiRuntimeTool;
-	args: unknown;
-	assistantMessage: SyntheticAssistantMessage;
-	context: SyntheticAgentContext;
-};
-
-export type Preparation = ImmediatePreparation | PreparedCall;
-
-export type ExecutedCall = {
-	result: NestedToolRuntimeResult;
-	isError: boolean;
-};
-
-export type UpdateDeliveryOutcome = { kind: "delivered" } | { kind: "failed"; error: unknown };
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return (typeof value === "object" && value !== null) || typeof value === "function";
-}
 
 export function retainedAddedToolNames(
 	result: NestedToolRuntimeResult,

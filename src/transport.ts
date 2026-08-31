@@ -19,10 +19,18 @@ import { formatDispatchLine } from "./dispatch-format.ts";
 import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
 import { createDispatchRetentionLedger } from "./dispatch-retention.ts";
 import type { JsonValue } from "./json.ts";
+import type {
+	FailureDetailsStore,
+	PtcBindingContext,
+	PtcExecuteContext,
+	PtcExecution,
+	PtcOnUpdate,
+	PtcParams,
+	PtcToolResult,
+} from "./ptc-tool-contract.ts";
 import {
 	attachPtcRenderDispatches,
 	type PtcDefinitionProvider,
-	type PtcDefinitionRegistry,
 	renderPtcCall,
 	renderPtcResult,
 } from "./renderer.ts";
@@ -34,46 +42,24 @@ import {
 } from "./renderer-definition-store.ts";
 import { type BindingFn, type CodeRunResult, logicalLineCount, runCode } from "./runtime.ts";
 
+export type {
+	FailureDetailsStore,
+	PtcBindingContext,
+	PtcExecuteContext,
+	PtcExecution,
+	PtcOnUpdate,
+	PtcParams,
+	PtcPartialResult,
+	PtcToolResult,
+} from "./ptc-tool-contract.ts";
 export {
 	MAX_PENDING_RENDER_SNAPSHOTS,
 	MAX_RENDERER_CALL_ID_HISTORY,
 } from "./renderer-definition-store.ts";
-export type PtcParams = {
-	code: string;
-	description: string;
-};
-
-export type PtcExecuteContext = {
-	cwd: string;
-	signal?: AbortSignal;
-};
-
-export type PtcBindingContext = PtcExecuteContext & {
-	reportDispatch?: (progress: DispatchProgress) => void;
-	isOpen(): boolean;
-};
-
-export type PtcPartialResult = {
-	content: Array<{ type: "text"; text: string }>;
-	details: PtcDispatchDetails;
-};
-
-export type PtcOnUpdate = (partial: PtcPartialResult) => void;
-
-export type PtcToolResult = {
-	content: Array<{ type: "text"; text: string }>;
-	details: PtcDispatchDetails;
-};
 
 export const RENDER_BUDGET_OMISSION = "budget";
 const RESULT_DELIVERY_FAILURE_PREFIX =
 	"tool execution may have succeeded; retry may repeat effects";
-
-export type FailureDetailsStore = {
-	remember(toolCallId: string, details: PtcDispatchDetails): void;
-	consume(toolCallId: string): PtcDispatchDetails | undefined;
-	clear(): void;
-};
 
 export function createFailureDetailsStore(): FailureDetailsStore {
 	const entries = new Map<string, PtcDispatchDetails>();
@@ -100,12 +86,6 @@ export const PTC_PARAMETERS = Type.Object({
 		description: "Short UI label for this program, in active voice.",
 	}),
 });
-
-export type PtcExecution = {
-	bindings: Record<string, BindingFn>;
-	definitions?: PtcDefinitionRegistry;
-	release?(): void;
-};
 
 export type PtcToolOptions = {
 	timeoutMs: number;

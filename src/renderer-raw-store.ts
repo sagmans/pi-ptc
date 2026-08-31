@@ -1,4 +1,4 @@
-import { isCoreToolName } from "./config.ts";
+import { isCoreToolName, SHIPPED_PTC_CONFIG } from "./config.ts";
 import type { DispatchProgress, DispatchRenderResult } from "./dispatch-contract.ts";
 import { projectLiveDisplayArguments } from "./dispatch-details.ts";
 import {
@@ -6,12 +6,8 @@ import {
 	getLiveDispatchResult,
 	getLiveDispatchRetentionResult,
 } from "./dispatch-live.ts";
-import { createLiveDisplayResult } from "./renderer.ts";
+import { projectRenderResult } from "./dispatch-retention.ts";
 import type { PtcLiveRenderAttachment } from "./renderer-contract.ts";
-import {
-	MAX_RENDER_DEFINITION_PROTOTYPE_DEPTH,
-	RENDER_DEFINITION_KEYS,
-} from "./renderer-definitions.ts";
 
 export const liveRenderAttachments = new WeakMap<
 	object,
@@ -48,26 +44,21 @@ export function createLiveAttachment(dispatch: DispatchProgress): PtcLiveRenderA
 		: { args, displayResult, hasResult: true, result: projectedResult };
 }
 
-export function readRenderDataValues(
-	value: object,
-): Partial<Record<(typeof RENDER_DEFINITION_KEYS)[number], unknown>> | undefined {
-	const values: Partial<Record<(typeof RENDER_DEFINITION_KEYS)[number], unknown>> = {};
-	const unresolved = new Set<string>(RENDER_DEFINITION_KEYS);
-	const visited = new Set<object>();
-	let current: object | null = value;
-	for (let depth = 0; current !== null; depth += 1) {
-		if (depth > MAX_RENDER_DEFINITION_PROTOTYPE_DEPTH || visited.has(current)) return undefined;
-		visited.add(current);
-		for (const key of RENDER_DEFINITION_KEYS) {
-			if (!unresolved.has(key)) continue;
-			const descriptor = Object.getOwnPropertyDescriptor(current, key);
-			if (!descriptor) continue;
-			unresolved.delete(key);
-			if (Object.hasOwn(descriptor, "value")) values[key] = descriptor.value;
-		}
-		if (unresolved.size === 0) return values;
-		if (depth === MAX_RENDER_DEFINITION_PROTOTYPE_DEPTH) return undefined;
-		current = Object.getPrototypeOf(current);
+function createLiveDisplayResult(
+	result: DispatchRenderResult | undefined,
+): PtcLiveRenderAttachment["displayResult"] {
+	if (!result) return undefined;
+	let content: unknown;
+	let isError: unknown;
+	try {
+		content = Reflect.get(result, "content");
+		isError = Reflect.get(result, "isError");
+	} catch {
+		return undefined;
 	}
-	return values;
+	const projection = projectRenderResult(
+		{ content, isError: isError === true },
+		SHIPPED_PTC_CONFIG.maxRenderDetailsBytes,
+	);
+	return projection.kind === "accepted" ? projection.result : undefined;
 }

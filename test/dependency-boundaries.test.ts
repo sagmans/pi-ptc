@@ -42,6 +42,36 @@ function repositoryPath(path: string): string {
 	return relative(REPOSITORY_ROOT, path).split(sep).join("/");
 }
 
+function localDependencies(path: string): string[] {
+	return imports(path)
+		.filter((dependency) => dependency.startsWith("./") && dependency.endsWith(".ts"))
+		.map((dependency) => basename(dependency));
+}
+
+function importCycles(): string[] {
+	const cycles = new Set<string>();
+	const visiting: string[] = [];
+	const visited = new Set<string>();
+	const visit = (path: string): void => {
+		const activeIndex = visiting.indexOf(path);
+		if (activeIndex >= 0) {
+			const cycle = [...visiting.slice(activeIndex), path];
+			const rotations = cycle
+				.slice(0, -1)
+				.map((_, index, nodes) => [...nodes.slice(index), ...nodes.slice(0, index)]);
+			cycles.add(rotations.map((nodes) => nodes.join(" -> ")).sort()[0] ?? cycle.join(" -> "));
+			return;
+		}
+		if (visited.has(path)) return;
+		visiting.push(path);
+		for (const dependency of localDependencies(path)) visit(dependency);
+		visiting.pop();
+		visited.add(path);
+	};
+	for (const path of sourceFiles()) visit(path);
+	return [...cycles].sort();
+}
+
 test("private Pi runtime modules stay behind the exact-version facade", () => {
 	const violations: string[] = [];
 	for (const caller of sourceFiles()) {
@@ -81,6 +111,10 @@ test("host and worker share one protocol owner", () => {
 		if (path === WORKER_PROTOCOL) continue;
 		assert.doesNotMatch(source(path), PROTOCOL_DECLARATION_PATTERN, path);
 	}
+});
+
+test("source import graph remains acyclic", () => {
+	assert.deepEqual(importCycles(), []);
 });
 
 test("package publishes only the bootstrapped root", () => {

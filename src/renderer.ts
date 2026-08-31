@@ -10,14 +10,11 @@ import {
 	type ImageProtocol,
 	Text,
 } from "@earendil-works/pi-tui";
-import { SHIPPED_PTC_CONFIG } from "./config.ts";
-import type { DispatchRenderResult } from "./dispatch-contract.ts";
 import { parseDispatchDetails, sanitizeDisplayText } from "./dispatch-details.ts";
-import { projectRenderResult } from "./dispatch-retention.ts";
+import type { PtcParams, PtcPartialResult, PtcToolResult } from "./ptc-tool-contract.ts";
 import type {
 	PtcDefinitionProvider,
 	PtcDefinitionRegistry,
-	PtcLiveRenderAttachment,
 	PtcRenderContext,
 	PtcRendererRoot,
 	PtcRowView,
@@ -30,7 +27,6 @@ import {
 import { safeForeground } from "./renderer-diagnostics.ts";
 import { liveRenderAttachments } from "./renderer-raw-store.ts";
 import { SafePtcRoot } from "./renderer-root.ts";
-import type { PtcParams, PtcPartialResult, PtcToolResult } from "./transport.ts";
 
 export type {
 	PtcDefinitionFactory,
@@ -82,25 +78,6 @@ export function renderPtcResult(
 	return root;
 }
 
-export function createLiveDisplayResult(
-	result: DispatchRenderResult | undefined,
-): PtcLiveRenderAttachment["displayResult"] {
-	if (!result) return undefined;
-	let content: unknown;
-	let isError: unknown;
-	try {
-		content = Reflect.get(result, "content");
-		isError = Reflect.get(result, "isError");
-	} catch {
-		return undefined;
-	}
-	const projection = projectRenderResult(
-		{ content, isError: isError === true },
-		SHIPPED_PTC_CONFIG.maxRenderDetailsBytes,
-	);
-	return projection.kind === "accepted" ? projection.result : undefined;
-}
-
 export function getRoot(
 	context: PtcRenderContext,
 	theme: Theme,
@@ -141,10 +118,6 @@ export function getRoot(
 	if (constructionFailure !== undefined) root.contain(constructionFailure);
 	context.state.root = root;
 	return root;
-}
-
-export function isObjectLike(value: unknown): value is object {
-	return (typeof value === "object" && value !== null) || typeof value === "function";
 }
 
 export function createNativeImage(

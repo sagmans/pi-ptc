@@ -16,6 +16,9 @@ import type {
 import { hasCompetingOwner } from "./presentation.ts";
 import { createPtcExecution } from "./ptc-execution.ts";
 import type {
+	FailureDetailsStore,
+	PtcBindingContext,
+	PtcExecution,
 	PtcExecutionLease,
 	PtcLifecycle,
 	PtcLifecycleClearReason,
@@ -27,7 +30,6 @@ import {
 	type ToolCatalogRefreshFailure,
 } from "./tool-catalog.ts";
 import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
-import type { FailureDetailsStore, PtcBindingContext, PtcExecution } from "./transport.ts";
 
 const INERT_STATUS = "ptc: inert";
 const MISSING_RUNTIME_CAPTURE_MESSAGE = "pi-ptc staying inert: ptc runtime capture is missing";
