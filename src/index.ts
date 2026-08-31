@@ -4,7 +4,6 @@ import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	COMPETING_OWNER_MESSAGE,
 	cyclePresentation,
-	DISPATCH_LOG_TYPE,
 	LEAK_BLOCK_REASON,
 	loadPresentation,
 	MISSING_TRANSPORT_MESSAGE,
@@ -16,7 +15,6 @@ import {
 	savePresentation,
 	TRANSPORT_NAME,
 } from "./config.ts";
-import type { DispatchLogEntry } from "./dispatch-contract.ts";
 import type { ExtensionAPI, ExtensionContext } from "./host.ts";
 import {
 	type CapturedPiSession,
@@ -29,16 +27,14 @@ import {
 	tagPtcToolDefinition,
 } from "./pi-runtime.ts";
 import { hasCompetingOwner } from "./presentation.ts";
-import { createPtcDefinitionRegistry } from "./renderer.ts";
-import { createScheduler } from "./scheduler.ts";
+import { createPtcExecution } from "./ptc-execution.ts";
 import { renderSdkPrompt, renderSkillsPrompt, type SkillPromptInput } from "./sdk.ts";
-import { createToolBindings } from "./tool-bindings.ts";
 import {
 	createToolCatalog,
 	type ToolCatalog,
 	type ToolCatalogRefreshFailure,
 } from "./tool-catalog.ts";
-import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
+import { isNestedPtcToolCall } from "./tool-executor.ts";
 import { createFailureDetailsStore, createPtcTool } from "./transport.ts";
 
 export type PathResolver = (cwd: string) => { projectFile: string; userFile: string };
@@ -402,63 +398,19 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 					}
 					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
 				}
-				let snapshot: ReturnType<ToolCatalog["snapshot"]>;
-				try {
-					snapshot = executionCatalog.snapshot();
-				} catch (error) {
-					becomeCapturedRuntimeInert(error, lastContext);
-					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
-				}
-				try {
-					const executor = createToolExecutor({
-						catalog: snapshot,
-						session: executionSession,
-						activateTools(names) {
-							if (
-								catalog !== executionCatalog ||
-								capturedSession !== executionSession ||
-								!hasActiveCatalog()
-							) {
-								return;
-							}
-							try {
-								const additions = [
-									...new Set(
-										names.filter(
-											(name): name is string => typeof name === "string" && name !== TRANSPORT_NAME,
-										),
-									),
-								];
-								const logical = executionCatalog.getLogicalActiveTools();
-								executionSession.sharedRuntime.setActiveTools([...logical, ...additions]);
-							} catch (error) {
-								becomeCapturedRuntimeInert(error, lastContext);
-								throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
-							}
-						},
-					});
-					return {
-						definitions: createPtcDefinitionRegistry(snapshot),
-						bindings: createToolBindings(
-							snapshot,
-							executor,
-							createScheduler(shipped.maxParallelDispatches),
-							{
-								acceptSideEffects: ctx.isOpen,
-								appendLog: (entry: DispatchLogEntry) => {
-									pi.appendEntry(DISPATCH_LOG_TYPE, entry);
-								},
-								emit: (name, payload) => {
-									pi.events.emit(name, payload);
-								},
-								reportDispatch: ctx.reportDispatch,
-							},
-						),
-					};
-				} catch (error) {
-					becomeCapturedRuntimeInert(error, lastContext);
-					throw new Error(PTC_RUNTIME_UNAVAILABLE_MESSAGE);
-				}
+				return createPtcExecution({
+					catalog: executionCatalog,
+					session: executionSession,
+					maxParallelDispatches: shipped.maxParallelDispatches,
+					context: ctx,
+					pi,
+					isCurrent: () =>
+						catalog === executionCatalog &&
+						capturedSession === executionSession &&
+						hasActiveCatalog(),
+					onFailure: becomeCapturedRuntimeInert,
+					lastContext,
+				});
 			},
 		});
 		const definition = tagPtcToolDefinition(transportTool, runtimeInstaller);

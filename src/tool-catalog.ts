@@ -14,6 +14,7 @@ export type ToolCatalog = {
 	getLogicalActiveTools(): string[];
 	snapshot(): readonly ToolCatalogEntry[];
 	applyPhysical(): { missingTransport: boolean };
+	activateAvailable(names: readonly string[]): readonly string[];
 	restore(): void;
 };
 
@@ -182,6 +183,13 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 			);
 		},
 		applyPhysical,
+		activateAvailable(names: readonly string[]): readonly string[] {
+			requireActive();
+			const previousNames = new Set(logicalActiveTools);
+			logicalActiveTools = uniqueAvailableNames([...logicalActiveTools, ...names], entriesByName);
+			applyPhysical();
+			return Object.freeze(logicalActiveTools.filter((name) => !previousNames.has(name)));
+		},
 		restore(): void {
 			deactivate(logicalActiveTools);
 		},
