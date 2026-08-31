@@ -51,17 +51,21 @@ let nextCallId = 1;
 port.on("message", (raw: unknown) => {
 	if (typeof raw !== "object" || raw === null) return;
 	const message = raw as HostToWorker;
-	if (message.type !== "reply" || typeof message.id !== "number") return;
+	if (
+		(message.type !== "reply" && message.type !== "result-delivery") ||
+		typeof message.id !== "number"
+	) {
+		return;
+	}
 	const waiter = pending.get(message.id);
 	if (!waiter) return;
 	pending.delete(message.id);
-	if (message.ok) waiter.resolve(message.value);
-	else {
-		waiter.reject(
-			message.kind === "result-delivery"
-				? new ToolResultDeliveryError(message.toolName, message.message)
-				: new ToolCallError(message.toolName, message.message),
-		);
+	if (message.type === "result-delivery") {
+		waiter.reject(new ToolResultDeliveryError(message.toolName, message.message));
+	} else if (message.ok) {
+		waiter.resolve(message.value);
+	} else {
+		waiter.reject(new ToolCallError(message.toolName, message.message));
 	}
 });
 

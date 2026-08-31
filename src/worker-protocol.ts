@@ -27,7 +27,14 @@ export type HostToWorker =
 			type: "reply";
 			id: number;
 			ok: false;
-			kind: BindingFailureKind;
+			kind: "tool-call";
+			toolName: string;
+			message: string;
+	  }
+	| {
+			type: "result-delivery";
+			id: number;
+			kind: "result-delivery";
 			toolName: string;
 			message: string;
 	  };

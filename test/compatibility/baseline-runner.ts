@@ -21,7 +21,7 @@ function resolveBaselinePath(root: string, path: string): string {
 	return resolved;
 }
 
-export async function loadBaselineModule(path: string): Promise<unknown> {
+export async function withBaselineCheckout<T>(use: (directory: string) => Promise<T>): Promise<T> {
 	const directory = mkdtempSync(join(tmpdir(), TEMPORARY_DIRECTORY_PREFIX));
 	try {
 		const archive = execFileSync("git", ["archive", "--format=tar", BASELINE_COMMIT], {
@@ -37,9 +37,15 @@ export async function loadBaselineModule(path: string): Promise<unknown> {
 		if (existsSync(CURRENT_NODE_MODULES)) {
 			symlinkSync(CURRENT_NODE_MODULES, join(directory, "node_modules"), "dir");
 		}
-		const modulePath = resolveBaselinePath(directory, path);
-		return await import(`${pathToFileURL(modulePath).href}?baseline=${BASELINE_COMMIT}`);
+		return await use(directory);
 	} finally {
 		rmSync(directory, { force: true, recursive: true });
 	}
+}
+
+export async function loadBaselineModule(path: string): Promise<unknown> {
+	return withBaselineCheckout(async (directory) => {
+		const modulePath = resolveBaselinePath(directory, path);
+		return await import(`${pathToFileURL(modulePath).href}?baseline=${BASELINE_COMMIT}`);
+	});
 }

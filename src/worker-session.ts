@@ -163,14 +163,24 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 							? error.toolName
 							: message.name;
 					const errorMessage = error instanceof Error ? error.message : String(error);
-					postReply({
-						type: "reply",
-						id: message.id,
-						ok: false,
-						kind: error instanceof ToolResultDeliveryError ? "result-delivery" : "tool-call",
-						toolName,
-						message: errorMessage,
-					});
+					postReply(
+						error instanceof ToolResultDeliveryError
+							? {
+									type: "result-delivery",
+									id: message.id,
+									kind: "result-delivery",
+									toolName,
+									message: errorMessage,
+								}
+							: {
+									type: "reply",
+									id: message.id,
+									ok: false,
+									kind: "tool-call",
+									toolName,
+									message: errorMessage,
+								},
+					);
 				})
 				.finally(() => {
 					reservation.release();
