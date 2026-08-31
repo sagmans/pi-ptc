@@ -101,6 +101,7 @@ export const PTC_PARAMETERS = Type.Object({
 export type PtcExecution = {
 	bindings: Record<string, BindingFn>;
 	definitions?: PtcDefinitionRegistry;
+	release?(): void;
 };
 
 export type PtcToolOptions = {
@@ -178,6 +179,7 @@ export function createPtcTool(options: PtcToolOptions) {
 			const liveDispatches = new Map<number, DispatchProgress>();
 			let definitionsProvided = false;
 			let acceptingDispatchReports = true;
+			let releaseExecution: (() => void) | undefined;
 			const reportDispatch = (progress: DispatchProgress) => {
 				if (!acceptingDispatchReports) return;
 				liveDispatches.set(progress.id, progress);
@@ -222,6 +224,7 @@ export function createPtcTool(options: PtcToolOptions) {
 				const execution = options.createExecution
 					? options.createExecution(bindingContext)
 					: { bindings: options.createBindings(bindingContext) };
+				releaseExecution = execution.release;
 				const definitions = execution.definitions ? new Map(execution.definitions) : undefined;
 				rendererTokens.provide(rendererToken, definitions);
 				definitionsProvided = true;
@@ -281,6 +284,8 @@ export function createPtcTool(options: PtcToolOptions) {
 				);
 				failureDetails.remember(toolCallId, details);
 				throw error;
+			} finally {
+				releaseExecution?.();
 			}
 		},
 	};
