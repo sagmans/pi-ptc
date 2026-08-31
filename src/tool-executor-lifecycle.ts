@@ -1,3 +1,4 @@
+import { SHIPPED_PTC_CONFIG } from "./config.ts";
 import type { CapturedPiSession } from "./pi-runtime.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 import type {
@@ -21,6 +22,8 @@ import {
 	type UpdateDeliveryOutcome,
 	ZERO_USAGE,
 } from "./tool-executor-state.ts";
+
+export const TOOL_UPDATE_LIMIT_MESSAGE = "tool update limit exceeded";
 
 export function errorResult(message: string): NestedToolRuntimeResult {
 	return {
@@ -169,6 +172,7 @@ export async function executePreparedToolCall(
 ): Promise<ExecutedCall> {
 	const updateEvents: Promise<UpdateDeliveryOutcome>[] = [];
 	let acceptingUpdates = true;
+	let updateLimitError: Error | undefined;
 	let executed: ExecutedCall;
 	try {
 		const result = (await prepared.tool.execute(
@@ -177,6 +181,11 @@ export async function executePreparedToolCall(
 			signal,
 			(partialResult) => {
 				if (!acceptingUpdates) return;
+				if (updateEvents.length >= SHIPPED_PTC_CONFIG.maxToolUpdatesPerDispatch) {
+					updateLimitError = new Error(TOOL_UPDATE_LIMIT_MESSAGE);
+					acceptingUpdates = false;
+					return;
+				}
 				const deliveries: Promise<unknown>[] = [];
 				try {
 					deliveries.push(Promise.resolve(onUpdate?.(partialResult)));
@@ -217,9 +226,10 @@ export async function executePreparedToolCall(
 		(outcome): outcome is Extract<UpdateDeliveryOutcome, { kind: "failed" }> =>
 			outcome.kind === "failed",
 	);
-	return executed.isError || !updateFailure
+	const deliveryError = updateLimitError ?? updateFailure?.error;
+	return executed.isError || deliveryError === undefined
 		? executed
-		: { result: errorResult(errorMessage(updateFailure.error)), isError: true };
+		: { result: errorResult(errorMessage(deliveryError)), isError: true };
 }
 
 export async function finalizeExecutedToolCall(

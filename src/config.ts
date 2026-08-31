@@ -48,6 +48,7 @@ export type PtcConfig = {
 	readonly maxOrphanedBindings: number;
 	readonly maxParallelDispatches: number;
 	readonly maxDispatches: number;
+	readonly maxToolUpdatesPerDispatch: number;
 	readonly maxRenderDetailsBytes: number;
 	readonly maxPersistedDetailsBytes: number;
 	readonly maxOutputBytes: number;
@@ -86,6 +87,10 @@ function parseShippedConfig(value: unknown): PtcConfig {
 			"maxParallelDispatches",
 		),
 		maxDispatches: requiredPositiveInteger(value.maxDispatches, "maxDispatches"),
+		maxToolUpdatesPerDispatch: requiredPositiveInteger(
+			value.maxToolUpdatesPerDispatch,
+			"maxToolUpdatesPerDispatch",
+		),
 		maxRenderDetailsBytes: requiredPositiveInteger(
 			value.maxRenderDetailsBytes,
 			"maxRenderDetailsBytes",
