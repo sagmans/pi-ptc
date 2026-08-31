@@ -37,7 +37,7 @@
 	"scripts": {
 		"test": "node --test test/*.test.ts",
 		"test:bun": "bun test/runtime.binding-smoke.ts && bun test/renderer.binding-smoke.ts",
-		"test:architecture": "node --test test/authored-lines.test.ts",
+		"test:architecture": "node --test test/authored-lines.test.ts test/dependency-boundaries.test.ts",
 		"typecheck": "tsc --noEmit",
 		"check": "biome check .",
 		"check:fix": "biome check --write .",
