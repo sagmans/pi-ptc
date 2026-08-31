@@ -1,0 +1,102 @@
+import { PI_RUNTIME_DIAGNOSTICS } from "./pi-runtime-contract.ts";
+import type {
+	LifecycleInvocation,
+	LifecycleSlot,
+	PatchState,
+	SessionAssociation,
+	SessionParts,
+} from "./pi-runtime-registry.ts";
+import {
+	ASSOCIATION_SLOT_KIND,
+	PiRuntimeCompatibilityError,
+	PTC_TOOL_NAME,
+	RELOAD_INVOCATION_SLOT_KIND,
+} from "./pi-runtime-registry.ts";
+import { getTaggedInstaller } from "./pi-runtime-registry-validation.ts";
+import { sessionPartsMatch, validateSession } from "./pi-runtime-shape.ts";
+
+export function clearCurrentSlot(
+	slotBySession: WeakMap<object, LifecycleSlot>,
+	session: object,
+	expectedSlot: LifecycleSlot,
+): void {
+	const currentSlot = slotBySession.get(session);
+	if (currentSlot === expectedSlot) {
+		slotBySession.delete(session);
+		return;
+	}
+	if (
+		expectedSlot.kind === ASSOCIATION_SLOT_KIND &&
+		currentSlot?.kind === RELOAD_INVOCATION_SLOT_KIND &&
+		currentSlot.retainedAssociation === expectedSlot
+	) {
+		currentSlot.retainedAssociation = undefined;
+	}
+}
+
+export function invocationOwnsSlotAtSettlement(
+	slotBySession: WeakMap<object, LifecycleSlot>,
+	session: object,
+	invocation: LifecycleInvocation,
+): boolean {
+	const currentSlot = slotBySession.get(session);
+	if (currentSlot === invocation) {
+		if (invocation.kind === RELOAD_INVOCATION_SLOT_KIND) {
+			invocation.retainedAssociation = undefined;
+		}
+		return true;
+	}
+	if (currentSlot?.kind === ASSOCIATION_SLOT_KIND) {
+		slotBySession.delete(session);
+	}
+	return false;
+}
+
+export function throwStaleCapture(
+	_state: PatchState,
+	slotBySession: WeakMap<object, LifecycleSlot>,
+	session: object,
+	association: SessionAssociation,
+): never {
+	clearCurrentSlot(slotBySession, session, association);
+	throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.STALE_CAPTURE);
+}
+
+export function requireCurrentSessionParts(
+	state: PatchState,
+	slotBySession: WeakMap<object, LifecycleSlot>,
+	session: object,
+	association: SessionAssociation,
+): SessionParts {
+	const currentSlot = slotBySession.get(session);
+	const associationIsCurrent =
+		currentSlot === association ||
+		(currentSlot?.kind === RELOAD_INVOCATION_SLOT_KIND &&
+			currentSlot.retainedAssociation === association);
+	if (!state.active || !associationIsCurrent) {
+		throwStaleCapture(state, slotBySession, session, association);
+	}
+	let validation: ReturnType<typeof validateSession>;
+	try {
+		validation = validateSession(session);
+	} catch {
+		throwStaleCapture(state, slotBySession, session, association);
+	}
+	if (!validation.compatible || !sessionPartsMatch(validation.parts, association.parts)) {
+		throwStaleCapture(state, slotBySession, session, association);
+	}
+	const expectedParts = association.parts;
+	let definition: unknown;
+	try {
+		definition = Reflect.apply(expectedParts.getToolDefinition, session, [PTC_TOOL_NAME]);
+	} catch {
+		throwStaleCapture(state, slotBySession, session, association);
+	}
+	if (
+		definition !== association.definition ||
+		getTaggedInstaller(definition) !== association.installer
+	) {
+		throwStaleCapture(state, slotBySession, session, association);
+	}
+	return expectedParts;
+}
