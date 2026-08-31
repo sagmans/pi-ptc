@@ -110,6 +110,7 @@ test("observable pipeline matches Pi 0.84.3 agent-core characterization", async 
 	const nestedOutcome = await createToolExecutor({
 		catalog: [nestedEntry],
 		session: createSession({
+			argumentTools: [nestedEntry],
 			emit(event) {
 				if (event.type.startsWith("tool_execution_")) nestedEvents.push(event);
 			},

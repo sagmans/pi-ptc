@@ -1,5 +1,4 @@
 import type { CapturedPiSession } from "./pi-runtime.ts";
-import { validateToolArguments } from "./pi-runtime-arguments.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 import type {
 	AfterToolCallResult,
@@ -94,14 +93,13 @@ export async function prepareToolCall(
 	let executionArgs: unknown;
 	let hasExecutionArgs = false;
 	try {
-		const preparedArguments = entry.executable.prepareArguments
-			? entry.executable.prepareArguments(toolCall.arguments)
-			: toolCall.arguments;
-		const preparedToolCall =
-			preparedArguments === toolCall.arguments
-				? toolCall
-				: { ...toolCall, arguments: preparedArguments };
-		executionArgs = validateToolArguments(toolCall.name, entry.executable, preparedToolCall);
+		const preparation = session.prepareToolArguments(
+			toolCall.name,
+			toolCall.arguments,
+			entry.executable,
+		);
+		if (!preparation.ok) throw new Error(preparation.message);
+		executionArgs = preparation.value;
 		hasExecutionArgs = true;
 		const synthetic = syntheticCallContext(toolCall, contextTools);
 		const beforeResult = (await session.beforeToolCall(

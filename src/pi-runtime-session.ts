@@ -1,4 +1,5 @@
 import { installCapturedRuntimeActions } from "./pi-runtime-actions.ts";
+import { createPiToolArgumentPreparer } from "./pi-runtime-arguments.ts";
 import { clearCurrentSlot, requireCurrentSessionParts } from "./pi-runtime-association.ts";
 import type {
 	CapturedPiSession,
@@ -74,6 +75,9 @@ export function createCapturedSession(
 		validateInitialTools,
 		association.parts.toolSnapshots,
 	);
+	const prepareInitialToolArguments = createPiToolArgumentPreparer(
+		new Map(association.parts.toolSnapshots.map((snapshot) => [snapshot.name, snapshot.entry])),
+	);
 	const beforeToolCall = (...args: unknown[]): Promise<unknown> => {
 		const parts = validate();
 		return Reflect.apply(parts.beforeToolCall, parts.agent, args);
@@ -110,6 +114,12 @@ export function createCapturedSession(
 		getToolDefinition(name: string): unknown {
 			const parts = validate();
 			return Reflect.apply(parts.getToolDefinition, session, [name]);
+		},
+		prepareToolArguments(toolName, rawArguments, tool) {
+			validate();
+			return tool
+				? createPiToolArgumentPreparer(new Map([[toolName, tool]]))(toolName, rawArguments)
+				: prepareInitialToolArguments(toolName, rawArguments);
 		},
 		installRuntimeActions(replacements: PiSharedRuntime): PiRuntimeActionsInstallation {
 			validate();

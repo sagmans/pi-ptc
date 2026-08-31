@@ -43,6 +43,7 @@ test("pre-execution failures emit final errors without execute or after hooks", 
 		const outcome = await createToolExecutor({
 			catalog: [entry],
 			session: createSession({
+				argumentTools: [entry],
 				afterToolCall() {
 					afters += 1;
 				},

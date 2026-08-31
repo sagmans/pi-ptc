@@ -14,6 +14,7 @@ export type {
 	PiRuntimeTool,
 	PiRuntimeToolEntry,
 	PiSharedRuntime,
+	PiToolArgumentPreparation,
 	PtcTransportOwnership,
 } from "./pi-runtime-contract.ts";
 export {

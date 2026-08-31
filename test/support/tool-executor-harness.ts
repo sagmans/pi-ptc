@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Type } from "typebox";
-
 import {
 	type CapturedPiSession,
 	type PiRuntimeActionsInstallation,
@@ -11,6 +10,7 @@ import {
 	type PiRuntimeTool,
 	SUPPORTED_PI_VERSION,
 } from "../../src/pi-runtime.ts";
+import { createPiToolArgumentPreparer } from "../../src/pi-runtime-arguments.ts";
 import type { ToolCatalogEntry } from "../../src/tool-catalog.ts";
 
 export const TOOL_NAME = "demo";
@@ -45,6 +45,7 @@ export type HookContext = {
 };
 
 export type SessionOptions = {
+	argumentTools?: readonly ToolCatalogEntry[];
 	emit?: (event: RuntimeEvent) => Promise<unknown> | unknown;
 	beforeToolCall?: (context: HookContext, signal?: AbortSignal) => Promise<unknown> | unknown;
 	afterToolCall?: (context: HookContext, signal?: AbortSignal) => Promise<unknown> | unknown;
@@ -69,6 +70,12 @@ export function asEvent(value: unknown): RuntimeEvent {
 }
 
 export function createSession(options: SessionOptions = {}): CapturedPiSession {
+	const argumentTools = new Map(
+		(options.argumentTools ?? []).map((entry) => [entry.name, entry.executable]),
+	);
+	const prepareToolArguments = options.argumentTools
+		? createPiToolArgumentPreparer(argumentTools)
+		: (_toolName: string, rawArguments: unknown) => ({ ok: true, value: rawArguments }) as const;
 	return {
 		version: SUPPORTED_PI_VERSION,
 		extensionRunner: {
@@ -86,6 +93,7 @@ export function createSession(options: SessionOptions = {}): CapturedPiSession {
 		afterToolCall: async (...args: unknown[]) =>
 			options.afterToolCall?.(args[0] as HookContext, args[1] as AbortSignal | undefined),
 		getToolDefinition: () => undefined,
+		prepareToolArguments,
 		installRuntimeActions(): PiRuntimeActionsInstallation {
 			throw new Error("not used by tool executor tests");
 		},

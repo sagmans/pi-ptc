@@ -1,13 +1,15 @@
 import type { TSchema } from "typebox";
 import { Compile, type Validator } from "typebox/compile";
 import { Value } from "typebox/value";
-import type { PiRuntimeTool } from "./pi-runtime.ts";
-import type { ToolCall } from "./tool-executor.ts";
-import { isRecord } from "./tool-executor.ts";
+import type { PiRuntimeTool, PiToolArgumentPreparation } from "./pi-runtime-contract.ts";
 
 export const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
 
 export const validatorCache = new WeakMap<object, Validator>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return (typeof value === "object" && value !== null) || typeof value === "function";
+}
 
 export type SchemaRecord = TSchema & Record<string, unknown>;
 
@@ -247,10 +249,10 @@ export function formatValidationPath(error: ReturnType<Validator["Errors"]>[numb
 export function validateToolArguments(
 	toolName: string,
 	tool: PiRuntimeTool,
-	toolCall: ToolCall,
+	rawArguments: unknown,
 ): unknown {
 	const schema = asSchema(tool.parameters);
-	const args = structuredClone(toolCall.arguments);
+	const args = structuredClone(rawArguments);
 	normalizeOptionalNulls(args, schema);
 	Value.Convert(schema, args);
 	const validator = getValidator(schema);
@@ -272,6 +274,21 @@ export function validateToolArguments(
 			.map((error) => `  - ${formatValidationPath(error)}: ${error.message}`)
 			.join("\n") || "Unknown validation error";
 	throw new Error(
-		`Validation failed for tool "${toolName}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(toolCall.arguments, null, 2)}`,
+		`Validation failed for tool "${toolName}":\n${errors}\n\nReceived arguments:\n${JSON.stringify(rawArguments, null, 2)}`,
 	);
+}
+
+export function createPiToolArgumentPreparer(
+	tools: ReadonlyMap<string, PiRuntimeTool>,
+): (toolName: string, rawArguments: unknown) => PiToolArgumentPreparation {
+	return (toolName, rawArguments) => {
+		const tool = tools.get(toolName);
+		if (!tool) return { ok: false, message: `Tool ${toolName} not found` };
+		try {
+			const prepared = tool.prepareArguments ? tool.prepareArguments(rawArguments) : rawArguments;
+			return { ok: true, value: validateToolArguments(toolName, tool, prepared) };
+		} catch (error) {
+			return { ok: false, message: error instanceof Error ? error.message : String(error) };
+		}
+	};
 }

@@ -13,6 +13,7 @@ import type {
 	PiRuntimeActionsInstallation,
 	PiRuntimeEventFinalizersInstallation,
 } from "../src/pi-runtime.ts";
+import { createPiToolArgumentPreparer } from "../src/pi-runtime-arguments.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 import { createToolExecutor } from "../src/tool-executor.ts";
@@ -98,6 +99,7 @@ test("live custom renderers receive raw args and finalized non-JSON results with
 			details: cyclicDetails,
 		}),
 		getToolDefinition: () => definition,
+		prepareToolArguments: createPiToolArgumentPreparer(new Map([[entry.name, entry.executable]])),
 		installRuntimeActions(): PiRuntimeActionsInstallation {
 			throw new Error("not used");
 		},

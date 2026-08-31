@@ -14,6 +14,7 @@ import {
 	type PiSharedRuntime,
 	SUPPORTED_PI_VERSION,
 } from "../src/pi-runtime.ts";
+import { createPiToolArgumentPreparer } from "../src/pi-runtime-arguments.ts";
 import { createToolExecutor, isNestedPtcToolCall } from "../src/tool-executor.ts";
 import { createEntry, createSession, type HookContext } from "./support/tool-executor-harness.ts";
 
@@ -154,6 +155,9 @@ function createLeakGuardHarness(execute?: PiRuntimeTool["execute"]): {
 		},
 		afterToolCall: async () => undefined,
 		getToolDefinition: (name) => definitions.get(name),
+		prepareToolArguments(name, rawArguments) {
+			return createPiToolArgumentPreparer(registry)(name, rawArguments);
+		},
 		installRuntimeActions(replacements): PiRuntimeActionsInstallation {
 			const original = actions;
 			actions = replacements;

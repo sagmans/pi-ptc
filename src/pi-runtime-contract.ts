@@ -105,6 +105,10 @@ export type PiRuntimeActionsInstallation = {
 	restore(activeToolNames?: readonly string[]): void;
 };
 
+export type PiToolArgumentPreparation =
+	| { readonly ok: true; readonly value: unknown }
+	| { readonly ok: false; readonly message: string };
+
 export type CapturedPiSession = {
 	readonly version: typeof SUPPORTED_PI_VERSION;
 	readonly extensionRunner: PiExtensionRunner;
@@ -113,6 +117,11 @@ export type CapturedPiSession = {
 	readonly beforeToolCall: (...args: unknown[]) => Promise<unknown>;
 	readonly afterToolCall: (...args: unknown[]) => Promise<unknown>;
 	getToolDefinition(name: string): unknown;
+	prepareToolArguments(
+		toolName: string,
+		rawArguments: unknown,
+		tool?: PiRuntimeTool,
+	): PiToolArgumentPreparation;
 	installRuntimeActions(replacements: PiSharedRuntime): PiRuntimeActionsInstallation;
 	installRuntimeEventFinalizers(
 		finalizers: PiRuntimeEventFinalizers,

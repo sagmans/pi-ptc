@@ -11,6 +11,7 @@ import {
 	type PiRuntimeTool,
 	SUPPORTED_PI_VERSION,
 } from "../../src/pi-runtime.ts";
+import { createPiToolArgumentPreparer } from "../../src/pi-runtime-arguments.ts";
 import {
 	type CommandHandler,
 	type EventHandler,
@@ -142,6 +143,9 @@ export function createFakePi(
 		afterToolCall: async (...args) => options.afterToolCall?.(...args),
 		getToolDefinition(name) {
 			return definitions.get(name);
+		},
+		prepareToolArguments(name, rawArguments) {
+			return createPiToolArgumentPreparer(registry)(name, rawArguments);
 		},
 		installRuntimeActions(replacements): PiRuntimeActionsInstallation {
 			if (operationActive) throw new Error("runtime actions already installed");

@@ -46,6 +46,7 @@ test("dispatch mirrors native raw/prepared argument flow and lifecycle ordering"
 		},
 	});
 	const session = createSession({
+		argumentTools: [entry],
 		emit(event) {
 			assert.equal(isNestedPtcToolCall(), true);
 			events.push(event);
@@ -139,16 +140,20 @@ test("validation clones prepared args, applies Pi coercion, and preserves Pi dia
 			return { content: [], details: {} };
 		},
 	});
-	const executor = createToolExecutor({ catalog: [entry], session: createSession() });
+	const executor = createToolExecutor({
+		catalog: [entry],
+		session: createSession({ argumentTools: [entry] }),
+	});
 	const success = await executor.dispatch({ name: TOOL_NAME, args: { ignored: true } });
 
 	assert.equal(success.isError, false);
 	assert.deepEqual(seenArgs, { count: 3, enabled: false });
 	assert.deepEqual(prepared, { count: "3", enabled: "false", note: null });
 
+	const invalidEntry = createEntry({ parameters: schema });
 	const invalid = createToolExecutor({
-		catalog: [createEntry({ parameters: schema })],
-		session: createSession(),
+		catalog: [invalidEntry],
+		session: createSession({ argumentTools: [invalidEntry] }),
 	});
 	const failure = await invalid.dispatch({
 		name: TOOL_NAME,
@@ -183,17 +188,16 @@ test("nullable object union validation matches Pi 0.84.3", async (t) => {
 	});
 	const dispatchNested = async (args: unknown) => {
 		let executedArgs: unknown;
+		const entry = createEntry({
+			parameters: schema,
+			execute: async (_id, validatedArgs) => {
+				executedArgs = validatedArgs;
+				return { content: [], details: {} };
+			},
+		});
 		const outcome = await createToolExecutor({
-			catalog: [
-				createEntry({
-					parameters: schema,
-					execute: async (_id, validatedArgs) => {
-						executedArgs = validatedArgs;
-						return { content: [], details: {} };
-					},
-				}),
-			],
-			session: createSession(),
+			catalog: [entry],
+			session: createSession({ argumentTools: [entry] }),
 		}).dispatch({ name: TOOL_NAME, args });
 		return { outcome, executedArgs };
 	};
