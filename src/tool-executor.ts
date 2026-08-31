@@ -13,6 +13,8 @@ import type {
 } from "./tool-executor-contract.ts";
 import {
 	createSyntheticAgentTool,
+	errorMessage,
+	errorResult,
 	executePreparedToolCall,
 	finalizeExecutedToolCall,
 	prepareToolCall,
@@ -195,6 +197,14 @@ export function createToolExecutor(options: CreateToolExecutorOptions): ToolExec
 							request.signal,
 						);
 					}
+					const addedToolNames = retainedAddedToolNames(finalized.result);
+					if (addedToolNames) {
+						try {
+							await options.activateTools?.(addedToolNames);
+						} catch (error) {
+							finalized = { result: errorResult(errorMessage(error)), isError: true };
+						}
+					}
 					await options.session.extensionRunner.emit({
 						type: "tool_execution_end",
 						toolCallId: toolCall.id,
@@ -202,8 +212,6 @@ export function createToolExecutor(options: CreateToolExecutorOptions): ToolExec
 						result: finalized.result,
 						isError: finalized.isError,
 					});
-					const addedToolNames = retainedAddedToolNames(finalized.result);
-					if (addedToolNames) await options.activateTools?.(addedToolNames);
 					return {
 						toolCallId: toolCall.id,
 						name: toolCall.name,

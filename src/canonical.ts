@@ -23,6 +23,18 @@ export type CanonicalContentBlock =
 	| { type: "text"; text: string }
 	| { type: "image"; data: string; mimeType: string };
 
+export class ToolResultDeliveryError extends Error {
+	readonly name = "ToolResultDeliveryError";
+	readonly executionSucceeded = true;
+	readonly retryUnsafe = true;
+	readonly toolName: string;
+
+	constructor(toolName: string, message: string) {
+		super(message);
+		this.toolName = toolName;
+	}
+}
+
 export class ToolCallError extends Error {
 	readonly toolName: string;
 

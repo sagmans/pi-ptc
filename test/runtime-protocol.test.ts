@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import { ToolResultDeliveryError } from "../src/canonical.ts";
 import { runCode } from "../src/runtime.ts";
 import {
 	deferred,
@@ -44,6 +45,29 @@ test("runCode rejects worker call IDs that are not positive, safe, and increasin
 		assert.equal(bindingCalls, testCase.expectedBindingCalls, testCase.name);
 		assert.equal(outcome.error?.kind, "invalid-output", testCase.name);
 	}
+});
+
+test("runCode preserves retry-unsafe result delivery failures", async () => {
+	const outcome = await runCode({
+		program:
+			"try { await tools.delivery({}); } catch (error) { return { name: error.name, executionSucceeded: error.executionSucceeded, retryUnsafe: error.retryUnsafe }; }",
+		bindings: {
+			functions: {
+				async delivery() {
+					throw new ToolResultDeliveryError("delivery", "delivery failed");
+				},
+			},
+		},
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+	assert.deepEqual(outcome, {
+		logs: [],
+		result: {
+			name: "ToolResultDeliveryError",
+			executionSucceeded: true,
+			retryUnsafe: true,
+		},
+	});
 });
 
 test("runCode rejects a duplicate worker call ID without replacing an active binding", async () => {

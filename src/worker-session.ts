@@ -1,5 +1,6 @@
 import type { Worker } from "node:worker_threads";
 
+import { ToolResultDeliveryError } from "./canonical.ts";
 import { snapshotJsonValue } from "./json.ts";
 import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
 import type { BindingFn, CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
@@ -141,6 +142,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 					type: "reply",
 					id: message.id,
 					ok: false,
+					kind: "tool-call",
 					toolName: message.name,
 					message: `unknown binding: ${message.name}`,
 				});
@@ -171,6 +173,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 						type: "reply",
 						id: message.id,
 						ok: false,
+						kind: error instanceof ToolResultDeliveryError ? "result-delivery" : "tool-call",
 						toolName,
 						message: errorMessage,
 					});

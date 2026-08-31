@@ -1,6 +1,7 @@
 import {
 	projectCanonicalContent,
 	ToolCallError,
+	ToolResultDeliveryError,
 	textFromContent,
 	toToolCanonicalValue,
 } from "./canonical.ts";
@@ -86,7 +87,16 @@ export function createToolBindings(
 						rawSettledResult = outcome.result;
 						hasRawSettledResult = true;
 						settledResult = toDispatchRenderResult(outcome.result, outcome.isError);
-						const value = toToolCanonicalValue(entry.name, outcome.result, outcome.isError);
+						let value: JsonValue;
+						try {
+							value = toToolCanonicalValue(entry.name, outcome.result, outcome.isError);
+						} catch (error) {
+							if (outcome.isError || error instanceof ToolCallError) throw error;
+							throw new ToolResultDeliveryError(
+								entry.name,
+								error instanceof Error ? error.message : String(error),
+							);
+						}
 						reportSideEffects(reporting, entry.name, args, false);
 						const progress = createSuccessProgress(
 							id,
@@ -117,7 +127,8 @@ export function createToolBindings(
 							attachLiveDispatchRetentionResult(progress, renderResult);
 						}
 						reportProgress(reporting, progress, args);
-						if (error instanceof ToolCallError) throw error;
+						if (error instanceof ToolCallError || error instanceof ToolResultDeliveryError)
+							throw error;
 						throw new ToolCallError(entry.name, message);
 					}
 				},

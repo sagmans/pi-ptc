@@ -19,9 +19,18 @@ export type WorkerToHost =
 	| { type: "done"; value?: JsonValue }
 	| { type: "fail"; kind: "throw" | "invalid-output" | "output-limit"; message: string };
 
+export type BindingFailureKind = "tool-call" | "result-delivery";
+
 export type HostToWorker =
 	| { type: "reply"; id: number; ok: true; value: JsonValue }
-	| { type: "reply"; id: number; ok: false; toolName: string; message: string };
+	| {
+			type: "reply";
+			id: number;
+			ok: false;
+			kind: BindingFailureKind;
+			toolName: string;
+			message: string;
+	  };
 
 export function logicalLineCount(text: string): number {
 	return text.split(/\r\n|\r|\n/).length;

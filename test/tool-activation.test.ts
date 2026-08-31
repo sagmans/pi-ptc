@@ -11,6 +11,7 @@ import {
 	createEntry,
 	createSession,
 	OTHER_TOOL_NAME,
+	type RuntimeEvent,
 	resultText,
 	TOOL_NAME,
 } from "./support/tool-executor-harness.ts";
@@ -58,6 +59,32 @@ test("activation callback receives only additions retained by finalization", asy
 	await executor.dispatch({ name: "discarded", args: {} });
 	assert.equal(activated.length, 1);
 	assert.equal(activated[0], retainedNames);
+});
+
+test("activation failure produces one matching terminal error", async () => {
+	const events: RuntimeEvent[] = [];
+	const executor = createToolExecutor({
+		catalog: [
+			createEntry({
+				execute: async () => ({ content: [], details: {}, addedToolNames: ["next"] }),
+			}),
+		],
+		session: createSession({ emit: (event) => void events.push(event) }),
+		activateTools() {
+			throw new Error("activation failed");
+		},
+	});
+
+	const outcome = await executor.dispatch({ name: TOOL_NAME, args: {} });
+	assert.equal(outcome.isError, true);
+	assert.equal(resultText(outcome.result), "activation failed");
+	const terminalEvents = events.filter((event) => event.type === "tool_execution_end");
+	assert.equal(terminalEvents.length, 1);
+	assert.equal(terminalEvents[0]?.isError, true);
+	assert.equal(
+		resultText(terminalEvents[0]?.result as Record<string, unknown>),
+		"activation failed",
+	);
 });
 
 test("executor indexes a fixed catalog snapshot", async () => {

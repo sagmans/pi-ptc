@@ -14,6 +14,18 @@ import {
 const EMPTY_FAILURE_MESSAGE = "";
 const UTF8_ENCODING = "utf8";
 
+class ToolResultDeliveryError extends Error {
+	readonly executionSucceeded = true;
+	readonly retryUnsafe = true;
+	readonly toolName: string;
+
+	constructor(toolName: string, message: string) {
+		super(message);
+		this.name = "ToolResultDeliveryError";
+		this.toolName = toolName;
+	}
+}
+
 class ToolCallError extends Error {
 	readonly toolName: string;
 
@@ -44,7 +56,13 @@ port.on("message", (raw: unknown) => {
 	if (!waiter) return;
 	pending.delete(message.id);
 	if (message.ok) waiter.resolve(message.value);
-	else waiter.reject(new ToolCallError(message.toolName, message.message));
+	else {
+		waiter.reject(
+			message.kind === "result-delivery"
+				? new ToolResultDeliveryError(message.toolName, message.message)
+				: new ToolCallError(message.toolName, message.message),
+		);
+	}
 });
 
 const bindings: Record<string, (args: JsonValue) => Promise<JsonValue>> = Object.create(null);
