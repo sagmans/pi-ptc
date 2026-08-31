@@ -6,6 +6,7 @@ import {
 	createOrphanBindingGovernor,
 	type OrphanBindingReservation,
 	processOrphanBindingGovernor,
+	resolveProcessOrphanBindingGovernor,
 } from "../src/orphan-binding-governor.ts";
 import { runCode } from "../src/runtime.ts";
 import {
@@ -46,6 +47,21 @@ test("orphan governor owns one fixed ceiling and idempotent release", () => {
 	reservation.release();
 	assert.equal(governor.active, 0);
 	assert.ok(governor.acquire());
+});
+
+test("physical module copies resolve one conservative process governor", () => {
+	const sharedGlobal = {};
+	const first = resolveProcessOrphanBindingGovernor(sharedGlobal, 2);
+	const second = resolveProcessOrphanBindingGovernor(sharedGlobal, 1);
+	const reservation = first.acquire();
+	assert.ok(reservation);
+	assert.equal(second.active, 1);
+	assert.equal(second.acquire(), undefined);
+	reservation.release();
+	assert.equal(first.active, 0);
+	const secondReservation = second.acquire();
+	assert.ok(secondReservation);
+	secondReservation.release();
 });
 
 test("runCode reserves orphan capacity before parallel bindings start", async () => {
