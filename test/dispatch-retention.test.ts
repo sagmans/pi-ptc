@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import type { DispatchRenderResult } from "../src/bridge.ts";
+import type { DispatchRenderResult } from "../src/dispatch-contract.ts";
 import {
 	createDeltaDetails,
 	createSnapshotDetails,

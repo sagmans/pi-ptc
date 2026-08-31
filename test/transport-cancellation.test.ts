@@ -4,16 +4,13 @@ import test from "node:test";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-import {
-	createCoreBindings,
-	createToolBindings,
-	type DispatchLogEntry,
-	type DispatchProgress,
-} from "../src/bridge.ts";
+import type { DispatchLogEntry, DispatchProgress } from "../src/dispatch-contract.ts";
 import type { PtcRenderContext } from "../src/renderer.ts";
 import { createScheduler } from "../src/scheduler.ts";
+import { createToolBindings } from "../src/tool-bindings.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 import { createPtcTool, type PtcPartialResult } from "../src/transport.ts";
+import { catalogEntry, dispatchResult, toolExecutor } from "./support/tool-bindings-harness.ts";
 import {
 	LIMITS,
 	type PtcExecuteReport,
@@ -152,20 +149,24 @@ test("ptc abort reaches an active core executor before settlement", async () => 
 	let executorSignal: AbortSignal | undefined;
 	const tool = createPtcTool({
 		...LIMITS,
-		createBindings: () =>
-			createCoreBindings({
-				execute: async (_name, _args, signal) => {
-					executorSignal = signal;
+		createBindings: () => {
+			const entry = catalogEntry("read");
+			return createToolBindings(
+				[entry],
+				toolExecutor(async (request) => {
+					executorSignal = request.signal;
 					markExecutorStarted();
-					if (signal && !signal.aborted) {
+					if (request.signal && !request.signal.aborted) {
 						await new Promise<void>((resolve) => {
-							signal.addEventListener("abort", () => resolve(), { once: true });
+							request.signal?.addEventListener("abort", () => resolve(), { once: true });
 						});
 					}
-					return { content: [] };
-				},
-				scheduler: createScheduler(1),
-			}),
+					return dispatchResult(request, { content: [] });
+				}),
+				createScheduler(1),
+				{},
+			);
+		},
 	});
 	const controller = new AbortController();
 	const pending = tool.execute(
@@ -224,25 +225,28 @@ test("terminal abort updates clear the native bash timer before outer rejection"
 		};
 		const tool = createPtcTool({
 			...LIMITS,
-			createBindings: (ctx) =>
-				createCoreBindings({
-					execute: async (_name, _args, signal, onUpdate) => {
-						onUpdate?.({ content: [{ type: "text", text: "working" }] });
+			createBindings: (ctx) => {
+				const entry = catalogEntry("bash");
+				return createToolBindings(
+					[entry],
+					toolExecutor(async (request) => {
+						await request.onUpdate?.({ content: [{ type: "text", text: "working" }] });
 						markExecutorStarted();
 						await new Promise<void>((_resolve, reject) => {
-							if (signal?.aborted) {
+							if (request.signal?.aborted) {
 								reject(new Error("aborted"));
 								return;
 							}
-							signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+							request.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
 								once: true,
 							});
 						});
-						return { content: [] };
-					},
-					reportDispatch: ctx.reportDispatch,
-					scheduler: createScheduler(1),
-				}),
+						return dispatchResult(request, { content: [] });
+					}),
+					createScheduler(1),
+					{ reportDispatch: ctx.reportDispatch },
+				);
+			},
 		});
 		const controller = new AbortController();
 		const pending = tool.execute(

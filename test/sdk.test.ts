@@ -38,29 +38,6 @@ function toolLines(prompt: string): string[] {
 	return prompt.split("\n").filter((line) => line.startsWith("await tools"));
 }
 
-test("sdk prompt lists default core bindings in lexicographic order", () => {
-	const prompt = renderSdkPrompt();
-	const indexes = CORE_TOOL_NAMES.map((name) => prompt.indexOf(`await tools.${name}(`));
-	assert.ok(indexes.every((index) => index >= 0));
-	assert.deepEqual(
-		indexes,
-		[...indexes].sort((left, right) => left - right),
-	);
-});
-
-test("no-argument sdk prompt preserves the legacy bytes", () => {
-	const expected = `tools:sdk
-Call core tools only from a ptc program. The code argument is the body of an async function.
-Top-level await and return are legal. Use erasable TypeScript only.
-Successful bindings resolve to canonical JSON. Failed bindings reject ToolCallError(toolName, message).
-Promise.all may overlap read, grep, find, and ls. bash, edit, and write drain the pool and run alone.
-Load skills with tools.read({ path }), not a native read call. /skill:name still works.
-${CORE_SIGNATURE_LINES.join("\n")}
-`;
-
-	assert.equal(renderSdkPrompt(), expected);
-});
-
 test("supplied catalog prose omits inactive core guidance", () => {
 	const prompt = renderSdkPrompt([
 		catalogEntry("zeta", { type: "object", additionalProperties: false }),
@@ -91,7 +68,6 @@ test("supplied catalog is authoritative, sorted by exact name, and preserves cor
 	assert.deepEqual(toolLines(renderSdkPrompt(catalog)), expected);
 	assert.equal(renderSdkPrompt(catalog), renderSdkPrompt(reversed));
 	assert.doesNotMatch(renderSdkPrompt(catalog), /await tools\.bash\(/);
-	assert.deepEqual(toolLines(renderSdkPrompt()), CORE_SIGNATURE_LINES);
 });
 
 test("sdk safely renders arbitrary exact tool names", () => {

@@ -1,7 +1,5 @@
-import type { FactoryResult } from "./canonical.ts";
-import type { CoreToolName, DISPATCH_LOG_TYPE } from "./config.ts";
+import type { DISPATCH_LOG_TYPE } from "./config.ts";
 import type { JsonValue } from "./json.ts";
-import type { BindingFn } from "./runtime-contract.ts";
 
 export type DispatchLogEntry = {
 	customType: typeof DISPATCH_LOG_TYPE;
@@ -33,24 +31,3 @@ export type DispatchProgress = {
 };
 
 export type DispatchSummary = Omit<DispatchProgress, "result">;
-
-export type FactoryUpdate = (result: FactoryResult) => void;
-
-export type FactoryExecutor = (
-	name: CoreToolName,
-	args: JsonValue,
-	signal?: AbortSignal,
-	onUpdate?: FactoryUpdate,
-) => Promise<FactoryResult>;
-
-export type FactoryTool = {
-	execute(
-		toolCallId: string,
-		params: JsonValue,
-		signal?: AbortSignal,
-		onUpdate?: FactoryUpdate,
-	): Promise<FactoryResult>;
-};
-
-export type FactoryToolSet = Record<CoreToolName, FactoryTool>;
-export type CoreBindings = Record<CoreToolName, BindingFn>;

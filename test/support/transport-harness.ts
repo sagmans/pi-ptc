@@ -1,9 +1,8 @@
 import { initTheme, type Theme } from "@earendil-works/pi-coding-agent";
 
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-
-import type { DispatchProgress, DispatchRenderResult } from "../../src/bridge.ts";
 import { SHIPPED_PTC_CONFIG } from "../../src/config.ts";
+import type { DispatchProgress, DispatchRenderResult } from "../../src/dispatch-contract.ts";
 import type { PtcRenderContext } from "../../src/renderer.ts";
 import type { createPtcTool } from "../../src/transport.ts";
 

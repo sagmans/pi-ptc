@@ -5,9 +5,8 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-
-import { createToolBindings, type DispatchLogEntry, type DispatchProgress } from "../src/bridge.ts";
 import { TRUST_COPY } from "../src/config.ts";
+import type { DispatchLogEntry, DispatchProgress } from "../src/dispatch-contract.ts";
 import type {
 	CapturedPiSession,
 	PiRuntimeActionsInstallation,
@@ -15,6 +14,7 @@ import type {
 } from "../src/pi-runtime.ts";
 import { createPiToolArgumentPreparer } from "../src/pi-runtime-arguments.ts";
 import { createScheduler } from "../src/scheduler.ts";
+import { createToolBindings } from "../src/tool-bindings.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 import { createToolExecutor } from "../src/tool-executor.ts";
 import { createPtcTool } from "../src/transport.ts";

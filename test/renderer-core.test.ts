@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import type { DispatchProgress } from "../src/bridge.ts";
+import type { DispatchProgress } from "../src/dispatch-contract.ts";
 import { createSnapshotDetails } from "../src/dispatch-details.ts";
 import { attachPtcRenderDispatches } from "../src/renderer.ts";
 import type { PtcPartialResult, PtcToolResult } from "../src/transport.ts";

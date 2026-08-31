@@ -1,8 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
-
-import type { DispatchProgress } from "../src/bridge.ts";
 import { ToolCallError } from "../src/canonical.ts";
+import type { DispatchProgress } from "../src/dispatch-contract.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import type { NestedToolRuntimeResult } from "../src/tool-executor.ts";
 import {

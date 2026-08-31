@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import type { DispatchRenderResult } from "../../src/bridge.ts";
+import type { DispatchRenderResult } from "../../src/dispatch-contract.ts";
 
 export const DESCRIPTION = "inspect files";
 export const LEGACY_DESCRIPTION = "legacy";

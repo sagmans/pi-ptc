@@ -1,9 +1,7 @@
-import { strict as assert } from "node:assert";
-import type { DispatchLogEntry, DispatchProgress, FactoryToolSet } from "../../src/bridge.ts";
-import * as bridge from "../../src/bridge.ts";
-import { CORE_TOOL_NAMES } from "../../src/config.ts";
+import type { DispatchLogEntry, DispatchProgress } from "../../src/dispatch-contract.ts";
 import type { BindingFn } from "../../src/runtime-contract.ts";
 import { createScheduler, type Scheduler } from "../../src/scheduler.ts";
+import { createToolBindings } from "../../src/tool-bindings.ts";
 import type { ToolCatalogEntry } from "../../src/tool-catalog.ts";
 import type {
 	NestedToolDispatchRequest,
@@ -61,9 +59,7 @@ export function createGenericBindings(
 	scheduler = createScheduler(2),
 	reporting: Parameters<ToolBindingsFactory>[3] = {},
 ): Record<string, BindingFn> {
-	const factory = Reflect.get(bridge, "createToolBindings");
-	assert.equal(typeof factory, "function", "createToolBindings export must exist");
-	return (factory as ToolBindingsFactory)(snapshot, executor, scheduler, reporting);
+	return createToolBindings(snapshot, executor, scheduler, reporting);
 }
 
 export function catalogEntry(
@@ -101,10 +97,6 @@ export function toolExecutor(
 	dispatch: (request: NestedToolDispatchRequest) => Promise<NestedToolDispatchResult>,
 ): ToolExecutor {
 	return { dispatch };
-}
-
-export function fakeFactoryTools(execute: FactoryToolSet["read"]["execute"]): FactoryToolSet {
-	return Object.fromEntries(CORE_TOOL_NAMES.map((name) => [name, { execute }])) as FactoryToolSet;
 }
 
 export async function nextTurn(): Promise<void> {

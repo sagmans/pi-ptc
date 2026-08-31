@@ -1,9 +1,9 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
-
-import { type DispatchLogEntry, type DispatchProgress, formatDispatchLine } from "../src/bridge.ts";
 import { ToolCallError } from "../src/canonical.ts";
 import { DISPATCH_EVENT, DISPATCH_LOG_TYPE } from "../src/config.ts";
+import type { DispatchLogEntry, DispatchProgress } from "../src/dispatch-contract.ts";
+import { formatDispatchLine } from "../src/dispatch-format.ts";
 import type { JsonValue } from "../src/json.ts";
 import { createScheduler } from "../src/scheduler.ts";
 import type { NestedToolRuntimeResult } from "../src/tool-executor.ts";

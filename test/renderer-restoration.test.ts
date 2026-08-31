@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Text } from "@earendil-works/pi-tui";
 
-import type { DispatchProgress } from "../src/bridge.ts";
+import type { DispatchProgress } from "../src/dispatch-contract.ts";
 import { createDeltaDetails } from "../src/dispatch-details.ts";
 import { attachPtcRenderDispatches } from "../src/renderer.ts";
 import type { PtcPartialResult, PtcToolResult } from "../src/transport.ts";

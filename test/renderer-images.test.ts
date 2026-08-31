@@ -4,7 +4,7 @@ import test from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Text } from "@earendil-works/pi-tui";
 
-import type { DispatchProgress } from "../src/bridge.ts";
+import type { DispatchProgress } from "../src/dispatch-contract.ts";
 import { createDeltaDetails } from "../src/dispatch-details.ts";
 import { attachPtcRenderDispatches } from "../src/renderer.ts";
 import { createPtcTool, type PtcToolResult } from "../src/transport.ts";

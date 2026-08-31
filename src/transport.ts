@@ -1,7 +1,6 @@
 // One model-visible tool. Intermediate binding values stay off the transcript.
 
 import { Type } from "typebox";
-import { type DispatchProgress, type DispatchRenderResult, formatDispatchLine } from "./bridge.ts";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
 	OUTER_OVERFLOW_BYTES_MESSAGE,
@@ -10,11 +9,13 @@ import {
 	TRANSPORT_NAME,
 	TRUST_COPY,
 } from "./config.ts";
+import type { DispatchProgress, DispatchRenderResult } from "./dispatch-contract.ts";
 import {
 	createDeltaDetailsFromProjection,
 	createSnapshotDetailsFromProjections,
 	type PtcDispatchDetails,
 } from "./dispatch-details.ts";
+import { formatDispatchLine } from "./dispatch-format.ts";
 import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
 import { createDispatchRetentionLedger } from "./dispatch-retention.ts";
 import type { JsonValue } from "./json.ts";

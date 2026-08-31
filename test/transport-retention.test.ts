@@ -1,9 +1,14 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import { createCoreBindings, type DispatchRenderResult } from "../src/bridge.ts";
-import { createScheduler } from "../src/scheduler.ts";
+import type { DispatchRenderResult } from "../src/dispatch-contract.ts";
 import { createPtcTool, type PtcPartialResult } from "../src/transport.ts";
+import {
+	catalogEntry,
+	createGenericBindings,
+	dispatchResult,
+	toolExecutor,
+} from "./support/tool-bindings-harness.ts";
 import {
 	FIRST_RETAINED_RESULT,
 	HOSTILE_RENDER_DETAILS_MESSAGE,
@@ -280,14 +285,15 @@ test("ptc streams dispatch start then ok through onUpdate", async () => {
 	const tool = createPtcTool({
 		...LIMITS,
 		createBindings: (ctx) =>
-			createCoreBindings({
-				execute: async () => {
+			createGenericBindings(
+				[catalogEntry("read")],
+				toolExecutor(async (request) => {
 					await gate;
-					return { content: [{ type: "text", text: secret }] };
-				},
-				scheduler: createScheduler(2),
-				reportDispatch: ctx.reportDispatch,
-			}),
+					return dispatchResult(request, { content: [{ type: "text", text: secret }] });
+				}),
+				undefined,
+				{ reportDispatch: ctx.reportDispatch },
+			),
 	});
 	const pending = tool.execute(
 		"call-4",

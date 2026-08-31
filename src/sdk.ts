@@ -1,6 +1,6 @@
 // Prompt SDK is the model-facing contract. Keep it lexicographic and byte-stable.
 
-import { CORE_TOOL_NAMES, type CoreToolName, isCoreToolName } from "./config.ts";
+import { type CoreToolName, isCoreToolName } from "./config.ts";
 import {
 	renderSafeJsonStringLiteral,
 	SCHEMA_SIGNATURE_FALLBACK,
@@ -18,13 +18,6 @@ const BINDING_SIGNATURES = Object.freeze({
 	write: "await tools.write({ path, content })",
 } as const satisfies Record<CoreToolName, string>);
 
-const LEGACY_SDK_HEADER = `tools:sdk
-Call core tools only from a ptc program. The code argument is the body of an async function.
-Top-level await and return are legal. Use erasable TypeScript only.
-Successful bindings resolve to canonical JSON. Failed bindings reject ToolCallError(toolName, message).
-Promise.all may overlap read, grep, find, and ls. bash, edit, and write drain the pool and run alone.
-Load skills with tools.read({ path }), not a native read call. /skill:name still works.
-`;
 const ACTIVE_SDK_HEADER = `tools:sdk
 Call active runtime tools only from a ptc program. The code argument is the body of an async function.
 Top-level await and return are legal. Use erasable TypeScript only.
@@ -41,11 +34,7 @@ type SdkToolLine = {
 	line: string;
 };
 
-export function renderSdkPrompt(catalog?: readonly ToolCatalogEntry[]): string {
-	if (!catalog) {
-		const lines = CORE_TOOL_NAMES.map((name) => BINDING_SIGNATURES[name]);
-		return `${LEGACY_SDK_HEADER}${lines.join("\n")}\n`;
-	}
+export function renderSdkPrompt(catalog: readonly ToolCatalogEntry[]): string {
 	const lines = catalog.map(renderCatalogToolLine).sort(compareToolLines);
 	const guidance = catalog.some((entry) => entry.name === "read")
 		? READ_SKILL_GUIDANCE
