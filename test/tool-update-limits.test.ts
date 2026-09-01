@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { createToolExecutor } from "../src/tool-executor.ts";
-import { TOOL_UPDATE_LIMIT_MESSAGE } from "../src/tool-executor-lifecycle.ts";
 import {
 	createEntry,
 	createSession,
@@ -44,6 +43,6 @@ test("one dispatch bounds update delivery and still emits one terminal event", a
 		SHIPPED_PTC_CONFIG.maxToolUpdatesPerDispatch,
 	);
 	assert.equal(events.filter((event) => event.type === "tool_execution_end").length, 1);
-	assert.equal(outcome.isError, true);
-	assert.equal(resultText(outcome.result), TOOL_UPDATE_LIMIT_MESSAGE);
+	assert.equal(outcome.isError, false);
+	assert.equal(resultText(outcome.result), "executed");
 });

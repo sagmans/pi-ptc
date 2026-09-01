@@ -23,8 +23,6 @@ import {
 	ZERO_USAGE,
 } from "./tool-executor-state.ts";
 
-export const TOOL_UPDATE_LIMIT_MESSAGE = "tool update limit exceeded";
-
 export function errorResult(message: string): NestedToolRuntimeResult {
 	return {
 		content: [{ type: "text", text: message }],
@@ -172,7 +170,6 @@ export async function executePreparedToolCall(
 ): Promise<ExecutedCall> {
 	const updateEvents: Promise<UpdateDeliveryOutcome>[] = [];
 	let acceptingUpdates = true;
-	let updateLimitError: Error | undefined;
 	let executed: ExecutedCall;
 	try {
 		const result = (await prepared.tool.execute(
@@ -182,7 +179,6 @@ export async function executePreparedToolCall(
 			(partialResult) => {
 				if (!acceptingUpdates) return;
 				if (updateEvents.length >= SHIPPED_PTC_CONFIG.maxToolUpdatesPerDispatch) {
-					updateLimitError = new Error(TOOL_UPDATE_LIMIT_MESSAGE);
 					acceptingUpdates = false;
 					return;
 				}
@@ -226,7 +222,7 @@ export async function executePreparedToolCall(
 		(outcome): outcome is Extract<UpdateDeliveryOutcome, { kind: "failed" }> =>
 			outcome.kind === "failed",
 	);
-	const deliveryError = updateLimitError ?? updateFailure?.error;
+	const deliveryError = updateFailure?.error;
 	return executed.isError || deliveryError === undefined
 		? executed
 		: { result: errorResult(errorMessage(deliveryError)), isError: true };
