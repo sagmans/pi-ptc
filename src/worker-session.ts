@@ -3,6 +3,7 @@ import type { Worker } from "node:worker_threads";
 import { ToolResultDeliveryError } from "./canonical.ts";
 import { snapshotJsonValue } from "./json.ts";
 import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
+import * as outputLimit from "./output-limit.ts";
 import type { BindingFn, CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
 import {
 	type HostToWorker,
@@ -12,10 +13,6 @@ import {
 	type WorkerToHost,
 } from "./worker-protocol.ts";
 
-const LOG_OUTPUT_LIMIT_SUBJECT = "log output";
-const MAX_OUTPUT_BYTES_NAME = "maxOutputBytes";
-const MAX_OUTPUT_LINES_NAME = "maxOutputLines";
-const WORKER_FAILURE_LIMIT_SUBJECT = "worker failure message";
 const LOG_SEPARATOR_BYTES = 1;
 const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
 const UTF8_ENCODING = "utf8";
@@ -85,7 +82,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 
 		const finishOutputLimit = (
 			subject: string,
-			limitName: "maxOutputBytes" | "maxOutputLines",
+			limitName: outputLimit.OutputLimitName,
 			observed: number,
 			limit: number,
 		): void => {
@@ -94,7 +91,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 					logs: [...logs],
 					error: {
 						kind: "output-limit",
-						message: `${subject} exceeds ${limitName}: ${observed} > ${limit}`,
+						message: outputLimit.describe(subject, limitName, observed, limit),
 					},
 				},
 				true,
@@ -128,8 +125,8 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			const nextLines = logOutputLines + logicalLineCount(message.text);
 			if (nextBytes > maxOutputBytes) {
 				finishOutputLimit(
-					LOG_OUTPUT_LIMIT_SUBJECT,
-					MAX_OUTPUT_BYTES_NAME,
+					outputLimit.LOG_OUTPUT_SUBJECT,
+					outputLimit.MAX_OUTPUT_BYTES_NAME,
 					nextBytes,
 					maxOutputBytes,
 				);
@@ -137,8 +134,8 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			}
 			if (nextLines > maxOutputLines) {
 				finishOutputLimit(
-					LOG_OUTPUT_LIMIT_SUBJECT,
-					MAX_OUTPUT_LINES_NAME,
+					outputLimit.LOG_OUTPUT_SUBJECT,
+					outputLimit.MAX_OUTPUT_LINES_NAME,
 					nextLines,
 					maxOutputLines,
 				);
@@ -243,8 +240,8 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			const messageLines = logicalLineCount(message.message);
 			if (messageBytes > maxOutputBytes) {
 				finishOutputLimit(
-					WORKER_FAILURE_LIMIT_SUBJECT,
-					MAX_OUTPUT_BYTES_NAME,
+					outputLimit.WORKER_FAILURE_SUBJECT,
+					outputLimit.MAX_OUTPUT_BYTES_NAME,
 					messageBytes,
 					maxOutputBytes,
 				);
@@ -252,8 +249,8 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			}
 			if (messageLines > maxOutputLines) {
 				finishOutputLimit(
-					WORKER_FAILURE_LIMIT_SUBJECT,
-					MAX_OUTPUT_LINES_NAME,
+					outputLimit.WORKER_FAILURE_SUBJECT,
+					outputLimit.MAX_OUTPUT_LINES_NAME,
 					messageLines,
 					maxOutputLines,
 				);

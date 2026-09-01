@@ -3,6 +3,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
+import * as outputLimit from "./output-limit.ts";
 import {
 	createWorkerBindings,
 	snapshotWorkerPayload,
@@ -11,10 +12,6 @@ import {
 } from "./worker-bindings.ts";
 import { logicalLineCount, WORKER_BINDING_NAME, type WorkerBootData } from "./worker-protocol.ts";
 
-const MAX_OUTPUT_BYTES_NAME = "maxOutputBytes";
-const MAX_OUTPUT_LINES_NAME = "maxOutputLines";
-const PROGRAM_RESULT_LIMIT_SUBJECT = "program result";
-const WORKER_ERROR_LIMIT_SUBJECT = "worker error message";
 const UTF8_ENCODING = "utf8";
 const port = parentPort;
 if (port === null) throw new Error("ptc worker must run as a worker thread");
@@ -51,9 +48,9 @@ void (async () => {
 					: {
 							type: "fail",
 							kind: "output-limit",
-							message: outputLimitMessage(
-								PROGRAM_RESULT_LIMIT_SUBJECT,
-								MAX_OUTPUT_BYTES_NAME,
+							message: outputLimit.describe(
+								outputLimit.PROGRAM_RESULT_SUBJECT,
+								outputLimit.MAX_OUTPUT_BYTES_NAME,
 								snapshot.bytes,
 								boot.maxOutputBytes,
 							),
@@ -68,9 +65,9 @@ void (async () => {
 			port.postMessage({
 				type: "fail",
 				kind: "output-limit",
-				message: outputLimitMessage(
-					WORKER_ERROR_LIMIT_SUBJECT,
-					MAX_OUTPUT_BYTES_NAME,
+				message: outputLimit.describe(
+					outputLimit.WORKER_ERROR_SUBJECT,
+					outputLimit.MAX_OUTPUT_BYTES_NAME,
 					messageBytes,
 					boot.maxOutputBytes,
 				),
@@ -81,9 +78,9 @@ void (async () => {
 			port.postMessage({
 				type: "fail",
 				kind: "output-limit",
-				message: outputLimitMessage(
-					WORKER_ERROR_LIMIT_SUBJECT,
-					MAX_OUTPUT_LINES_NAME,
+				message: outputLimit.describe(
+					outputLimit.WORKER_ERROR_SUBJECT,
+					outputLimit.MAX_OUTPUT_LINES_NAME,
 					messageLines,
 					boot.maxOutputLines,
 				),
@@ -99,12 +96,3 @@ void (async () => {
 		port.postMessage({ type: "fail", kind, message });
 	}
 })();
-
-function outputLimitMessage(
-	subject: string,
-	limitName: "maxOutputBytes" | "maxOutputLines",
-	observed: number,
-	limit: number,
-): string {
-	return `${subject} exceeds ${limitName}: ${observed} > ${limit}`;
-}
