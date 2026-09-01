@@ -12,7 +12,35 @@ const TEMPORARY_DIRECTORY_PREFIX = "pi-ptc-authored-lines-";
 const AUTHORED_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".json", ".mjs", ".mts", ".ts"]);
 const EXCLUDED_DIRECTORIES = new Set([".git", ".npm", "coverage", "dist", "node_modules", "out"]);
 const EXCLUDED_PATHS = new Set(["package-lock.json"]);
-const EXCLUDED_PREFIXES = ["test/fixtures/"];
+const EXCLUDED_DATA_PREFIXES = ["test/fixtures/"];
+const TARGET_FILE_MAXIMUM_LINES = new Map<string, number>([
+	["src/index.ts", 220],
+	["src/ptc-lifecycle.ts", 390],
+	["src/ptc-execution.ts", 220],
+	["src/ptc-tool-contract.ts", 90],
+	["src/pi-runtime.ts", 140],
+	["src/pi-runtime-contract.ts", 180],
+	["src/pi-runtime-registry.ts", 380],
+	["src/pi-runtime-association.ts", 420],
+	["src/pi-runtime-shape.ts", 340],
+	["src/pi-runtime-tools.ts", 300],
+	["src/pi-runtime-arguments.ts", 360],
+	["src/pi-runtime-actions.ts", 300],
+	["src/pi-runtime-events.ts", 250],
+	["src/pi-runtime-session.ts", 340],
+	["src/pi-runtime-patch.ts", 440],
+	["src/tool-catalog.ts", 260],
+	["src/tool-executor-contract.ts", 100],
+	["src/tool-executor.ts", 430],
+	["src/transport.ts", 360],
+	["src/renderer-definition-store.ts", 260],
+	["src/renderer-raw-store.ts", 160],
+	["src/renderer-definitions.ts", 190],
+	["src/renderer.ts", 210],
+	["src/dispatch-retention.ts", 440],
+	["src/worker-protocol.ts", 160],
+	["src/worker.ts", 100],
+]);
 
 function repositoryPath(path: string): string {
 	return path.split(sep).join("/");
@@ -25,7 +53,10 @@ function physicalLineCount(contents: string): number {
 }
 
 function isExcluded(path: string): boolean {
-	return EXCLUDED_PATHS.has(path) || EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix));
+	return (
+		EXCLUDED_PATHS.has(path) ||
+		(extname(path) !== ".ts" && EXCLUDED_DATA_PREFIXES.some((prefix) => path.startsWith(prefix)))
+	);
 }
 
 function collectAuthoredFiles(root: string, directory = root): string[] {
@@ -51,8 +82,9 @@ function assertAuthoredLineBounds(root: string): void {
 	const failures: string[] = [];
 	for (const path of collectAuthoredFiles(root)) {
 		const lines = physicalLineCount(readFileSync(join(root, path), "utf8"));
-		if (lines > AUTHORED_FILE_MAXIMUM_LINES) {
-			failures.push(`${path}: ${lines} physical lines exceeds ${AUTHORED_FILE_MAXIMUM_LINES}`);
+		const maximumLines = TARGET_FILE_MAXIMUM_LINES.get(path) ?? AUTHORED_FILE_MAXIMUM_LINES;
+		if (lines > maximumLines) {
+			failures.push(`${path}: ${lines} physical lines exceeds ${maximumLines}`);
 		}
 	}
 	assert.deepEqual(failures, []);

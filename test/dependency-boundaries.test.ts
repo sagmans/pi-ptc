@@ -21,7 +21,12 @@ const RAW_STORE_FORBIDDEN_PATTERN =
 	/(?:call.?id|toolCallId|RendererToken|renderer-definition-store)/i;
 const PROTOCOL_DECLARATION_PATTERN =
 	/^(?:export\s+)?(?:type\s+(?:HostToWorker|WorkerToHost|WorkerBootData)\s*=|interface\s+(?:HostToWorker|WorkerToHost|WorkerBootData)\b)/m;
-const PROTOCOL_CONSUMERS = new Set(["runtime.ts", "worker-session.ts", "worker.ts"]);
+const PROTOCOL_CONSUMERS = new Set([
+	"runtime.ts",
+	"worker-bindings.ts",
+	"worker-session.ts",
+	"worker.ts",
+]);
 
 function sourceFiles(): string[] {
 	return readdirSync(SOURCE_ROOT, { withFileTypes: true })

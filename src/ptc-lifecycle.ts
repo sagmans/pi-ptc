@@ -2,11 +2,10 @@ import {
 	COMPETING_OWNER_MESSAGE,
 	LEAK_BLOCK_REASON,
 	MISSING_TRANSPORT_MESSAGE,
-	type Presentation,
 	STATUS_KEY,
 	TRANSPORT_NAME,
 } from "./config.ts";
-import type { ExtensionAPI, ExtensionContext } from "./host.ts";
+import type { ExtensionContext } from "./host.ts";
 import type {
 	CapturedPiSession,
 	PiRuntimeCapture,
@@ -15,12 +14,32 @@ import type {
 } from "./pi-runtime.ts";
 import { hasCompetingOwner } from "./presentation.ts";
 import { createPtcExecution } from "./ptc-execution.ts";
+import {
+	type AggregatedBeforeAgentStartResult,
+	BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX,
+	BEFORE_AGENT_START_SYSTEM_PROMPT_ARGUMENT_INDEX,
+	CATALOG_ROLLBACK_FAILURE_PREFIX,
+	describeError,
+	INERT_STATUS,
+	isBlockingToolCallResult,
+	isRecord,
+	MISSING_RUNTIME_CAPTURE_MESSAGE,
+	NATIVE_RESTORATION_RETRY_FAILURE_PREFIX,
+	NATIVE_RESTORATION_VERIFICATION_FAILURE,
+	OBSOLETE_CAPTURE_CONTRACT_MESSAGE,
+	OWNED_TRANSPORT_CLEANUP_FAILURE_PREFIX,
+	PTC_RUNTIME_UNAVAILABLE_MESSAGE,
+	type PtcLifecycleController,
+	type PtcLifecycleOptions,
+	RUNTIME_INCOMPATIBILITY_PREFIX,
+	sameNames,
+	supportsCurrentCaptureContract,
+	TOOL_CALL_EVENT_ARGUMENT_INDEX,
+} from "./ptc-lifecycle-policy.ts";
 import type {
-	FailureDetailsStore,
 	PtcBindingContext,
 	PtcExecution,
 	PtcExecutionLease,
-	PtcLifecycle,
 	PtcLifecycleClearReason,
 } from "./ptc-tool-contract.ts";
 import { renderSdkPrompt, renderSkillsPrompt, type SkillPromptInput } from "./sdk.ts";
@@ -31,68 +50,7 @@ import {
 } from "./tool-catalog.ts";
 import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
 
-const INERT_STATUS = "ptc: inert";
-const MISSING_RUNTIME_CAPTURE_MESSAGE = "pi-ptc staying inert: ptc runtime capture is missing";
-const RUNTIME_INCOMPATIBILITY_PREFIX = "pi-ptc staying inert";
-const PTC_RUNTIME_UNAVAILABLE_MESSAGE = "ptc runtime capture is unavailable";
-const OBSOLETE_CAPTURE_CONTRACT_MESSAGE =
-	"captured Pi runtime does not provide exact argument preparation";
-const OWNED_TRANSPORT_CLEANUP_FAILURE_PREFIX = "owned ptc transport cleanup failed";
-const CATALOG_ROLLBACK_FAILURE_PREFIX = "catalog rollback failed";
-const NATIVE_RESTORATION_RETRY_FAILURE_PREFIX = "native active-tool restoration retry failed";
-const NATIVE_RESTORATION_VERIFICATION_FAILURE =
-	"native active-tool restoration verification failed";
-const TOOL_CALL_EVENT_ARGUMENT_INDEX = 0;
-const BEFORE_AGENT_START_SYSTEM_PROMPT_ARGUMENT_INDEX = 2;
-const BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX = 3;
-
 type CaptureReadiness = "pending" | "active" | "inert";
-type AggregatedToolCallResult = { block?: unknown };
-type AggregatedBeforeAgentStartResult = { messages?: unknown; systemPrompt?: unknown };
-
-export type PtcLifecycleOptions = {
-	readonly pi: ExtensionAPI;
-	readonly initialPresentation: Presentation;
-	readonly maxParallelDispatches: number;
-	readonly failureDetails: FailureDetailsStore;
-	clearRenderSnapshots(): void;
-};
-
-export interface PtcLifecycleController extends PtcLifecycle {
-	readonly presentation: Presentation;
-	setPresentation(presentation: Presentation): void;
-	sessionStart(context: ExtensionContext, presentation: Presentation): void;
-	apply(context: ExtensionContext): void;
-	requireActive(context: ExtensionContext): boolean;
-	markRuntimeEventReadiness(context: ExtensionContext): void;
-	finalizeToolCall(args: readonly unknown[], result: unknown, context: unknown): unknown;
-	finalizeBeforeAgentStart(args: readonly unknown[], result: unknown, context: unknown): unknown;
-}
-
-function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
-	return (typeof value === "object" && value !== null) || typeof value === "function";
-}
-
-function isBlockingToolCallResult(value: unknown): value is AggregatedToolCallResult {
-	return isRecord(value) && value.block === true;
-}
-
-function describeError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-function sameNames(actual: readonly string[], expected: readonly string[]): boolean {
-	return (
-		actual.length === expected.length && actual.every((name, index) => name === expected[index])
-	);
-}
-
-function supportsCurrentCaptureContract(session: CapturedPiSession): boolean {
-	return (
-		typeof (session as unknown as { prepareToolArguments?: unknown }).prepareToolArguments ===
-		"function"
-	);
-}
 
 export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleController {
 	let presentation = options.initialPresentation;

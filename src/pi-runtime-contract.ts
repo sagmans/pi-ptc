@@ -60,12 +60,10 @@ export type PiRuntimeTool = {
 		onUpdate?: (partialResult: unknown) => void,
 	): Promise<unknown>;
 };
-
 export type PiExtensionRunner = {
 	createContext(): unknown;
 	emit(event: unknown): Promise<unknown>;
 };
-
 export type PiRuntimeEventFinalizer = (
 	args: readonly unknown[],
 	result: unknown,
@@ -76,7 +74,6 @@ export type PiRuntimeEventFinalizers = {
 	finalizeToolCall: PiRuntimeEventFinalizer;
 	finalizeBeforeAgentStart: PiRuntimeEventFinalizer;
 };
-
 export type PiRuntimeEventFinalizersInstallation = {
 	restore(): void;
 };
@@ -92,7 +89,6 @@ export type PiRuntimeToolEntry = {
 	readonly executable: PiRuntimeTool;
 	readonly definition: unknown;
 };
-
 export type PiRuntimeOriginalActions = {
 	getActiveTools(): string[];
 	setActiveTools(toolNames: string[]): void;
@@ -104,11 +100,9 @@ export type PiRuntimeActionsInstallation = {
 	readonly original: PiRuntimeOriginalActions;
 	restore(activeToolNames?: readonly string[]): void;
 };
-
 export type PiToolArgumentPreparation =
 	| { readonly ok: true; readonly value: unknown }
 	| { readonly ok: false; readonly message: string };
-
 export type CapturedPiSession = {
 	readonly version: typeof SUPPORTED_PI_VERSION;
 	readonly extensionRunner: PiExtensionRunner;
