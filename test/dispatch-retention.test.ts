@@ -8,6 +8,7 @@ import {
 	PTC_DETAIL_SCHEMA_VERSION,
 	parseDispatchDetails,
 } from "../src/dispatch-details.ts";
+import { createDispatchRetentionLedger } from "../src/dispatch-retention.ts";
 import {
 	COMPATIBILITY_ERROR_MAX_CHARACTERS,
 	CONTROLLED_COMMAND,
@@ -28,6 +29,24 @@ import {
 	SANITIZED_RESULT_KEY,
 	START_DISPATCH,
 } from "./support/dispatch-details-harness.ts";
+
+test("retention replacement and clear restore exact render capacity", () => {
+	const ledger = createDispatchRetentionLedger(RENDER_DETAILS_BUDGET_BYTES);
+	const retained = { ...FINAL_DISPATCH, result: FULL_RENDER_RESULT };
+	assert.equal(ledger.retain(retained).renderBytes, RENDER_DETAILS_BUDGET_BYTES);
+	assert.equal(ledger.retain(retained).renderBytes, RENDER_DETAILS_BUDGET_BYTES);
+
+	const omitted = { ...retained, id: 2 };
+	assert.equal(ledger.retain(omitted).dispatch.renderOmitted, "budget");
+	ledger.retain({ ...START_DISPATCH, id: retained.id });
+	const replacement = ledger.retain(omitted);
+	assert.equal(replacement.renderBytes, RENDER_DETAILS_BUDGET_BYTES);
+	assert.equal(replacement.dispatch.renderOmitted, undefined);
+
+	ledger.clear();
+	assert.deepEqual(ledger.snapshot(), []);
+	assert.equal(ledger.retain(retained).renderBytes, RENDER_DETAILS_BUDGET_BYTES);
+});
 
 test("snapshot render projections omit whole results after the byte budget is exhausted", () => {
 	const details = createSnapshotDetails(

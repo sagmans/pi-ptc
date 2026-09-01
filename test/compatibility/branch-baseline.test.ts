@@ -42,6 +42,12 @@ type RuntimeModule = {
 };
 
 type DetailsModule = {
+	createSnapshotDetails(
+		description: string,
+		dispatches: readonly unknown[],
+		executionError?: string,
+		maxRenderDetailsBytes?: number,
+	): unknown;
 	parseDispatchDetails(value: unknown): unknown;
 };
 
@@ -132,12 +138,12 @@ test("baseline and target Pi runtime copies interoperate in both load orders", a
 
 test("target details remain readable by baseline and baseline fixtures remain readable", async () => {
 	const baseline = (await loadBaselineModule(BASELINE_DETAILS_PATH)) as DetailsModule;
-	const targetDetails = createSnapshotDetails("rollback", [
+	const dispatches = [
 		{
 			id: 1,
 			name: "mcp",
 			args: { search: "fixture" },
-			status: "ok",
+			status: "ok" as const,
 			preview: "found",
 			result: {
 				content: [{ type: "text", text: "found" }],
@@ -145,7 +151,10 @@ test("target details remain readable by baseline and baseline fixtures remain re
 				isError: false,
 			},
 		},
-	]);
+	];
+	const targetDetails = createSnapshotDetails("rollback", dispatches);
+	const baselineDetails = baseline.createSnapshotDetails("rollback", dispatches);
+	assert.equal(JSON.stringify(targetDetails), JSON.stringify(baselineDetails));
 	assert.deepEqual(
 		baseline.parseDispatchDetails(JSON.parse(JSON.stringify(targetDetails))),
 		targetDetails,
