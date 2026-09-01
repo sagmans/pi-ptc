@@ -170,4 +170,17 @@ test("live custom renderers receive raw args and finalized non-JSON results with
 	const serializedReports = JSON.stringify(reported);
 	assert.equal(serializedReports.includes(RAW_CUSTOM_SECRET), false);
 	assert.equal(serializedReports.includes(RAW_CUSTOM_DETAILS_MARKER), false);
+
+	renderedArgs = undefined;
+	renderedResult = undefined;
+	const clonedResult = JSON.parse(JSON.stringify(result)) as typeof result;
+	const clonedOutput = renderNestedResult(tool, clonedResult, "custom-live");
+	assert.deepEqual(renderedArgs, {
+		token: "[REDACTED]",
+		nested: { exact: [1, 2, 3] },
+	});
+	assert.notEqual(renderedResult, cyclicDetails);
+	assert.equal(JSON.stringify(renderedResult).includes(RAW_CUSTOM_DETAILS_MARKER), false);
+	assert.equal(clonedOutput.includes(RAW_CUSTOM_SECRET), false);
+	assert.equal(clonedOutput.includes(RAW_CUSTOM_DETAILS_MARKER), false);
 });
