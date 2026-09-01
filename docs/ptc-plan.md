@@ -49,8 +49,10 @@ The adapter captures:
 - reload and shutdown ownership.
 
 Version or private-shape drift leaves PTC inert and preserves native tools.
-Mixed module copies share versioned global registries and release independent
-leases without removing another copy's patches.
+`src/pi-runtime-association.ts` alone publishes slots and mutates generation,
+parts, and installed-capability state. Mixed module copies share versioned
+global registries and release independent leases without removing another
+copy's patches.
 
 `src/tool-catalog.ts` owns logical active state and additive activation.
 Refreshes preserve still-valid logical tools, drop removed tools, and adopt
@@ -135,7 +137,8 @@ Only serialized `{ logs, result? }` content reaches the model. Dispatch logs,
 render details, and live attachments stay model-hidden.
 
 Versioned dispatch details retain bounded arguments, previews, and render data.
-`src/dispatch-retention.ts` owns execution-scoped accounting. Replacement and
+Lifecycle leases reject failure-detail writes after release or generation
+revocation. `src/dispatch-retention.ts` owns execution-scoped accounting. Replacement and
 clear operations reclaim their exact retained capacity. Whole native results are
 omitted when a budget is exhausted; partial native objects are never persisted.
 Failure details are consume-once and cleared by lifecycle shutdown,
@@ -151,10 +154,11 @@ empty. Rows use:
 2. captured execution-scoped definitions for other tools;
 3. bounded generic text when no safe renderer is available.
 
-Renderer storage separates two policies. Raw custom arguments/results require
-the exact in-memory details object and never permit call-ID lookup. Bounded
-renderer definitions may be restored by execution token and call ID after
-versioned details replacement.
+Renderer storage separates two policies. Each transport instance owns a
+revocable raw store; custom arguments/results require its exact in-memory
+details object and never permit call-ID lookup. Lifecycle clear revokes existing
+and late-settling raw attachments. Bounded renderer definitions may be restored
+by execution token and call ID after versioned details replacement.
 
 Renderer failures, timers, invalidation, terminal controls, images, and theme
 changes remain contained inside the affected PTC row.

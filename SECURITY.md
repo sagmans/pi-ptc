@@ -51,9 +51,10 @@ implementation; a host-version mismatch or invalid private runtime shape makes
 PTC inert instead of weakening native behavior.
 
 Raw custom-renderer arguments and results are available only through exact
-in-memory details-object identity. Call-ID fallback is restricted to bounded
-renderer definitions. Cloned or restored details receive only sanitized,
-persisted projections. Rejected tool arguments are omitted from validation
+in-memory details-object identity in one transport instance. Shutdown, reload,
+and inert recovery revoke that instance's raw store, including late settlements.
+Call-ID fallback is restricted to bounded renderer definitions. Cloned,
+foreign-instance, or restored details receive only sanitized persisted projections. Rejected tool arguments are omitted from validation
 messages. Retention ledgers and the process governor bound stored data and
 unresolved worker bindings across concurrent runs and physical module copies.
 Worker-side checks reject oversized binding arguments and outer values before

@@ -69,7 +69,8 @@ A bounded renderer capability restorable by execution token and call ID.
 
 **Raw renderer attachment**  
 Sensitive custom-renderer arguments and result retained only for the exact
-in-memory details object. Call-ID lookup is forbidden.
+in-memory details object in one transport instance. Lifecycle clear revokes the
+store; call-ID lookup is forbidden.
 
 **Parallel dispatch**  
 A dispatch allowed to overlap under the configured limit.

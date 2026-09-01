@@ -122,7 +122,8 @@ Missing or failing renderers fall back to bounded text.
 
 Display arguments, results, images, diagnostics, and persisted details are
 sanitized and bounded. Raw custom-renderer attachments require the exact details
-object identity; only renderer definitions permit bounded call-ID restoration.
+object identity within one transport instance and are revoked on lifecycle
+clear; only renderer definitions permit bounded call-ID restoration.
 Versioned details restore rows after session resume. When a retention budget is
 exhausted, PTC keeps a deterministic preview instead of a partial native result.
 
