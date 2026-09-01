@@ -15,6 +15,7 @@ All notable changes are documented here. The format follows
 - Pi-native nested rows with captured custom renderers and deterministic session restoration.
 - Real MCP adapter coverage for discovery, direct and scripted calls, updates, approval denial, cancellation, and dynamic tool changes.
 - Mixed-copy Pi patch/adapter coexistence and persisted-details reader compatibility checks against the branch baseline.
+- Pinned CI checks for Node, Bun, dependency audit, and package contents.
 
 ### Changed
 
@@ -25,6 +26,9 @@ All notable changes are documented here. The format follows
 - Replaced copy-prone pseudo-calls with explicit argument-schema notation and executable SDK examples.
 - Added concise program, injected-binding, lossless-JSON, and retry guidance to the model SDK.
 - Bootstrap unsupported Pi hosts before loading private-runtime-dependent implementation.
+- Prepared npm publication as `@sagmans/pi-ptc`.
+- Documented PTC tradeoffs against native batch calls and deterministic aggregation.
+- Clarified that direct Node.js operations bypass tool-specific gate and permission extensions.
 
 ### Security
 
