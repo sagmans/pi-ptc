@@ -18,6 +18,15 @@ if (port === null) throw new Error("ptc worker must run as a worker thread");
 const boot = workerData as WorkerBootData;
 const bindings = createWorkerBindings(port, boot);
 
+const postOutputLimit = (
+	subject: outputLimit.OutputLimitSubject,
+	limitName: outputLimit.OutputLimitName,
+	observed: number,
+	limit: number,
+): void => {
+	port.postMessage({ type: "fail", kind: "output-limit", subject, limitName, observed, limit });
+};
+
 const emitLog = (args: unknown[]): void => {
 	port.postMessage({ type: "log", text: args.map(String).join(" ") });
 };
@@ -42,49 +51,37 @@ void (async () => {
 			port.postMessage({ type: "done" });
 		} else {
 			const snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
-			port.postMessage(
-				snapshot.ok
-					? { type: "done", value: snapshot.value }
-					: {
-							type: "fail",
-							kind: "output-limit",
-							message: outputLimit.describe(
-								outputLimit.PROGRAM_RESULT_SUBJECT,
-								outputLimit.MAX_OUTPUT_BYTES_NAME,
-								snapshot.bytes,
-								boot.maxOutputBytes,
-							),
-						},
-			);
+			if (snapshot.ok) {
+				port.postMessage({ type: "done", value: snapshot.value });
+			} else {
+				postOutputLimit(
+					outputLimit.PROGRAM_RESULT_SUBJECT,
+					outputLimit.MAX_OUTPUT_BYTES_NAME,
+					snapshot.bytes,
+					boot.maxOutputBytes,
+				);
+			}
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
 		const messageLines = logicalLineCount(message);
 		if (messageBytes > boot.maxOutputBytes) {
-			port.postMessage({
-				type: "fail",
-				kind: "output-limit",
-				message: outputLimit.describe(
-					outputLimit.WORKER_ERROR_SUBJECT,
-					outputLimit.MAX_OUTPUT_BYTES_NAME,
-					messageBytes,
-					boot.maxOutputBytes,
-				),
-			});
+			postOutputLimit(
+				outputLimit.WORKER_ERROR_SUBJECT,
+				outputLimit.MAX_OUTPUT_BYTES_NAME,
+				messageBytes,
+				boot.maxOutputBytes,
+			);
 			return;
 		}
 		if (messageLines > boot.maxOutputLines) {
-			port.postMessage({
-				type: "fail",
-				kind: "output-limit",
-				message: outputLimit.describe(
-					outputLimit.WORKER_ERROR_SUBJECT,
-					outputLimit.MAX_OUTPUT_LINES_NAME,
-					messageLines,
-					boot.maxOutputLines,
-				),
-			});
+			postOutputLimit(
+				outputLimit.WORKER_ERROR_SUBJECT,
+				outputLimit.MAX_OUTPUT_LINES_NAME,
+				messageLines,
+				boot.maxOutputLines,
+			);
 			return;
 		}
 		const kind =

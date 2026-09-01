@@ -3,8 +3,6 @@
 import { Type } from "typebox";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
-	OUTER_OVERFLOW_BYTES_MESSAGE,
-	OUTER_OVERFLOW_LINES_MESSAGE,
 	SHIPPED_PTC_CONFIG,
 	TRANSPORT_NAME,
 	TRUST_COPY,
@@ -19,6 +17,7 @@ import { formatDispatchLine } from "./dispatch-format.ts";
 import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
 import { createDispatchRetentionLedger } from "./dispatch-retention.ts";
 import type { JsonValue } from "./json.ts";
+import * as outputLimit from "./output-limit.ts";
 import type {
 	FailureDetailsStore,
 	PtcBindingContext,
@@ -323,10 +322,26 @@ export function assertOuterResultWithinLimits(
 	text: string,
 	limits: { maxOutputBytes: number; maxOutputLines: number },
 ): void {
-	if (Buffer.byteLength(text, "utf8") > limits.maxOutputBytes) {
-		throw new Error(OUTER_OVERFLOW_BYTES_MESSAGE);
+	const bytes = Buffer.byteLength(text, "utf8");
+	if (bytes > limits.maxOutputBytes) {
+		throw new Error(
+			outputLimit.describe(
+				outputLimit.OUTER_RESULT_SUBJECT,
+				outputLimit.MAX_OUTPUT_BYTES_NAME,
+				bytes,
+				limits.maxOutputBytes,
+			),
+		);
 	}
-	if (logicalLineCount(text) > limits.maxOutputLines) {
-		throw new Error(OUTER_OVERFLOW_LINES_MESSAGE);
+	const lines = logicalLineCount(text);
+	if (lines > limits.maxOutputLines) {
+		throw new Error(
+			outputLimit.describe(
+				outputLimit.OUTER_RESULT_SUBJECT,
+				outputLimit.MAX_OUTPUT_LINES_NAME,
+				lines,
+				limits.maxOutputLines,
+			),
+		);
 	}
 }

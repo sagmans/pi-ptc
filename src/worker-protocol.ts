@@ -1,4 +1,10 @@
 import { type JsonValue, snapshotJsonValue } from "./json.ts";
+import {
+	isOutputLimitName,
+	isOutputLimitSubject,
+	type OutputLimitName,
+	type OutputLimitSubject,
+} from "./output-limit.ts";
 
 export const WORKER_BINDING_NAME = "tools";
 
@@ -19,8 +25,16 @@ export type WorkerToHost =
 	| { type: "done"; value?: JsonValue }
 	| {
 			type: "fail";
-			kind: "throw" | "invalid-output" | "output-limit" | "result-delivery";
+			kind: "throw" | "invalid-output" | "result-delivery";
 			message: string;
+	  }
+	| {
+			type: "fail";
+			kind: "output-limit";
+			subject: OutputLimitSubject;
+			limitName: OutputLimitName;
+			observed: number;
+			limit: number;
 	  };
 
 export type BindingFailureKind = "tool-call" | "result-delivery";
@@ -82,21 +96,38 @@ function parseDoneMessage(value: Record<string, unknown>): WorkerToHost {
 }
 
 function parseFailureMessage(value: Record<string, unknown>): WorkerToHost {
+	if (value.kind === "output-limit") return parseOutputLimitFailure(value);
 	if (!isWorkerFailureKind(value.kind) || typeof value.message !== "string") {
 		throw invalidWorkerMessage();
 	}
 	return { type: "fail", kind: value.kind, message: value.message };
 }
 
+function parseOutputLimitFailure(value: Record<string, unknown>): WorkerToHost {
+	if (
+		!isOutputLimitSubject(value.subject) ||
+		!isOutputLimitName(value.limitName) ||
+		typeof value.observed !== "number" ||
+		!Number.isSafeInteger(value.observed) ||
+		typeof value.limit !== "number" ||
+		!Number.isSafeInteger(value.limit)
+	) {
+		throw invalidWorkerMessage();
+	}
+	return {
+		type: "fail",
+		kind: "output-limit",
+		subject: value.subject,
+		limitName: value.limitName,
+		observed: value.observed,
+		limit: value.limit,
+	};
+}
+
 function isWorkerFailureKind(
 	value: unknown,
-): value is "throw" | "invalid-output" | "output-limit" | "result-delivery" {
-	return (
-		value === "throw" ||
-		value === "invalid-output" ||
-		value === "output-limit" ||
-		value === "result-delivery"
-	);
+): value is "throw" | "invalid-output" | "result-delivery" {
+	return value === "throw" || value === "invalid-output" || value === "result-delivery";
 }
 
 function invalidWorkerMessage(): Error {

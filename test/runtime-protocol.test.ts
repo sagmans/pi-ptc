@@ -16,26 +16,54 @@ import {
 } from "./support/runtime-harness.ts";
 
 const HOSTILE_FAILURE_MAX_BYTES = 64;
-const HOSTILE_FAILURE_MESSAGE = "x".repeat(HOSTILE_FAILURE_MAX_BYTES + 1);
-const HOSTILE_FAILURE_LIMIT_MESSAGE = "worker failure message exceeds maxOutputBytes: 65 > 64";
+const HOSTILE_FAILURE_BYTES = HOSTILE_FAILURE_MAX_BYTES + 1;
+const HOSTILE_FAILURE_MESSAGE = "x".repeat(HOSTILE_FAILURE_BYTES);
+const HOSTILE_FAILURE_LIMIT_MESSAGE = `worker failure message exceeds maxOutputBytes: ${HOSTILE_FAILURE_BYTES} > ${HOSTILE_FAILURE_MAX_BYTES}`;
+const WORKER_ERROR_LIMIT_MESSAGE = `worker error message exceeds maxOutputBytes: ${HOSTILE_FAILURE_BYTES} > ${HOSTILE_FAILURE_MAX_BYTES}`;
+const ASYNC_WORKER_ERROR_PROGRAM = `setTimeout(() => { throw new Error("x".repeat(${HOSTILE_FAILURE_BYTES})); }, 0); await new Promise(() => undefined);`;
+const FORGED_OUTPUT_LIMIT_MESSAGE = "forged raw payload";
+
+test("runCode bounds asynchronous worker error events", async () => {
+	const outcome = await runCode({
+		program: ASYNC_WORKER_ERROR_PROGRAM,
+		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+
+	assert.deepEqual(outcome, {
+		logs: [],
+		error: { kind: "output-limit", message: WORKER_ERROR_LIMIT_MESSAGE },
+	});
+});
+
+test("runCode rejects forged output-limit messages", async () => {
+	const outcome = await runCode({
+		program: hostileWorkerMessageProgram({
+			type: "fail",
+			kind: "output-limit",
+			message: FORGED_OUTPUT_LIMIT_MESSAGE,
+		}),
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
+
+	assert.equal(outcome.error?.kind, "invalid-output");
+});
 
 test("runCode replaces oversized hostile worker failures with numeric diagnostics", async () => {
-	for (const kind of ["throw", "output-limit"] as const) {
-		const outcome = await runCode({
-			program: hostileWorkerMessageProgram({
-				type: "fail",
-				kind,
-				message: HOSTILE_FAILURE_MESSAGE,
-			}),
-			maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
-			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
-		});
+	const outcome = await runCode({
+		program: hostileWorkerMessageProgram({
+			type: "fail",
+			kind: "throw",
+			message: HOSTILE_FAILURE_MESSAGE,
+		}),
+		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+	});
 
-		assert.deepEqual(outcome, {
-			logs: [],
-			error: { kind: "output-limit", message: HOSTILE_FAILURE_LIMIT_MESSAGE },
-		});
-	}
+	assert.deepEqual(outcome, {
+		logs: [],
+		error: { kind: "output-limit", message: HOSTILE_FAILURE_LIMIT_MESSAGE },
+	});
 });
 
 test("runCode fails closed on malformed worker protocol messages", async () => {

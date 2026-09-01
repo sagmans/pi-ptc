@@ -1,7 +1,11 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import { createPtcTool } from "../src/transport.ts";
+import {
+	assertOuterResultWithinLimits,
+	createPtcTool,
+	serializeOuterResult,
+} from "../src/transport.ts";
 import {
 	CUSTOM_DRAIN_TIMEOUT_MS,
 	CUSTOM_MAX_DISPATCHES,
@@ -14,6 +18,10 @@ import {
 
 const TRANSPORT_OUTPUT_LIMIT_MESSAGE =
 	"ptc failed (output-limit): worker error message exceeds maxOutputBytes: 7000 > 1234";
+const COMBINED_OUTER_BYTES = 27;
+const COMBINED_OUTER_MAX_BYTES = COMBINED_OUTER_BYTES - 1;
+const OUTER_LINE_COUNT = 2;
+const OUTER_MAX_LINES = OUTER_LINE_COUNT - 1;
 
 test("ptc returns logs and a curated result", async () => {
 	const tool = createPtcTool({
@@ -34,6 +42,30 @@ test("ptc returns logs and a curated result", async () => {
 		logs: ["hi"],
 		result: { n: 2 },
 	});
+});
+
+test("combined outer overflow reports measured bytes", () => {
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{ logs: ["a"], result: "b" },
+				{ maxOutputBytes: COMBINED_OUTER_MAX_BYTES, maxOutputLines: CUSTOM_MAX_OUTPUT_LINES },
+			),
+		{
+			message: `outer result exceeds maxOutputBytes: ${COMBINED_OUTER_BYTES} > ${COMBINED_OUTER_MAX_BYTES}`,
+		},
+	);
+});
+
+test("outer line overflow reports measured lines", () => {
+	assert.throws(
+		() =>
+			assertOuterResultWithinLimits("one\ntwo", {
+				maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES,
+				maxOutputLines: OUTER_MAX_LINES,
+			}),
+		{ message: `outer result exceeds maxOutputLines: ${OUTER_LINE_COUNT} > ${OUTER_MAX_LINES}` },
+	);
 });
 
 test("ptc rejects an oversized outer result", async () => {
