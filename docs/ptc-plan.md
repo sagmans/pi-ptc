@@ -90,7 +90,9 @@ Execution follows this path:
 7. `src/canonical.ts` returns canonical JSON or throws `ToolCallError`.
 8. Retry-unsafe post-execution delivery failure uses the distinct
    `ToolResultDeliveryError` protocol path.
-9. The worker returns captured logs and an optional JSON result.
+9. The worker returns captured logs and an optional JSON result. Output-limit
+   failures report only their scope, measured count, configured limit, and limit
+   name; rejected output is never echoed.
 
 The worker is killable containment, not a sandbox. Model code has
 user-equivalent host authority.
@@ -104,7 +106,9 @@ Captured before-tool hooks may mutate or block the call; after-tool hooks may
 replace content, details, usage, termination, or error state.
 
 Arguments are prepared and validated against the captured schema. Core tools
-retain specialized return shapes. Other tools receive this canonical envelope:
+retain specialized return shapes. Core `read` returns `.text` plus truncation
+metadata, omitting the duplicate `truncation.content` body. Other tools receive
+this canonical envelope:
 
 ```ts
 {

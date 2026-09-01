@@ -3,6 +3,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
+import * as outputLimit from "./output-limit.ts";
 import {
 	createWorkerBindings,
 	snapshotWorkerPayload,
@@ -11,12 +12,20 @@ import {
 } from "./worker-bindings.ts";
 import { logicalLineCount, WORKER_BINDING_NAME, type WorkerBootData } from "./worker-protocol.ts";
 
-const EMPTY_FAILURE_MESSAGE = "";
 const UTF8_ENCODING = "utf8";
 const port = parentPort;
 if (port === null) throw new Error("ptc worker must run as a worker thread");
 const boot = workerData as WorkerBootData;
 const bindings = createWorkerBindings(port, boot);
+
+const postOutputLimit = (
+	subject: outputLimit.OutputLimitSubject,
+	limitName: outputLimit.OutputLimitName,
+	observed: number,
+	limit: number,
+): void => {
+	port.postMessage({ type: "fail", kind: "output-limit", subject, limitName, observed, limit });
+};
 
 const emitLog = (args: unknown[]): void => {
 	port.postMessage({ type: "log", text: args.map(String).join(" ") });
@@ -42,19 +51,37 @@ void (async () => {
 			port.postMessage({ type: "done" });
 		} else {
 			const snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
-			port.postMessage(
-				snapshot === undefined
-					? { type: "fail", kind: "output-limit", message: EMPTY_FAILURE_MESSAGE }
-					: { type: "done", value: snapshot },
-			);
+			if (snapshot.ok) {
+				port.postMessage({ type: "done", value: snapshot.value });
+			} else {
+				postOutputLimit(
+					outputLimit.PROGRAM_RESULT_SUBJECT,
+					outputLimit.MAX_OUTPUT_BYTES_NAME,
+					snapshot.bytes,
+					boot.maxOutputBytes,
+				);
+			}
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		if (
-			Buffer.byteLength(message, UTF8_ENCODING) > boot.maxOutputBytes ||
-			logicalLineCount(message) > boot.maxOutputLines
-		) {
-			port.postMessage({ type: "fail", kind: "output-limit", message: EMPTY_FAILURE_MESSAGE });
+		const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
+		if (messageBytes > boot.maxOutputBytes) {
+			postOutputLimit(
+				outputLimit.WORKER_ERROR_SUBJECT,
+				outputLimit.MAX_OUTPUT_BYTES_NAME,
+				messageBytes,
+				boot.maxOutputBytes,
+			);
+			return;
+		}
+		const messageLines = logicalLineCount(message);
+		if (messageLines > boot.maxOutputLines) {
+			postOutputLimit(
+				outputLimit.WORKER_ERROR_SUBJECT,
+				outputLimit.MAX_OUTPUT_LINES_NAME,
+				messageLines,
+				boot.maxOutputLines,
+			);
 			return;
 		}
 		const kind =

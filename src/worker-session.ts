@@ -3,6 +3,7 @@ import type { Worker } from "node:worker_threads";
 import { ToolResultDeliveryError } from "./canonical.ts";
 import { snapshotJsonValue } from "./json.ts";
 import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
+import * as outputLimit from "./output-limit.ts";
 import type { BindingFn, CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
 import {
 	type HostToWorker,
@@ -14,6 +15,7 @@ import {
 
 const LOG_SEPARATOR_BYTES = 1;
 const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
+const INVALID_OUTPUT_LIMIT_MESSAGE = "worker emitted invalid output-limit data";
 const UTF8_ENCODING = "utf8";
 type WorkerSessionInput = {
 	worker: Worker;
@@ -79,6 +81,42 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			void close(outcome, mustAbort);
 		};
 
+		const finishOutputLimit = (
+			subject: outputLimit.OutputLimitSubject,
+			limitName: outputLimit.OutputLimitName,
+			observed: number,
+			limit: number,
+		): void => {
+			finish(
+				{
+					logs: [...logs],
+					error: {
+						kind: "output-limit",
+						message: outputLimit.describe(subject, limitName, observed, limit),
+					},
+				},
+				true,
+			);
+		};
+
+		const finishWorkerMessage = (
+			kind: "throw" | "invalid-output" | "result-delivery",
+			message: string,
+			subject: outputLimit.OutputLimitSubject,
+		): void => {
+			const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
+			if (messageBytes > maxOutputBytes) {
+				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_BYTES_NAME, messageBytes, maxOutputBytes);
+				return;
+			}
+			const messageLines = logicalLineCount(message);
+			if (messageLines > maxOutputLines) {
+				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_LINES_NAME, messageLines, maxOutputLines);
+				return;
+			}
+			finish({ logs: [...logs], error: { kind, message } }, true);
+		};
+
 		const postReply = (message: HostToWorker): void => {
 			if (closing) return;
 			try {
@@ -103,9 +141,23 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				logOutputBytes +
 				separatorBytes +
 				Buffer.byteLength(JSON.stringify(message.text), UTF8_ENCODING);
+			if (nextBytes > maxOutputBytes) {
+				finishOutputLimit(
+					outputLimit.LOG_OUTPUT_SUBJECT,
+					outputLimit.MAX_OUTPUT_BYTES_NAME,
+					nextBytes,
+					maxOutputBytes,
+				);
+				return;
+			}
 			const nextLines = logOutputLines + logicalLineCount(message.text);
-			if (nextBytes > maxOutputBytes || nextLines > maxOutputLines) {
-				finish({ logs: [...logs], error: { kind: "output-limit" } }, true);
+			if (nextLines > maxOutputLines) {
+				finishOutputLimit(
+					outputLimit.LOG_OUTPUT_SUBJECT,
+					outputLimit.MAX_OUTPUT_LINES_NAME,
+					nextLines,
+					maxOutputLines,
+				);
 				return;
 			}
 			logOutputBytes = nextBytes;
@@ -203,15 +255,23 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const handleFailure = (message: Extract<WorkerToHost, { type: "fail" }>): void => {
-			if (
-				message.kind === "output-limit" ||
-				Buffer.byteLength(message.message, UTF8_ENCODING) > maxOutputBytes ||
-				logicalLineCount(message.message) > maxOutputLines
-			) {
-				finish({ logs: [...logs], error: { kind: "output-limit" } }, true);
+			if ("message" in message) {
+				finishWorkerMessage(message.kind, message.message, outputLimit.WORKER_FAILURE_SUBJECT);
 				return;
 			}
-			finish({ logs: [...logs], error: { kind: message.kind, message: message.message } }, true);
+			const expectedLimit =
+				message.limitName === outputLimit.MAX_OUTPUT_BYTES_NAME ? maxOutputBytes : maxOutputLines;
+			if (message.limit !== expectedLimit || message.observed <= expectedLimit) {
+				finish(
+					{
+						logs: [...logs],
+						error: { kind: "invalid-output", message: INVALID_OUTPUT_LIMIT_MESSAGE },
+					},
+					true,
+				);
+				return;
+			}
+			finishOutputLimit(message.subject, message.limitName, message.observed, expectedLimit);
 		};
 
 		const onAbort = (): void => {
@@ -257,7 +317,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const onError = (error: Error): void => {
-			finish({ logs: [...logs], error: { kind: "throw", message: error.message } }, true);
+			finishWorkerMessage("throw", error.message, outputLimit.WORKER_ERROR_SUBJECT);
 		};
 
 		const onExit = (code: number): void => {

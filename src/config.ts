@@ -20,8 +20,6 @@ export const MISSING_TRANSPORT_MESSAGE =
 	"pi-ptc restored native active runtime tools because the ptc transport is missing";
 export const TRUST_COPY =
 	"bash-equivalent containment, not a sandbox. Treat the program as user-equivalent peer code.";
-export const OUTER_OVERFLOW_BYTES_MESSAGE = "outer result exceeds maxOutputBytes";
-export const OUTER_OVERFLOW_LINES_MESSAGE = "outer result exceeds maxOutputLines";
 export const EMPTY_DESCRIPTION_MESSAGE = "description must be non-empty";
 export const STRIP_UNAVAILABLE_MESSAGE = "no TypeScript stripper available";
 export const TYPESCRIPT_LOADER = "ts";

@@ -9,7 +9,7 @@ export type CodeRunFailure =
 	| { kind: "abort" }
 	| { kind: "invalid-output"; message: string }
 	| { kind: "result-delivery"; message: string }
-	| { kind: "output-limit" }
+	| { kind: "output-limit"; message: string }
 	| { kind: "dispatch-limit" }
 	| { kind: "dangling-dispatch" }
 	| { kind: "orphan-limit" }

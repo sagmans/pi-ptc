@@ -54,6 +54,11 @@ Every active runtime tool receives a generated `tools.<name>(args)` binding,
 including built-ins, SDK and extension tools, and adapter-backed tools such as
 MCP. Tool names that are not JavaScript identifiers use bracket notation.
 
+Core `read` values expose file content through `.text`. Truncated reads retain
+truncation metadata but omit its duplicate `content` field. Project or summarize
+binding values instead of returning raw batches that waste the bounded outer
+result.
+
 Failed tool dispatches reject with `ToolCallError(toolName, message)`. A result
 that cannot be delivered after tool execution rejects with the distinct
 `ToolResultDeliveryError`; callers must not infer that retry is safe.
@@ -140,7 +145,8 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 - 256,000-byte or 10,000-line outer output, checked in the worker before delivery;
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
-Only presentation has project and user overrides.
+Output-limit failures report the measured byte or line count without echoing the
+rejected output. Only presentation has project and user overrides.
 
 ## Compatibility
 

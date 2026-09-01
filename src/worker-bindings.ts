@@ -28,11 +28,12 @@ export class ToolCallError extends Error {
 	}
 }
 
-export function snapshotWorkerPayload(value: unknown, maximumBytes: number): JsonValue | undefined {
+type WorkerPayloadSnapshot = { ok: true; value: JsonValue } | { ok: false; bytes: number };
+
+export function snapshotWorkerPayload(value: unknown, maximumBytes: number): WorkerPayloadSnapshot {
 	const snapshot = snapshotJsonValue(value);
-	return Buffer.byteLength(JSON.stringify(snapshot), UTF8_ENCODING) <= maximumBytes
-		? snapshot
-		: undefined;
+	const bytes = Buffer.byteLength(JSON.stringify(snapshot), UTF8_ENCODING);
+	return bytes <= maximumBytes ? { ok: true, value: snapshot } : { ok: false, bytes };
 }
 
 export function createWorkerBindings(
@@ -70,11 +71,11 @@ export function createWorkerBindings(
 			const id = nextCallId;
 			nextCallId += 1;
 			const snapshot = snapshotWorkerPayload(args, boot.maxOutputBytes);
-			if (snapshot === undefined) throw new ToolCallError(name, BINDING_ARGUMENT_LIMIT_MESSAGE);
+			if (!snapshot.ok) throw new ToolCallError(name, BINDING_ARGUMENT_LIMIT_MESSAGE);
 			const result = new Promise<JsonValue>((resolve, reject) => {
 				pending.set(id, { resolve, reject });
 			});
-			port.postMessage({ type: "call", id, name, args: snapshot });
+			port.postMessage({ type: "call", id, name, args: snapshot.value });
 			return await result;
 		};
 	}

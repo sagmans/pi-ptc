@@ -185,8 +185,12 @@ export function toCanonicalValue(name: CoreToolName, result: FactoryResult): Jso
 		case "find":
 		case "grep":
 		case "ls":
-		case "read":
 			return snapshotJsonValue({ ...details, text });
+		case "read": {
+			if (!isRecord(details.truncation)) return snapshotJsonValue({ ...details, text });
+			const { content: _content, ...truncation } = details.truncation;
+			return snapshotJsonValue({ ...details, truncation, text });
+		}
 		default: {
 			const _never: never = name;
 			throw new Error(`unhandled core tool: ${_never}`);

@@ -18,6 +18,7 @@ All notable changes are documented here. The format follows
 
 ### Changed
 
+- Omit duplicated `truncation.content` from canonical core `read` values; use `.text` for file content.
 - Expanded the original seven-core-tool design to the complete logical active set.
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.
 - Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.
@@ -35,6 +36,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Report measured byte or line counts for output-limit failures without echoing rejected output.
 - Drain or terminalize cancelled nested work without accepting late display updates.
 - Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
 - Restore current and historical display details with explicit bounded fallbacks.
