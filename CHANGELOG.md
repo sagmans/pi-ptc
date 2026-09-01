@@ -1,0 +1,46 @@
+# Changelog
+
+All notable changes are documented here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+
+- Programmatic Tool Call presentations for all active Pi runtime tools.
+- Verified Pi `0.84.3` and `0.84.4` runtime capture with logical and model-visible tool virtualization.
+- Dynamic, schema-derived TypeScript bindings for built-in, SDK, extension, and adapter tools.
+- Nested Pi policy hooks, execution events, scheduling, and additive tool activation.
+- Pi-native nested rows with captured custom renderers and deterministic session restoration.
+- Real MCP adapter coverage for discovery, direct and scripted calls, updates, approval denial, cancellation, and dynamic tool changes.
+- Mixed-copy Pi patch/adapter coexistence and persisted-details reader compatibility checks against the branch baseline.
+
+### Changed
+
+- Expanded the original seven-core-tool design to the complete logical active set.
+- Fixed each running program to one immutable execution lease; refreshes apply to later runs.
+- Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.
+- Bootstrap unsupported Pi hosts before loading private-runtime-dependent implementation.
+
+### Security
+
+- Fail closed to native tools on runtime drift, missing transport, competing ownership, or rollback failure.
+- Bound worker time, memory, dispatches, per-dispatch updates, orphaned bindings, output, render data, and persisted details.
+- Reject oversized binding arguments and outer values inside the worker before host delivery.
+- Sanitize terminal controls, display arguments, results, images, and diagnostics without echoing rejected raw arguments.
+- Keep worker environment variables empty while documenting user-equivalent host authority.
+- Keep raw renderer attachments identity-only, instance-scoped, and lifecycle-revocable while allowing bounded call-ID recovery only for renderer definitions.
+- Preserve adapter-owned approval and authentication policy for MCP and other active runtime tools.
+
+### Fixed
+
+- Drain or terminalize cancelled nested work without accepting late display updates.
+- Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
+- Restore current and historical display details with explicit bounded fallbacks.
+- Distinguish retry-unsafe result-delivery failures from ordinary tool-call failures.
+- Enforce one process-wide unresolved-binding ceiling across concurrent workers and physical module copies.
+- Recover exact render-retention capacity when a dispatch projection is replaced or cleared.
+- Reject stale failure-detail writes after lifecycle clear and centralize mutable Pi association transitions.
+
+## [0.1.0] - Unreleased

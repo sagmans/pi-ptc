@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 2,
+	"description": "restore independent failures",
+	"mode": "snapshot",
+	"dispatches": [
+		{
+			"id": 1,
+			"name": "bash",
+			"args": { "command": "false" },
+			"status": "err",
+			"preview": "nested fixture failure",
+			"result": {
+				"content": [{ "type": "text", "text": "nested fixture failure" }],
+				"isError": true
+			}
+		}
+	],
+	"executionError": "outer fixture failure"
+}
