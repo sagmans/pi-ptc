@@ -58,9 +58,9 @@ newly active registrations. A failed refresh attempts rollback and native
 restoration. Unverified recovery stays inert and reports diagnostics.
 
 Lifecycle issues each PTC call an immutable execution lease containing its
-sorted catalog snapshot, dispatch capability, renderer definitions, generation
-guard, and failure transition. Tool and renderer changes apply to the next call,
-never midway through a running program.
+sorted catalog snapshot, dispatch capability, generation guard, and failure
+transition. Execution captures renderer definitions from that snapshot. Tool and
+renderer changes apply to the next call, never midway through a running program.
 
 ## Program execution
 
@@ -78,8 +78,9 @@ Execution follows this path:
 1. `src/sdk.ts` renders stable model guidance from active schemas.
 2. `src/runtime.ts` type-strips erasable TypeScript.
 3. A fresh `worker_threads.Worker` starts with an empty environment and bounded heap.
-4. `src/worker.ts` exposes one async binding per snapshot entry.
-5. Calls cross the worker boundary as lossless JSON.
+4. `src/worker-bindings.ts` exposes one async binding per snapshot entry.
+5. Calls cross the worker boundary as lossless JSON after worker-side argument
+   and outer-result byte checks.
 6. `src/tool-executor.ts` orchestrates the captured Pi argument, hook, event,
    execution, and finalization capabilities.
 7. `src/canonical.ts` returns canonical JSON or throws `ToolCallError`.
@@ -93,9 +94,10 @@ user-equivalent host authority.
 ## Dispatch lifecycle
 
 A dispatch receives a unique nested call ID and emits Pi execution start,
-update, and end events. Captured before-tool hooks may mutate or block the call;
-after-tool hooks may replace content, details, usage, termination, or error
-state.
+update, and end events. Each dispatch accepts at most the configured number of
+progress updates; later updates are ignored while finalization still runs.
+Captured before-tool hooks may mutate or block the call; after-tool hooks may
+replace content, details, usage, termination, or error state.
 
 Arguments are prepared and validated against the captured schema. Core tools
 retain specialized return shapes. Other tools receive this canonical envelope:
@@ -123,8 +125,9 @@ Tools with `executionMode: "sequential"` run exclusively; tools with
 Exclusive work waits for active parallel work to drain. Queue order is stable.
 Abort propagates to queued and active tools, terminates the worker, drains host
 bindings within the configured deadline, and rejects late reports.
-`src/orphan-binding-governor.ts` enforces the unresolved-binding ceiling across
-all concurrent PTC workers in the process rather than once per run.
+`src/orphan-binding-governor.ts` stores one versioned process-global governor,
+so concurrent workers and separately loaded physical module copies share the
+same conservative unresolved-binding ceiling.
 
 ## Context and persistence
 
@@ -132,9 +135,10 @@ Only serialized `{ logs, result? }` content reaches the model. Dispatch logs,
 render details, and live attachments stay model-hidden.
 
 Versioned dispatch details retain bounded arguments, previews, and render data.
-`src/dispatch-retention.ts` owns execution-scoped accounting. Whole native
-results are omitted when a budget is exhausted; partial native objects are never
-persisted. Failure details are consume-once and cleared by lifecycle shutdown,
+`src/dispatch-retention.ts` owns execution-scoped accounting. Replacement and
+clear operations reclaim their exact retained capacity. Whole native results are
+omitted when a budget is exhausted; partial native objects are never persisted.
+Failure details are consume-once and cleared by lifecycle shutdown,
 reload, or inert recovery. Historical unversioned details migrate on read, and
 malformed details render a diagnostic.
 

@@ -26,8 +26,9 @@ All notable changes are documented here. The format follows
 ### Security
 
 - Fail closed to native tools on runtime drift, missing transport, competing ownership, or rollback failure.
-- Bound worker time, memory, dispatches, orphaned bindings, output, render data, and persisted details.
-- Sanitize terminal controls, display arguments, results, images, and diagnostics.
+- Bound worker time, memory, dispatches, per-dispatch updates, orphaned bindings, output, render data, and persisted details.
+- Reject oversized binding arguments and outer values inside the worker before host delivery.
+- Sanitize terminal controls, display arguments, results, images, and diagnostics without echoing rejected raw arguments.
 - Keep worker environment variables empty while documenting user-equivalent host authority.
 - Keep raw renderer attachments identity-only while allowing bounded call-ID recovery only for renderer definitions.
 - Preserve adapter-owned approval and authentication policy for MCP and other active runtime tools.
@@ -38,6 +39,7 @@ All notable changes are documented here. The format follows
 - Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
 - Restore current and historical display details with explicit bounded fallbacks.
 - Distinguish retry-unsafe result-delivery failures from ordinary tool-call failures.
-- Enforce one process-wide unresolved-binding ceiling across concurrent workers.
+- Enforce one process-wide unresolved-binding ceiling across concurrent workers and physical module copies.
+- Recover exact render-retention capacity when a dispatch projection is replaced or cleared.
 
 ## [0.1.0] - Unreleased

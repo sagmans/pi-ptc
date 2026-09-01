@@ -33,8 +33,8 @@ bindings, SDK guidance, validation, and rendering.
 
 **Execution lease**  
 The immutable per-call capabilities issued by lifecycle ownership: catalog
-snapshot, dispatch adapter, renderer definitions, generation guard, and failure
-transition.
+snapshot, dispatch adapter, generation guard, and failure transition. Renderer
+definitions are captured from the leased snapshot by execution.
 
 **Binding**  
 An async function exposed to the program, such as `tools.read(args)` or

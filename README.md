@@ -17,7 +17,8 @@ exposes `ptc` and the active tools; `native` disables PTC.
 
 PTC uses an exact-version, fail-closed adapter for Pi runtime state. Package
 bootstrap checks the host before loading Pi-private, TUI, or TypeBox-dependent
-implementation. An unsupported host stays native and reports `ptc: inert`.
+implementation. An unsupported host stays native without registering PTC; runtime
+shape drift after supported-host loading reports `ptc: inert`.
 
 ## Install
 
@@ -131,9 +132,10 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 
 - 120-second program timeout;
 - 100 dispatches per program;
+- 100 progress updates per dispatch;
 - 10 parallel dispatches;
 - 128 MiB worker old-generation heap;
-- 256,000-byte or 10,000-line outer output;
+- 256,000-byte or 10,000-line outer output, checked in the worker before delivery;
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
 Only presentation has project and user overrides.

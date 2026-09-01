@@ -52,8 +52,12 @@ PTC inert instead of weakening native behavior.
 
 Raw custom-renderer arguments and results are available only through exact
 in-memory details-object identity. Call-ID fallback is restricted to bounded
-renderer definitions. Retention ledgers and the process governor bound stored
-data and unresolved worker bindings across concurrent runs.
+renderer definitions. Cloned or restored details receive only sanitized,
+persisted projections. Rejected tool arguments are omitted from validation
+messages. Retention ledgers and the process governor bound stored data and
+unresolved worker bindings across concurrent runs and physical module copies.
+Worker-side checks reject oversized binding arguments and outer values before
+cross-thread delivery.
 
 `ToolResultDeliveryError` means a tool may already have produced side effects.
 It is deliberately distinct from `ToolCallError`; automatic retry is unsafe
