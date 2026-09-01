@@ -12,13 +12,25 @@ function createRevokedProxy<T extends object>(target: T): T {
 	return revocable.proxy;
 }
 
-test("read success is text plus details", () => {
+test("read success omits duplicated truncation content while preserving metadata", () => {
 	assert.deepEqual(
 		toCanonicalValue("read", {
-			content: [{ type: "text", text: "hello" }],
-			details: { truncation: { truncated: true } },
+			content: [{ type: "text", text: "hello\n[Showing lines 1-1 of 2]" }],
+			details: {
+				encoding: "utf8",
+				truncation: {
+					content: "hello",
+					truncated: true,
+					truncatedBy: "bytes",
+					totalBytes: 10,
+				},
+			},
 		}),
-		{ text: "hello", truncation: { truncated: true } },
+		{
+			text: "hello\n[Showing lines 1-1 of 2]",
+			encoding: "utf8",
+			truncation: { truncated: true, truncatedBy: "bytes", totalBytes: 10 },
+		},
 	);
 });
 

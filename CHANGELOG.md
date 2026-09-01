@@ -18,6 +18,7 @@ All notable changes are documented here. The format follows
 
 ### Changed
 
+- Omit duplicated `truncation.content` from canonical core `read` values; use `.text` for file content.
 - Expanded the original seven-core-tool design to the complete logical active set.
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.
 - Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.

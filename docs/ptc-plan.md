@@ -104,7 +104,9 @@ Captured before-tool hooks may mutate or block the call; after-tool hooks may
 replace content, details, usage, termination, or error state.
 
 Arguments are prepared and validated against the captured schema. Core tools
-retain specialized return shapes. Other tools receive this canonical envelope:
+retain specialized return shapes. Core `read` returns `.text` plus truncation
+metadata, omitting the duplicate `truncation.content` body. Other tools receive
+this canonical envelope:
 
 ```ts
 {
