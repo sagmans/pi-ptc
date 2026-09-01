@@ -26,7 +26,7 @@ function nativeToolCall(args: unknown): HookContext["toolCall"] {
 	};
 }
 
-test("nested arrays and optional nulls match Pi 0.84.3 argument preparation", async () => {
+test("nested arrays and optional nulls match supported Pi argument preparation", async () => {
 	const schema = Type.Object({
 		groups: Type.Array(
 			Type.Object({

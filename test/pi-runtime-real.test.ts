@@ -45,7 +45,7 @@ test("installed Pi exports exact patchable bind and reload runtime methods", () 
 	}
 });
 
-test("real Pi 0.84.3 session_start precedes tagged post-bind capture", async () => {
+test("real supported Pi session_start precedes tagged post-bind capture", async () => {
 	const directory = mkdtempSync(join(tmpdir(), CHARACTERIZATION_DIRECTORY_PREFIX));
 	const cwd = join(directory, "project");
 	const agentDir = join(directory, "agent");

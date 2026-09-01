@@ -168,7 +168,7 @@ test("validation clones prepared args, applies Pi coercion, and preserves Pi dia
 	assert.equal(failure.executionArgs, undefined);
 });
 
-test("nullable object union validation matches Pi 0.84.3", async (t) => {
+test("nullable object union validation matches supported Pi", async (t) => {
 	const nativeValidation = await loadNativeValidation();
 	const schema = {
 		type: ["object", "null"],

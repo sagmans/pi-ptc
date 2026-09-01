@@ -4,7 +4,8 @@ import type {
 	PiRuntimeTool,
 	PiToolArgumentPreparation,
 } from "./pi-runtime-contract.ts";
-import { PI_RUNTIME_DIAGNOSTICS, SUPPORTED_PI_VERSION } from "./pi-runtime-contract.ts";
+import { PI_RUNTIME_DIAGNOSTICS } from "./pi-runtime-contract.ts";
+import { isSupportedPiVersion } from "./pi-runtime-version.ts";
 
 const ITERATOR_PROPERTY = Symbol.iterator;
 
@@ -17,7 +18,7 @@ function hasLegacyContract(session: LegacyCapturedPiSession): boolean {
 		[ITERATOR_PROPERTY]?: unknown;
 	};
 	return (
-		session.version === SUPPORTED_PI_VERSION &&
+		isSupportedPiVersion(session.version) &&
 		typeof registry?.get === "function" &&
 		typeof registry?.[ITERATOR_PROPERTY] === "function" &&
 		typeof session.beforeToolCall === "function" &&
@@ -36,8 +37,9 @@ export function adaptLegacyCapturedPiSession(
 	try {
 		if (!hasLegacyContract(legacy)) return undefined;
 		const initialPreparer = createPiToolArgumentPreparer(new Map(legacy.toolRegistry));
+		const capturedVersion = legacy.version;
 		const validate = (): void => {
-			if (legacy.version !== SUPPORTED_PI_VERSION) {
+			if (legacy.version !== capturedVersion || !isSupportedPiVersion(legacy.version)) {
 				throw new Error(PI_RUNTIME_DIAGNOSTICS.STALE_CAPTURE);
 			}
 		};

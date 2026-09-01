@@ -1,4 +1,7 @@
-export const SUPPORTED_PI_VERSION = "0.84.3";
+import {
+	type SupportedPiVersion,
+	UNSUPPORTED_PI_VERSION_DIAGNOSTIC,
+} from "./pi-runtime-version.ts";
 
 export const PI_RUNTIME_PRIVATE_PROPERTIES = Object.freeze({
 	TOOL_REGISTRY: "_toolRegistry",
@@ -6,7 +9,7 @@ export const PI_RUNTIME_PRIVATE_PROPERTIES = Object.freeze({
 });
 
 export const PI_RUNTIME_DIAGNOSTICS = Object.freeze({
-	UNSUPPORTED_VERSION: "Unsupported Pi runtime version",
+	UNSUPPORTED_VERSION: UNSUPPORTED_PI_VERSION_DIAGNOSTIC,
 	MISSING_BIND_EXTENSIONS: "AgentSession.prototype.bindExtensions is unavailable",
 	UNPATCHABLE_BIND_EXTENSIONS: "AgentSession.prototype.bindExtensions is not patchable",
 	MISSING_RELOAD: "AgentSession.prototype.reload is unavailable",
@@ -104,7 +107,7 @@ export type PiToolArgumentPreparation =
 	| { readonly ok: true; readonly value: unknown }
 	| { readonly ok: false; readonly message: string };
 export type CapturedPiSession = {
-	readonly version: typeof SUPPORTED_PI_VERSION;
+	readonly version: SupportedPiVersion;
 	readonly extensionRunner: PiExtensionRunner;
 	readonly sharedRuntime: PiSharedRuntime;
 	readonly toolRegistry: ReadonlyMap<string, PiRuntimeTool>;
@@ -158,23 +161,4 @@ export type PiRuntimeSharedPatchEnsure =
 
 export function diagnostic(prefix: string, detail?: string): string {
 	return detail ? `${prefix}: ${detail}` : prefix;
-}
-
-export function getPiRuntimeVersionDiagnostic(
-	importedVersion: string,
-	suppliedVersion?: string,
-): string | undefined {
-	if (importedVersion !== SUPPORTED_PI_VERSION) {
-		return diagnostic(
-			PI_RUNTIME_DIAGNOSTICS.UNSUPPORTED_VERSION,
-			`expected ${SUPPORTED_PI_VERSION}, imported ${importedVersion}`,
-		);
-	}
-	if (suppliedVersion !== undefined && suppliedVersion !== importedVersion) {
-		return diagnostic(
-			PI_RUNTIME_DIAGNOSTICS.UNSUPPORTED_VERSION,
-			`imported ${importedVersion}, supplied ${suppliedVersion}`,
-		);
-	}
-	return undefined;
 }

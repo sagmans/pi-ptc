@@ -8,7 +8,8 @@ import type { ExtensionAPI } from "../src/host.ts";
 import { bootstrapPtcPackage } from "../src/package-bootstrap.ts";
 import { SUPPORTED_PI_VERSION } from "../src/pi-runtime.ts";
 
-const UNSUPPORTED_PI_VERSION = "0.84.2";
+const SUPPORTED_PI_VERSIONS = Object.freeze(["0.84.3", "0.84.4"]);
+const UNSUPPORTED_PI_VERSIONS = Object.freeze(["0.84.2", "0.84.5"]);
 const NATIVE_TOOL_NAME = "read";
 const PTC_TOOL_NAME = "ptc";
 const PACKAGE_LOADER_TIMEOUT_MS = 30_000;
@@ -99,40 +100,44 @@ function createBootstrapHarness(): BootstrapHarness {
 	};
 }
 
-test("unsupported package bootstrap stays inert before implementation loading", async () => {
-	const harness = createBootstrapHarness();
-	let implementationLoads = 0;
-	const installed = await bootstrapPtcPackage(harness.pi, {
-		resolveVersion: () => UNSUPPORTED_PI_VERSION,
-		loadInstaller: async () => {
-			implementationLoads += 1;
-			return () => {
-				throw new Error("unsupported implementation must not run");
-			};
-		},
-	});
+test("unverified Pi versions stay inert before implementation loading", async () => {
+	for (const version of UNSUPPORTED_PI_VERSIONS) {
+		const harness = createBootstrapHarness();
+		let implementationLoads = 0;
+		const installed = await bootstrapPtcPackage(harness.pi, {
+			resolveVersion: () => version,
+			loadInstaller: async () => {
+				implementationLoads += 1;
+				return () => {
+					throw new Error("unsupported implementation must not run");
+				};
+			},
+		});
 
-	assert.equal(installed, false);
-	assert.equal(implementationLoads, 0);
-	assert.deepEqual(harness.registered, []);
-	assert.deepEqual(harness.active, [NATIVE_TOOL_NAME]);
+		assert.equal(installed, false, version);
+		assert.equal(implementationLoads, 0, version);
+		assert.deepEqual(harness.registered, [], version);
+		assert.deepEqual(harness.active, [NATIVE_TOOL_NAME], version);
+	}
 });
 
-test("supported package bootstrap loads one complete installer", async () => {
-	const harness = createBootstrapHarness();
-	let implementationLoads = 0;
-	const installed = await bootstrapPtcPackage(harness.pi, {
-		resolveVersion: () => SUPPORTED_PI_VERSION,
-		loadInstaller: async () => {
-			implementationLoads += 1;
-			return (pi) => pi.registerTool({ name: PTC_TOOL_NAME });
-		},
-	});
+test("each verified Pi version loads one complete installer", async () => {
+	for (const version of SUPPORTED_PI_VERSIONS) {
+		const harness = createBootstrapHarness();
+		let implementationLoads = 0;
+		const installed = await bootstrapPtcPackage(harness.pi, {
+			resolveVersion: () => version,
+			loadInstaller: async () => {
+				implementationLoads += 1;
+				return (pi) => pi.registerTool({ name: PTC_TOOL_NAME });
+			},
+		});
 
-	assert.equal(installed, true);
-	assert.equal(implementationLoads, 1);
-	assert.deepEqual(harness.registered, [PTC_TOOL_NAME]);
-	assert.deepEqual(harness.active, [NATIVE_TOOL_NAME]);
+		assert.equal(installed, true, version);
+		assert.equal(implementationLoads, 1, version);
+		assert.deepEqual(harness.registered, [PTC_TOOL_NAME], version);
+		assert.deepEqual(harness.active, [NATIVE_TOOL_NAME], version);
+	}
 });
 
 test("Pi package loader awaits bootstrap before binding the supported runtime", () => {

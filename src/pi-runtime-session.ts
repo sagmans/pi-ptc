@@ -18,7 +18,7 @@ import type {
 	PiRuntimeTool,
 	PiSharedRuntime,
 } from "./pi-runtime-contract.ts";
-import { PI_RUNTIME_DIAGNOSTICS, SUPPORTED_PI_VERSION } from "./pi-runtime-contract.ts";
+import { PI_RUNTIME_DIAGNOSTICS } from "./pi-runtime-contract.ts";
 import { installCapturedRuntimeEventFinalizers } from "./pi-runtime-events.ts";
 import type {
 	LifecycleInvocation,
@@ -36,12 +36,14 @@ import {
 import { createTransportOwnership, getTaggedInstaller } from "./pi-runtime-registry-validation.ts";
 import { validateSession } from "./pi-runtime-shape.ts";
 import { createToolRegistryFacade } from "./pi-runtime-tools.ts";
+import type { SupportedPiVersion } from "./pi-runtime-version.ts";
 
 export function createCapturedSession(
 	state: PatchState,
 	slotBySession: WeakMap<object, LifecycleSlot>,
 	session: object,
 	association: SessionAssociation,
+	runtimeVersion: SupportedPiVersion,
 ): CapturedPiSession {
 	const validate = (): SessionParts =>
 		requireCurrentSessionParts(state, slotBySession, session, association);
@@ -91,9 +93,9 @@ export function createCapturedSession(
 		return Reflect.apply(parts.afterToolCall, parts.agent, args);
 	};
 	return Object.freeze({
-		get version(): typeof SUPPORTED_PI_VERSION {
+		get version(): SupportedPiVersion {
 			validate();
-			return SUPPORTED_PI_VERSION;
+			return runtimeVersion;
 		},
 		get extensionRunner(): PiExtensionRunner {
 			validate();
@@ -155,6 +157,7 @@ export function inspectBoundSession(
 	slotBySession: WeakMap<object, LifecycleSlot>,
 	session: object,
 	invocation: LifecycleInvocation,
+	runtimeVersion: SupportedPiVersion,
 ): void {
 	if (!invocationIsCurrent(state, slotBySession, session, invocation)) return;
 	if (!isRecord(session) || typeof session[GET_TOOL_DEFINITION_PROPERTY] !== "function") {
@@ -197,7 +200,7 @@ export function inspectBoundSession(
 	try {
 		installer.capturePiRuntime({
 			compatible: true,
-			session: createCapturedSession(state, slotBySession, session, association),
+			session: createCapturedSession(state, slotBySession, session, association, runtimeVersion),
 			transportOwnership,
 		});
 	} catch (error) {

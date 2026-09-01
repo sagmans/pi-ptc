@@ -4,6 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { SHIPPED_PTC_CONFIG, TRANSPORT_NAME } from "../../src/config.ts";
 import { createSnapshotDetails, parseDispatchDetails } from "../../src/dispatch-details.ts";
 import type { ExtensionAPI, ExtensionContext } from "../../src/host.ts";
@@ -11,7 +12,6 @@ import {
 	adaptLegacyCapturedPiSession,
 	ensureSharedPiRuntimeCapturePatch,
 	installPiRuntimeCapturePatch,
-	SUPPORTED_PI_VERSION,
 	tagPtcToolDefinition,
 } from "../../src/pi-runtime.ts";
 import type {
@@ -33,6 +33,8 @@ import {
 	snapshotPiRuntimeV1Peer,
 } from "./pi-runtime-v1-peer.ts";
 
+const BASELINE_PI_VERSION = "0.84.3";
+const INSTALLED_PI_VERSION: string = VERSION;
 const BASELINE_RUNTIME_PATH = "src/pi-runtime.ts";
 const BASELINE_DETAILS_PATH = "src/dispatch-details.ts";
 const BASELINE_WORKER_PATH = "src/worker.ts";
@@ -100,12 +102,12 @@ async function proveSharedPatchOrder(first: RuntimeModule, second: RuntimeModule
 	session.ptcDefinition = definition;
 	const firstEnsure = first.ensureSharedPiRuntimeCapturePatch({
 		agentSession: Session,
-		version: SUPPORTED_PI_VERSION,
+		version: INSTALLED_PI_VERSION,
 		globalObject,
 	});
 	const secondEnsure = second.ensureSharedPiRuntimeCapturePatch({
 		agentSession: Session,
-		version: SUPPORTED_PI_VERSION,
+		version: INSTALLED_PI_VERSION,
 		globalObject,
 	});
 	assert.equal(firstEnsure.compatible, true);
@@ -176,7 +178,7 @@ async function proveSharedLifecycleOrder(
 	for (const runtimeModule of [first, second]) {
 		const ensured = runtimeModule.ensureSharedPiRuntimeCapturePatch({
 			agentSession: Session,
-			version: SUPPORTED_PI_VERSION,
+			version: INSTALLED_PI_VERSION,
 			globalObject,
 		});
 		assert.equal(ensured.compatible, true);
@@ -217,12 +219,12 @@ async function proveMixedOrder(first: RuntimeModule, second: RuntimeModule): Pro
 	const before = snapshotPiRuntimeV1Peer(globalObject, Session.prototype);
 	const firstInstallation = first.installPiRuntimeCapturePatch({
 		agentSession: Session,
-		version: SUPPORTED_PI_VERSION,
+		version: INSTALLED_PI_VERSION,
 		globalObject,
 	});
 	const secondInstallation = second.installPiRuntimeCapturePatch({
 		agentSession: Session,
-		version: SUPPORTED_PI_VERSION,
+		version: INSTALLED_PI_VERSION,
 		globalObject,
 	});
 	assert.equal(firstInstallation.compatible, true);
@@ -260,19 +262,38 @@ async function proveMixedOrder(first: RuntimeModule, second: RuntimeModule): Pro
 	assert.deepEqual(after.lifecycleDescriptors, before.lifecycleDescriptors);
 }
 
-test("baseline and target Pi runtime copies interoperate in both load orders", async () => {
+test("baseline runtime compatibility follows the installed verified Pi version", async () => {
 	const baseline = (await loadBaselineModule(BASELINE_RUNTIME_PATH)) as RuntimeModule;
 	const target: RuntimeModule = {
 		ensureSharedPiRuntimeCapturePatch,
 		installPiRuntimeCapturePatch,
 		tagPtcToolDefinition,
 	};
-	await proveMixedOrder(baseline, target);
-	await proveMixedOrder(target, baseline);
-	await proveSharedPatchOrder(baseline, target);
-	await proveSharedPatchOrder(target, baseline);
-	await proveSharedLifecycleOrder(baseline, target);
-	await proveSharedLifecycleOrder(target, baseline);
+	if (INSTALLED_PI_VERSION === BASELINE_PI_VERSION) {
+		await proveMixedOrder(baseline, target);
+		await proveMixedOrder(target, baseline);
+		await proveSharedPatchOrder(baseline, target);
+		await proveSharedPatchOrder(target, baseline);
+		await proveSharedLifecycleOrder(baseline, target);
+		await proveSharedLifecycleOrder(target, baseline);
+		return;
+	}
+
+	const { Session } = createFakeSessionClass();
+	const globalObject = {};
+	const baselineInstallation = baseline.installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: INSTALLED_PI_VERSION,
+		globalObject,
+	});
+	assert.equal(baselineInstallation.compatible, false);
+	const targetInstallation = target.installPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: INSTALLED_PI_VERSION,
+		globalObject,
+	});
+	assert.equal(targetInstallation.compatible, true);
+	if (targetInstallation.compatible) targetInstallation.teardown();
 });
 
 test("target details remain readable by baseline and baseline fixtures remain readable", async () => {

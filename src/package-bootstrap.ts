@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { ExtensionAPI } from "./host.ts";
-import { SUPPORTED_PI_VERSION } from "./pi-runtime-contract.ts";
+import { isSupportedPiVersion } from "./pi-runtime-version.ts";
 
 const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const PACKAGE_FILE_NAME = "package.json";
@@ -45,7 +45,7 @@ export async function bootstrapPtcPackage(
 	options: PackageBootstrapOptions = {},
 ): Promise<boolean> {
 	const version = (options.resolveVersion ?? readPiVersionFromPackage)();
-	if (version !== SUPPORTED_PI_VERSION) return false;
+	if (version === undefined || !isSupportedPiVersion(version)) return false;
 	const installer = await (options.loadInstaller ?? loadPtcInstaller)();
 	installer(pi);
 	return true;

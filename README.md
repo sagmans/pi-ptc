@@ -13,12 +13,13 @@ exposes `ptc` and the active tools; `native` disables PTC.
 ## Requirements
 
 - Node `>=24.20.0`
-- Pi `0.84.3`
+- Pi `0.84.3` or `0.84.4`
 
-PTC uses an exact-version, fail-closed adapter for Pi runtime state. Package
-bootstrap checks the host before loading Pi-private, TUI, or TypeBox-dependent
-implementation. An unsupported host stays native without registering PTC; runtime
-shape drift after supported-host loading reports `ptc: inert`.
+PTC uses an explicit verified-version allowlist and fail-closed adapter for Pi
+runtime state. Package bootstrap checks the host before loading Pi-private, TUI,
+or TypeBox-dependent implementation. An unsupported host stays native without
+registering PTC; runtime shape drift after supported-host loading reports
+`ptc: inert`. Future Pi versions require verification before joining the allowlist.
 
 ## Install
 

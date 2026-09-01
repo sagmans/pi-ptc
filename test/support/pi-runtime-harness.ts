@@ -23,7 +23,7 @@ import {
 	type PiRuntimeCapture,
 	type PiRuntimeEventFinalizersInstallation,
 	type PiRuntimeInstaller,
-	SUPPORTED_PI_VERSION,
+	type SupportedPiVersion,
 	tagPtcToolDefinition,
 } from "../../src/pi-runtime.ts";
 
@@ -45,7 +45,6 @@ export {
 	rmSync,
 	SessionManager,
 	SettingsManager,
-	SUPPORTED_PI_VERSION,
 	Type,
 	tagPtcToolDefinition,
 	test,
@@ -53,6 +52,7 @@ export {
 	VERSION,
 };
 
+export const SUPPORTED_PI_VERSION = VERSION as SupportedPiVersion;
 export const BIND_EXTENSIONS_PROPERTY = "bindExtensions";
 export const RELOAD_PROPERTY = "reload";
 export const EMIT_TOOL_CALL_PROPERTY = "emitToolCall";

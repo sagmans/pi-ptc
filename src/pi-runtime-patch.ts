@@ -9,11 +9,7 @@ import type {
 	PiRuntimePatchInstallation,
 	PiRuntimePatchOptions,
 } from "./pi-runtime-contract.ts";
-import {
-	diagnostic,
-	getPiRuntimeVersionDiagnostic,
-	PI_RUNTIME_DIAGNOSTICS,
-} from "./pi-runtime-contract.ts";
+import { diagnostic, PI_RUNTIME_DIAGNOSTICS } from "./pi-runtime-contract.ts";
 import type {
 	LifecycleCoordinator,
 	LifecycleDescriptorValidation,
@@ -47,12 +43,14 @@ import {
 	validatePatchState,
 } from "./pi-runtime-registry-validation.ts";
 import { inspectBoundSession } from "./pi-runtime-session.ts";
+import { getPiRuntimeVersionDiagnostic, type SupportedPiVersion } from "./pi-runtime-version.ts";
 
 export function createPatchedLifecycleMethod(
 	state: PatchState,
 	slotBySession: WeakMap<object, LifecycleSlot>,
 	originalFunction: LifecycleMethod,
 	invocationKind: typeof BIND_INVOCATION_SLOT_KIND | typeof RELOAD_INVOCATION_SLOT_KIND,
+	runtimeVersion: SupportedPiVersion,
 ): LifecycleMethod {
 	return async function (this: object, ...args: unknown[]): Promise<unknown> {
 		const invocation: LifecycleInvocation = beginLifecycleInvocation(
@@ -76,7 +74,7 @@ export function createPatchedLifecycleMethod(
 			clearCurrentSlot(slotBySession, this, invocation);
 			return result;
 		}
-		inspectBoundSession(state, slotBySession, this, invocation);
+		inspectBoundSession(state, slotBySession, this, invocation, runtimeVersion);
 		return result;
 	};
 }
@@ -167,6 +165,7 @@ export function installPiRuntimeCapturePatch(
 	if (versionDiagnostic) {
 		return { compatible: false, diagnostic: versionDiagnostic };
 	}
+	const runtimeVersion = VERSION as SupportedPiVersion;
 	const agentSession = options.agentSession ?? AgentSession;
 	const prototype = agentSession.prototype;
 	const globalObject = options.globalObject ?? globalThis;
@@ -286,12 +285,14 @@ export function installPiRuntimeCapturePatch(
 		slotBySession,
 		state.bindExtensions.originalFunction,
 		BIND_INVOCATION_SLOT_KIND,
+		runtimeVersion,
 	);
 	state.reload.patchedFunction = createPatchedLifecycleMethod(
 		state,
 		slotBySession,
 		state.reload.originalFunction,
 		RELOAD_INVOCATION_SLOT_KIND,
+		runtimeVersion,
 	);
 	try {
 		Object.defineProperty(prototype, BIND_EXTENSIONS_PROPERTY, {

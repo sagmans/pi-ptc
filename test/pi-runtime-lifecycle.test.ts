@@ -52,7 +52,7 @@ test("patch validates reload before mutating bindExtensions", () => {
 	);
 });
 
-test("imported Pi version remains authoritative over a supported caller assertion", () => {
+test("version diagnostics accept each verified Pi version and reject mismatched assertions", () => {
 	const getVersionDiagnostic = (
 		piRuntimeModule as typeof piRuntimeModule & {
 			getPiRuntimeVersionDiagnostic(
@@ -64,10 +64,13 @@ test("imported Pi version remains authoritative over a supported caller assertio
 	assert.equal(typeof getVersionDiagnostic, "function");
 	if (typeof getVersionDiagnostic !== "function") return;
 
+	for (const version of ["0.84.3", "0.84.4"]) {
+		assert.equal(getVersionDiagnostic(version, version), undefined, version);
+	}
 	const result = getVersionDiagnostic(UNSUPPORTED_PI_VERSION, SUPPORTED_PI_VERSION);
-
 	assert.match(result ?? "", /0\.84\.2/);
 	assert.match(result ?? "", /0\.84\.3/);
+	assert.match(result ?? "", /0\.84\.4/);
 });
 
 test("unsupported version reports incompatibility and leaves prototype untouched", () => {
@@ -80,7 +83,7 @@ test("unsupported version reports incompatibility and leaves prototype untouched
 	assert.equal(installation.compatible, false);
 	if (installation.compatible) throw new Error("expected unsupported version");
 	assert.match(installation.diagnostic, /0\.84\.2/);
-	assert.match(installation.diagnostic, /0\.84\.3/);
+	assert.equal(installation.diagnostic.includes(SUPPORTED_PI_VERSION), true);
 	assert.deepEqual(
 		Object.getOwnPropertyDescriptor(Session.prototype, BIND_EXTENSIONS_PROPERTY),
 		originalDescriptor,

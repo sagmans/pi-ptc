@@ -1,10 +1,6 @@
 import { AgentSession, VERSION } from "@earendil-works/pi-coding-agent";
 import type { PiRuntimePatchOptions, PiRuntimeSharedPatchEnsure } from "./pi-runtime-contract.ts";
-import {
-	diagnostic,
-	getPiRuntimeVersionDiagnostic,
-	PI_RUNTIME_DIAGNOSTICS,
-} from "./pi-runtime-contract.ts";
+import { diagnostic, PI_RUNTIME_DIAGNOSTICS } from "./pi-runtime-contract.ts";
 import { installPiRuntimeCapturePatch, lifecyclePatchIsCurrent } from "./pi-runtime-patch.ts";
 import type { SharedPatchLease } from "./pi-runtime-registry.ts";
 import {
@@ -25,6 +21,7 @@ import {
 	validatePatchState,
 	validateSharedPatchLease,
 } from "./pi-runtime-registry-validation.ts";
+import { getPiRuntimeVersionDiagnostic } from "./pi-runtime-version.ts";
 
 export function ensureSharedPiRuntimeCapturePatch(
 	options: PiRuntimePatchOptions = {},

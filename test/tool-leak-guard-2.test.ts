@@ -18,7 +18,7 @@ import {
 	ZERO_USAGE,
 } from "./support/tool-executor-harness.ts";
 
-test("observable pipeline matches Pi 0.84.3 agent-core characterization", async () => {
+test("observable pipeline matches supported Pi agent-core characterization", async () => {
 	const codingAgentEntry = fileURLToPath(import.meta.resolve("@earendil-works/pi-coding-agent"));
 	const agentLoopPath = resolve(
 		dirname(codingAgentEntry),

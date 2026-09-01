@@ -7,10 +7,11 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { TRUST_COPY } from "../src/config.ts";
 import type { DispatchLogEntry, DispatchProgress } from "../src/dispatch-contract.ts";
-import type {
-	CapturedPiSession,
-	PiRuntimeActionsInstallation,
-	PiRuntimeEventFinalizersInstallation,
+import {
+	type CapturedPiSession,
+	type PiRuntimeActionsInstallation,
+	type PiRuntimeEventFinalizersInstallation,
+	SUPPORTED_PI_VERSION,
 } from "../src/pi-runtime.ts";
 import { createPiToolArgumentPreparer } from "../src/pi-runtime-arguments.ts";
 import { createScheduler } from "../src/scheduler.ts";
@@ -96,7 +97,7 @@ test("live custom renderers receive raw args and finalized non-JSON results with
 	};
 	const catalog = [entry] as const;
 	const session: CapturedPiSession = {
-		version: "0.84.3",
+		version: SUPPORTED_PI_VERSION,
 		extensionRunner: {
 			createContext: () => ({}),
 			emit: async () => undefined,

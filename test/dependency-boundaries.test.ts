@@ -11,7 +11,7 @@ const SOURCE_ROOT = join(REPOSITORY_ROOT, "src");
 const PI_RUNTIME_PREFIX = "pi-runtime-";
 const PI_RUNTIME_FACADE = "pi-runtime.ts";
 const PACKAGE_BOOTSTRAP = "package-bootstrap.ts";
-const PI_RUNTIME_CONTRACT = "./pi-runtime-contract.ts";
+const PI_RUNTIME_VERSION = "./pi-runtime-version.ts";
 const PI_RUNTIME_ASSOCIATION = "pi-runtime-association.ts";
 const PTC_EXECUTION = "ptc-execution.ts";
 const PTC_LIFECYCLE_IMPORT = "./ptc-lifecycle.ts";
@@ -100,13 +100,13 @@ function importCycles(): string[] {
 	return [...cycles].sort();
 }
 
-test("private Pi runtime modules stay behind the exact-version facade", () => {
+test("private Pi runtime modules stay behind the verified-version facade", () => {
 	const violations: string[] = [];
 	for (const caller of sourceFiles()) {
 		if (caller === PI_RUNTIME_FACADE || caller.startsWith(PI_RUNTIME_PREFIX)) continue;
 		for (const dependency of imports(caller)) {
 			const target = basename(dependency);
-			const bootstrapException = caller === PACKAGE_BOOTSTRAP && dependency === PI_RUNTIME_CONTRACT;
+			const bootstrapException = caller === PACKAGE_BOOTSTRAP && dependency === PI_RUNTIME_VERSION;
 			if (target.startsWith(PI_RUNTIME_PREFIX) && !bootstrapException) {
 				violations.push(`${caller} imports ${dependency}`);
 			}
