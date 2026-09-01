@@ -12,7 +12,7 @@ exposes `ptc` and the active tools; `native` disables PTC.
 
 ## Requirements
 
-- Node `>=22.19.0`
+- Node `>=24.20.0`
 - Pi `0.84.3`
 
 PTC uses an exact-version, fail-closed adapter for Pi runtime state. Package

@@ -46,7 +46,7 @@
 		"verify:ci": "npm run audit && npm run verify"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"node": ">=24.20.0"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
