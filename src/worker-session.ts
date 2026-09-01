@@ -105,11 +105,11 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			subject: outputLimit.OutputLimitSubject,
 		): void => {
 			const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
-			const messageLines = logicalLineCount(message);
 			if (messageBytes > maxOutputBytes) {
 				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_BYTES_NAME, messageBytes, maxOutputBytes);
 				return;
 			}
+			const messageLines = logicalLineCount(message);
 			if (messageLines > maxOutputLines) {
 				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_LINES_NAME, messageLines, maxOutputLines);
 				return;
@@ -141,7 +141,6 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				logOutputBytes +
 				separatorBytes +
 				Buffer.byteLength(JSON.stringify(message.text), UTF8_ENCODING);
-			const nextLines = logOutputLines + logicalLineCount(message.text);
 			if (nextBytes > maxOutputBytes) {
 				finishOutputLimit(
 					outputLimit.LOG_OUTPUT_SUBJECT,
@@ -151,6 +150,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				);
 				return;
 			}
+			const nextLines = logOutputLines + logicalLineCount(message.text);
 			if (nextLines > maxOutputLines) {
 				finishOutputLimit(
 					outputLimit.LOG_OUTPUT_SUBJECT,

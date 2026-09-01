@@ -65,7 +65,6 @@ void (async () => {
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
-		const messageLines = logicalLineCount(message);
 		if (messageBytes > boot.maxOutputBytes) {
 			postOutputLimit(
 				outputLimit.WORKER_ERROR_SUBJECT,
@@ -75,6 +74,7 @@ void (async () => {
 			);
 			return;
 		}
+		const messageLines = logicalLineCount(message);
 		if (messageLines > boot.maxOutputLines) {
 			postOutputLimit(
 				outputLimit.WORKER_ERROR_SUBJECT,

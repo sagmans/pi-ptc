@@ -28,6 +28,8 @@ const LOG_BYTE_LIMIT_MESSAGE = "log output exceeds maxOutputBytes: 18 > 17";
 const LOG_LINE_LIMIT_MESSAGE = "log output exceeds maxOutputLines: 3 > 2";
 const WORKER_ERROR_BYTE_LIMIT_MESSAGE = "worker error message exceeds maxOutputBytes: 455 > 64";
 const WORKER_ERROR_LINE_LIMIT_MESSAGE = "worker error message exceeds maxOutputLines: 3 > 2";
+const MULTILINE_FAILURE_BYTES = 1_000_000;
+const MULTILINE_WORKER_ERROR_LIMIT_MESSAGE = `worker error message exceeds maxOutputBytes: ${MULTILINE_FAILURE_BYTES} > ${WORKER_FAILURE_MAX_BYTES}`;
 
 function reserveAllButOneOrphanSlot(): OrphanBindingReservation[] {
 	const reservations: OrphanBindingReservation[] = [];
@@ -224,6 +226,19 @@ test("runCode bounds worker failure bytes before host ingestion", async () => {
 	assert.deepEqual(outcome, {
 		logs: [],
 		error: { kind: "output-limit", message: WORKER_ERROR_BYTE_LIMIT_MESSAGE },
+	});
+});
+
+test("worker byte-bounds newline-rich errors before counting lines", async () => {
+	const outcome = await runCode({
+		program: `throw new Error("\\n".repeat(${MULTILINE_FAILURE_BYTES}));`,
+		maxOutputBytes: WORKER_FAILURE_MAX_BYTES,
+		maxOutputLines: SHIPPED_PTC_CONFIG.maxOutputLines,
+	});
+
+	assert.deepEqual(outcome, {
+		logs: [],
+		error: { kind: "output-limit", message: MULTILINE_WORKER_ERROR_LIMIT_MESSAGE },
 	});
 });
 
