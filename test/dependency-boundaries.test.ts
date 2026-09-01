@@ -10,13 +10,17 @@ const PI_RUNTIME_PREFIX = "pi-runtime-";
 const PI_RUNTIME_FACADE = "pi-runtime.ts";
 const PACKAGE_BOOTSTRAP = "package-bootstrap.ts";
 const PI_RUNTIME_CONTRACT = "./pi-runtime-contract.ts";
+const PI_RUNTIME_ASSOCIATION = "pi-runtime-association.ts";
 const PTC_EXECUTION = "ptc-execution.ts";
 const PTC_LIFECYCLE_IMPORT = "./ptc-lifecycle.ts";
 const RENDERER_RAW_STORE = "renderer-raw-store.ts";
 const WORKER_PROTOCOL = "worker-protocol.ts";
 const PACKAGE_FILE = "package.json";
 const ROOT_EXPORT = ".";
-const IMPORT_PATTERN = /(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g;
+const ASSOCIATION_MUTATION_PATTERN =
+	/association\.(?:parts|toolGeneration|runtimeActionsInstalled|runtimeEventFinalizersInstalled)\s*(?:=|\+=|-=|\+\+|--)/;
+const STATIC_IMPORT_PATTERN = /(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g;
+const DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
 const RAW_STORE_FORBIDDEN_PATTERN =
 	/(?:call.?id|toolCallId|RendererToken|renderer-definition-store)/i;
 const PROTOCOL_DECLARATION_PATTERN =
@@ -40,7 +44,10 @@ function source(path: string): string {
 }
 
 function imports(path: string): string[] {
-	return [...source(path).matchAll(IMPORT_PATTERN)].map((match) => match[1] ?? "");
+	const contents = source(path);
+	return [STATIC_IMPORT_PATTERN, DYNAMIC_IMPORT_PATTERN].flatMap((pattern) =>
+		[...contents.matchAll(pattern)].map((match) => match[1] ?? ""),
+	);
 }
 
 function repositoryPath(path: string): string {
@@ -97,6 +104,13 @@ test("Pi shape, action, and event dependencies remain acyclic", () => {
 	for (const caller of ["pi-runtime-actions.ts", "pi-runtime-events.ts"]) {
 		assert.equal(imports(caller).includes("./pi-runtime-session.ts"), false, caller);
 	}
+});
+
+test("only the association owner mutates session association state", () => {
+	const violations = sourceFiles()
+		.filter((path) => path.startsWith(PI_RUNTIME_PREFIX) && path !== PI_RUNTIME_ASSOCIATION)
+		.filter((path) => ASSOCIATION_MUTATION_PATTERN.test(source(path)));
+	assert.deepEqual(violations, []);
 });
 
 test("execution consumes immutable leases without lifecycle reach-through", () => {

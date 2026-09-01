@@ -1,6 +1,9 @@
 import {
 	clearCurrentSlot,
+	installAssociationRuntimeActions,
+	refreshAssociationTools,
 	requireCurrentSessionParts,
+	restoreAssociationRuntimeActions,
 	throwStaleCapture,
 } from "./pi-runtime-association.ts";
 import type {
@@ -147,8 +150,7 @@ export function installCapturedRuntimeActions(
 				: validation.diagnostic,
 		);
 	}
-	association.parts = validation.parts;
-	association.runtimeActionsInstalled = true;
+	installAssociationRuntimeActions(association, validation.parts);
 	installed = true;
 
 	const original: PiRuntimeOriginalActions = Object.freeze({
@@ -187,8 +189,7 @@ export function installCapturedRuntimeActions(
 			) {
 				throwStaleCapture(state, slotBySession, session, association);
 			}
-			association.parts = refreshed.parts;
-			association.toolGeneration += 1;
+			refreshAssociationTools(association, refreshed.parts);
 		},
 		snapshotTools(): readonly PiRuntimeToolEntry[] {
 			const parts = requireInstalledParts();
@@ -222,7 +223,7 @@ export function installCapturedRuntimeActions(
 			} finally {
 				restored = true;
 				installed = false;
-				association.runtimeActionsInstalled = false;
+				restoreAssociationRuntimeActions(association);
 				const descriptorError = restoreOwnedDescriptors();
 				restoreError ??= descriptorError;
 				clearCurrentSlot(slotBySession, session, association);

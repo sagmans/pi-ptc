@@ -5,6 +5,7 @@ import {
 	STATUS_KEY,
 	TRANSPORT_NAME,
 } from "./config.ts";
+import type { PtcDispatchDetails } from "./dispatch-details.ts";
 import type { ExtensionContext } from "./host.ts";
 import type {
 	CapturedPiSession,
@@ -19,6 +20,7 @@ import {
 	BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX,
 	BEFORE_AGENT_START_SYSTEM_PROMPT_ARGUMENT_INDEX,
 	CATALOG_ROLLBACK_FAILURE_PREFIX,
+	type CaptureReadiness,
 	describeError,
 	INERT_STATUS,
 	isBlockingToolCallResult,
@@ -49,8 +51,6 @@ import {
 	type ToolCatalogRefreshFailure,
 } from "./tool-catalog.ts";
 import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
-
-type CaptureReadiness = "pending" | "active" | "inert";
 
 export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleController {
 	let presentation = options.initialPresentation;
@@ -299,6 +299,11 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 				catalog: snapshot,
 				dispatch,
 				assertCurrent,
+				recordFailure(toolCallId: string, details: PtcDispatchDetails) {
+					if (!released && leaseGeneration === generation) {
+						options.failureDetails.remember(toolCallId, details);
+					}
+				},
 				transitionToInert,
 				release() {
 					released = true;

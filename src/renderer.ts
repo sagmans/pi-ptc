@@ -25,7 +25,7 @@ import {
 	mergeDefinitions,
 } from "./renderer-definitions.ts";
 import { safeForeground } from "./renderer-diagnostics.ts";
-import { liveRenderAttachments } from "./renderer-raw-store.ts";
+import type { RawRenderStore } from "./renderer-raw-store.ts";
 import { SafePtcRoot } from "./renderer-root.ts";
 
 export type {
@@ -55,12 +55,13 @@ export function renderPtcResult(
 	context: PtcRenderContext,
 	definitionProvider?: PtcDefinitionProvider,
 	executionDefinitions?: PtcDefinitionRegistry,
+	rawRenderStore?: RawRenderStore,
 ): Component {
 	const root = getRoot(context, theme, definitionProvider, executionDefinitions);
 	const details = parseDispatchDetails(result.details);
 	const attachments =
 		typeof result.details === "object" && result.details !== null
-			? liveRenderAttachments.get(result.details)
+			? rawRenderStore?.claim(result.details)
 			: undefined;
 	root.setView({
 		expanded: context.expanded,

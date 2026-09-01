@@ -76,7 +76,6 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 			maxPersistedDetailsBytes: shipped.maxPersistedDetailsBytes,
 			maxOutputBytes: shipped.maxOutputBytes,
 			maxOutputLines: shipped.maxOutputLines,
-			failureDetails,
 			createExecution: (context) => lifecycle.createExecution(context),
 		});
 		pi.registerTool(tagPtcToolDefinition(transportTool, runtimeInstaller));

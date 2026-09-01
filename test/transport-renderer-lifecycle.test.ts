@@ -2,8 +2,12 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 
 import { Text } from "@earendil-works/pi-tui";
+import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 import { createPtcTool } from "../src/transport.ts";
 import { createRenderContext, LIMITS, renderNestedResult } from "./support/transport-harness.ts";
+
+const INSTANCE_RAW_SECRET = "instance raw secret";
+const LATE_RAW_SECRET = "late raw secret";
 
 test("lifecycle clear prevents an old clone from claiming a future same-ID renderer", async () => {
 	let marker = "before clear renderer";
@@ -58,21 +62,25 @@ test("lifecycle clear prevents an old clone from claiming a future same-ID rende
 });
 
 test("details-identity renderer attachments stay scoped to their createPtcTool instance", async () => {
+	const renderDefinition = {
+		renderCall(args: unknown) {
+			const token = (args as { token?: unknown }).token;
+			return new Text(`custom token: ${String(token)}`, 0, 0);
+		},
+	};
 	const sourceTool = createPtcTool({
 		...LIMITS,
 		createExecution(context) {
 			return {
-				definitions: new Map([
-					[
-						"custom",
-						{
-							renderCall: () => new Text("source-only renderer", 0, 0),
-						},
-					],
-				]),
+				definitions: new Map([["custom", renderDefinition]]),
 				bindings: {
 					custom: async () => {
-						context.reportDispatch?.({ id: 1, name: "custom", args: {}, status: "ok" });
+						context.reportDispatch?.({
+							id: 1,
+							name: "custom",
+							args: { token: INSTANCE_RAW_SECRET },
+							status: "ok",
+						});
 						return null;
 					},
 				},
@@ -83,8 +91,19 @@ test("details-identity renderer attachments stay scoped to their createPtcTool i
 			return { logs: [], result: null };
 		},
 	});
+	const foreignEntry: ToolCatalogEntry = {
+		name: "custom",
+		definition: renderDefinition,
+		executable: {
+			parameters: { type: "object" },
+			async execute() {
+				return { content: [], details: {} };
+			},
+		},
+	};
 	const foreignTool = createPtcTool({
 		...LIMITS,
+		definitionProvider: () => [foreignEntry],
 		createBindings: () => ({}),
 	});
 	const result = await sourceTool.execute(
@@ -95,9 +114,24 @@ test("details-identity renderer attachments stay scoped to their createPtcTool i
 		{ cwd: process.cwd() },
 	);
 
+	const sourceContext = createRenderContext("instance-scoped-renderer");
+	assert.match(
+		renderNestedResult(sourceTool, result, "instance-scoped-renderer", sourceContext),
+		new RegExp(INSTANCE_RAW_SECRET),
+	);
 	const foreignOutput = renderNestedResult(foreignTool, result, "instance-scoped-renderer");
-	assert.doesNotMatch(foreignOutput, /source-only renderer/);
-	assert.match(foreignOutput, /custom/);
+	assert.doesNotMatch(foreignOutput, new RegExp(INSTANCE_RAW_SECRET));
+	assert.match(foreignOutput, /\[REDACTED\]/);
+
+	sourceTool.clearRenderSnapshots();
+	const clearedOutput = renderNestedResult(
+		sourceTool,
+		result,
+		"instance-scoped-renderer",
+		sourceContext,
+	);
+	assert.doesNotMatch(clearedOutput, new RegExp(INSTANCE_RAW_SECRET));
+	assert.match(clearedOutput, /\[REDACTED\]/);
 });
 
 test("tool-call renderer snapshots survive details replacement and transfer into the root", async () => {
@@ -229,13 +263,19 @@ test("renderer lifecycle epoch rejects definitions from an execution settling af
 					[
 						"custom",
 						{
-							renderCall: () => new Text("late settlement renderer", 0, 0),
+							renderCall: (args: unknown) =>
+								new Text(`late settlement renderer: ${JSON.stringify(args)}`, 0, 0),
 						},
 					],
 				]),
 				bindings: {
 					custom: async () => {
-						context.reportDispatch?.({ id: 1, name: "custom", args: {}, status: "ok" });
+						context.reportDispatch?.({
+							id: 1,
+							name: "custom",
+							args: { token: LATE_RAW_SECRET },
+							status: "ok",
+						});
 						return null;
 					},
 				},
@@ -261,10 +301,9 @@ test("renderer lifecycle epoch rejects definitions from an execution settling af
 	release();
 	const result = await pending;
 
-	assert.doesNotMatch(
-		renderNestedResult(tool, result, "late-settlement"),
-		/late settlement renderer/,
-	);
+	const output = renderNestedResult(tool, result, "late-settlement");
+	assert.doesNotMatch(output, /late settlement renderer/);
+	assert.doesNotMatch(output, new RegExp(LATE_RAW_SECRET));
 });
 
 test("unrendered tool-call renderer snapshots evict at the named bound and clear explicitly", async () => {

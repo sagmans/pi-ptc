@@ -25,6 +25,7 @@ export function createPtcExecution(options: CreatePtcExecutionOptions) {
 		const snapshot = options.lease.catalog;
 		return {
 			definitions: createPtcDefinitionRegistry(snapshot),
+			recordFailure: options.lease.recordFailure,
 			bindings: createToolBindings(
 				snapshot,
 				options.lease.dispatch,

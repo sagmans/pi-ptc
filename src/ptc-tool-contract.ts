@@ -50,6 +50,7 @@ export type FailureDetailsStore = {
 export type PtcExecution = {
 	bindings: Record<string, BindingFn>;
 	definitions?: PtcDefinitionRegistry;
+	recordFailure?(toolCallId: string, details: PtcDispatchDetails): void;
 	release?(): void;
 };
 
@@ -58,6 +59,7 @@ export interface PtcExecutionLease {
 	readonly catalog: readonly ToolCatalogEntry[];
 	readonly dispatch: ToolExecutor;
 	assertCurrent(): void;
+	recordFailure(toolCallId: string, details: PtcDispatchDetails): void;
 	transitionToInert(error: unknown, context?: ExtensionContext): void;
 	release(): void;
 }

@@ -1,6 +1,11 @@
 import { installCapturedRuntimeActions } from "./pi-runtime-actions.ts";
 import { createPiToolArgumentPreparer } from "./pi-runtime-arguments.ts";
-import { clearCurrentSlot, requireCurrentSessionParts } from "./pi-runtime-association.ts";
+import {
+	clearCurrentSlot,
+	invocationIsCurrent,
+	publishSessionAssociation,
+	requireCurrentSessionParts,
+} from "./pi-runtime-association.ts";
 import type {
 	CapturedPiSession,
 	PiExtensionRunner,
@@ -20,7 +25,6 @@ import type {
 	SessionParts,
 } from "./pi-runtime-registry.ts";
 import {
-	ASSOCIATION_SLOT_KIND,
 	GET_TOOL_DEFINITION_PROPERTY,
 	incompatible,
 	isRecord,
@@ -152,9 +156,7 @@ export function inspectBoundSession(
 	session: object,
 	invocation: LifecycleInvocation,
 ): void {
-	if (!state.active || slotBySession.get(session) !== invocation) {
-		return;
-	}
+	if (!invocationIsCurrent(state, slotBySession, session, invocation)) return;
 	if (!isRecord(session) || typeof session[GET_TOOL_DEFINITION_PROPERTY] !== "function") {
 		clearCurrentSlot(slotBySession, session, invocation);
 		throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.MISSING_TOOL_LOOKUP);
@@ -182,19 +184,16 @@ export function inspectBoundSession(
 		clearCurrentSlot(slotBySession, session, invocation);
 		return;
 	}
-	if (!state.active || slotBySession.get(session) !== invocation) {
-		return;
-	}
-	const association: SessionAssociation = {
-		kind: ASSOCIATION_SLOT_KIND,
+	if (!invocationIsCurrent(state, slotBySession, session, invocation)) return;
+	const association = publishSessionAssociation(
+		slotBySession,
+		session,
+		invocation,
 		installer,
-		definition: definition as object,
-		parts: validation.parts,
-		toolGeneration: 0,
-		runtimeActionsInstalled: false,
-		runtimeEventFinalizersInstalled: false,
-	};
-	slotBySession.set(session, association);
+		definition as object,
+		validation.parts,
+	);
+	if (!association) return;
 	try {
 		installer.capturePiRuntime({
 			compatible: true,

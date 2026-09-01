@@ -28,18 +28,18 @@ import type {
 	PtcParams,
 	PtcToolResult,
 } from "./ptc-tool-contract.ts";
-import {
-	attachPtcRenderDispatches,
-	type PtcDefinitionProvider,
-	renderPtcCall,
-	renderPtcResult,
-} from "./renderer.ts";
+import { type PtcDefinitionProvider, renderPtcCall, renderPtcResult } from "./renderer.ts";
 import type { RendererToken, RendererTokens } from "./renderer-definition-store.ts";
 import {
 	createRendererTokens,
 	MAX_PENDING_RENDER_SNAPSHOTS,
 	MAX_RENDERER_CALL_ID_HISTORY,
 } from "./renderer-definition-store.ts";
+import {
+	createRawRenderStore,
+	type RawRenderStore,
+	type RawRenderToken,
+} from "./renderer-raw-store.ts";
 import { type BindingFn, type CodeRunResult, logicalLineCount, runCode } from "./runtime.ts";
 
 export type {
@@ -98,6 +98,7 @@ export type PtcToolOptions = {
 	maxPendingRenderSnapshots?: number;
 	maxRendererCallIdHistory?: number;
 	definitionProvider?: PtcDefinitionProvider;
+	rawRenderStore?: RawRenderStore;
 	failureDetails?: FailureDetailsStore;
 	run?: typeof runCode;
 } & (
@@ -114,6 +115,7 @@ export type PtcToolOptions = {
 export function createPtcTool(options: PtcToolOptions) {
 	const run = options.run ?? runCode;
 	const failureDetails = options.failureDetails ?? createFailureDetailsStore();
+	const rawRenderStore = options.rawRenderStore ?? createRawRenderStore();
 	const rendererTokens = createRendererTokens(
 		options.maxPendingRenderSnapshots ?? MAX_PENDING_RENDER_SNAPSHOTS,
 		options.maxRendererCallIdHistory ?? MAX_RENDERER_CALL_ID_HISTORY,
@@ -132,6 +134,7 @@ export function createPtcTool(options: PtcToolOptions) {
 			context.state.root?.cwd === context.cwd
 				? undefined
 				: rendererTokens.claim(result.details, context.toolCallId),
+			rawRenderStore,
 		);
 	return {
 		name: TRANSPORT_NAME,
@@ -143,6 +146,7 @@ export function createPtcTool(options: PtcToolOptions) {
 		renderCall: renderPtcCall,
 		renderResult,
 		clearRenderSnapshots(): void {
+			rawRenderStore.clear();
 			rendererTokens.clear();
 		},
 		async execute(
@@ -155,12 +159,14 @@ export function createPtcTool(options: PtcToolOptions) {
 			if (params.description.trim().length === 0) {
 				throw new Error(EMPTY_DESCRIPTION_MESSAGE);
 			}
+			const rawRenderToken = rawRenderStore.begin();
 			const rendererToken = rendererTokens.begin(toolCallId);
 			const abortSignal = signal ?? ctx.signal;
 			const retention = createDispatchRetentionLedger(maxRenderDetailsBytes);
 			const liveDispatches = new Map<number, DispatchProgress>();
 			let definitionsProvided = false;
 			let acceptingDispatchReports = true;
+			let recordFailure: FailureDetailsStore["remember"] | undefined;
 			let releaseExecution: (() => void) | undefined;
 			const reportDispatch = (progress: DispatchProgress) => {
 				if (!acceptingDispatchReports) return;
@@ -171,7 +177,14 @@ export function createPtcTool(options: PtcToolOptions) {
 					projection.dispatch,
 					maxPersistedDetailsBytes,
 				);
-				attachExecutionRenderData(details, [progress], rendererToken, rendererTokens);
+				attachExecutionRenderData(
+					details,
+					[progress],
+					rendererToken,
+					rendererTokens,
+					rawRenderStore,
+					rawRenderToken,
+				);
 				onUpdate?.({
 					content: [{ type: "text", text: formatDispatchLine(projection.dispatch) }],
 					details,
@@ -206,6 +219,7 @@ export function createPtcTool(options: PtcToolOptions) {
 				const execution = options.createExecution
 					? options.createExecution(bindingContext)
 					: { bindings: options.createBindings(bindingContext) };
+				recordFailure = execution.recordFailure;
 				releaseExecution = execution.release;
 				const definitions = execution.definitions ? new Map(execution.definitions) : undefined;
 				rendererTokens.provide(rendererToken, definitions);
@@ -236,6 +250,8 @@ export function createPtcTool(options: PtcToolOptions) {
 					progress.map((dispatch) => liveDispatches.get(dispatch.id) ?? dispatch),
 					rendererToken,
 					rendererTokens,
+					rawRenderStore,
+					rawRenderToken,
 				);
 				return {
 					content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
@@ -258,8 +274,10 @@ export function createPtcTool(options: PtcToolOptions) {
 					progress.map((dispatch) => liveDispatches.get(dispatch.id) ?? dispatch),
 					rendererToken,
 					rendererTokens,
+					rawRenderStore,
+					rawRenderToken,
 				);
-				failureDetails.remember(toolCallId, details);
+				(recordFailure ?? failureDetails.remember)(toolCallId, details);
 				throw error;
 			} finally {
 				releaseExecution?.();
@@ -273,8 +291,10 @@ export function attachExecutionRenderData(
 	dispatches: readonly DispatchProgress[],
 	token: RendererToken,
 	rendererTokens: RendererTokens,
+	rawRenderStore: RawRenderStore,
+	rawRenderToken: RawRenderToken,
 ): void {
-	attachPtcRenderDispatches(details, dispatches);
+	rawRenderStore.attach(details, dispatches, rawRenderToken);
 	rendererTokens.attach(details, token);
 }
 

@@ -39,6 +39,7 @@ export interface PtcLifecycleController extends PtcLifecycle {
 	finalizeBeforeAgentStart(args: readonly unknown[], result: unknown, context: unknown): unknown;
 }
 
+export type CaptureReadiness = "pending" | "active" | "inert";
 export type AggregatedToolCallResult = { block?: unknown };
 export type AggregatedBeforeAgentStartResult = { messages?: unknown; systemPrompt?: unknown };
 

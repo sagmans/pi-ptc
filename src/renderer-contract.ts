@@ -13,6 +13,7 @@ export type PtcDefinitionFactory = (cwd: string) => PtcDefinitionRegistry;
 export type PtcDefinitionProvider = (cwd: string) => readonly ToolCatalogEntry[];
 export type PtcLiveRenderAttachment = {
 	readonly args: unknown;
+	readonly isCurrent: () => boolean;
 	readonly displayResult?: PtcPersistedRenderResult;
 	readonly hasResult: boolean;
 	readonly result?: unknown;

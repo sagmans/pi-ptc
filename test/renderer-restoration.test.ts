@@ -6,7 +6,7 @@ import { Text } from "@earendil-works/pi-tui";
 import type { DispatchProgress } from "../src/dispatch-contract.ts";
 import { createDeltaDetails } from "../src/dispatch-details.ts";
 import { attachPtcRenderDispatches } from "../src/renderer.ts";
-import type { PtcPartialResult, PtcToolResult } from "../src/transport.ts";
+import { createPtcTool, type PtcPartialResult, type PtcToolResult } from "../src/transport.ts";
 import {
 	createFreshOuter,
 	createRenderContext,
@@ -14,6 +14,7 @@ import {
 	DESCRIPTION,
 	definitionRegistry,
 	EXPECTED_SINGLE_RENDER_COUNT,
+	LIMITS,
 	LIVE_EDIT_ENTRY_LIMIT,
 	LIVE_WRITE_CONTENT,
 	LOSSY_EDIT_NEW_PREFIX,
@@ -33,7 +34,6 @@ import {
 } from "./support/renderer-harness.ts";
 
 test("live write arguments use native rendering while restored redacted rows use a safe fallback", () => {
-	const tool = createTool();
 	const rawDispatch: DispatchProgress = {
 		id: 1,
 		name: "write",
@@ -41,7 +41,12 @@ test("live write arguments use native rendering while restored redacted rows use
 		status: "start",
 	};
 	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
-	attachPtcRenderDispatches(details, [rawDispatch]);
+	const rawRenderStore = attachPtcRenderDispatches(details, [rawDispatch]);
+	const tool = createPtcTool({
+		...LIMITS,
+		rawRenderStore,
+		createBindings: () => ({}),
+	});
 	let nativeRenderCalls = 0;
 	const createDefinitions = () =>
 		definitionRegistry({

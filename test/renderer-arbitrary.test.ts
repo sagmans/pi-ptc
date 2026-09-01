@@ -40,7 +40,7 @@ test("live arbitrary renderers receive raw arguments, raw error result, and fina
 		},
 	};
 	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
-	attachPtcRenderDispatches(details, [rawDispatch]);
+	const rawRenderStore = attachPtcRenderDispatches(details, [rawDispatch]);
 	let callArgs: unknown;
 	let resultDetails: unknown;
 	let resultOptions: { isPartial: boolean } | undefined;
@@ -65,6 +65,7 @@ test("live arbitrary renderers receive raw arguments, raw error result, and fina
 	const tool = createPtcTool({
 		...LIMITS,
 		definitionProvider: () => [entry],
+		rawRenderStore,
 		createBindings: () => ({}),
 	});
 	const output = render(

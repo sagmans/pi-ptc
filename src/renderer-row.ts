@@ -105,6 +105,9 @@ export class PtcDispatchRow implements Component {
 	}
 
 	render(width: number): string[] {
+		if (this.attachment && !this.attachment.isCurrent() && this.renderedAttachment) {
+			this.rebuild(true);
+		}
 		if (this.renderFailure) {
 			return renderRowFailure(this.renderFailure, width, this.view.theme);
 		}
@@ -131,20 +134,21 @@ export class PtcDispatchRow implements Component {
 
 	private rebuild(force: boolean, advanceGeneration = true): void {
 		if (this.rebuilding) return;
+		const attachment = this.currentAttachment();
 		const fingerprint = JSON.stringify(this.dispatch);
 		const viewFingerprint = `${this.view.expanded}:${this.view.showImages}`;
 		if (
 			!force &&
 			fingerprint === this.fingerprint &&
 			viewFingerprint === this.viewFingerprint &&
-			this.renderedAttachment === this.attachment &&
+			this.renderedAttachment === attachment &&
 			this.renderedTheme === this.view.theme
 		) {
 			return;
 		}
 		this.fingerprint = fingerprint;
 		this.viewFingerprint = viewFingerprint;
-		this.renderedAttachment = this.attachment;
+		this.renderedAttachment = attachment;
 		this.renderedTheme = this.view.theme;
 		if (advanceGeneration) this.images.advanceGeneration();
 		this.renderFailure = undefined;
@@ -156,12 +160,10 @@ export class PtcDispatchRow implements Component {
 			this.callContainer.addChild(this.callComponent);
 			const result = getDispatchResult(this.dispatch);
 			const liveDisplayResult =
-				this.dispatch.renderOmitted === "incompatible" ? this.attachment?.displayResult : undefined;
+				this.dispatch.renderOmitted === "incompatible" ? attachment?.displayResult : undefined;
 			const fallbackResult = liveDisplayResult ?? result;
 			this.resultComponent =
-				fallbackResult || this.attachment?.hasResult
-					? this.renderResult(fallbackResult)
-					: undefined;
+				fallbackResult || attachment?.hasResult ? this.renderResult(fallbackResult) : undefined;
 			if (this.resultComponent) this.callContainer.addChild(this.resultComponent);
 			this.images.refresh(this.dispatch.result ?? liveDisplayResult);
 		} catch (error) {
@@ -173,13 +175,14 @@ export class PtcDispatchRow implements Component {
 	}
 
 	private renderCall(): Component {
+		const attachment = this.currentAttachment();
 		const renderer = this.input.definition?.renderCall;
-		const args = this.attachment?.args ?? this.dispatch.args;
+		const args = attachment?.args ?? this.dispatch.args;
 		if (!renderer || !hasCompleteNativeCallArguments(this.dispatch.name, args)) {
 			return this.renderFallbackCall();
 		}
 		return renderer(
-			(this.attachment ? args : sanitizeDisplayJson(this.dispatch.args)) as never,
+			(attachment ? args : sanitizeDisplayJson(this.dispatch.args)) as never,
 			this.view.theme,
 			this.createRenderContext(this.callComponent),
 		);
@@ -198,7 +201,8 @@ export class PtcDispatchRow implements Component {
 			const text = result?.content.find((entry) => entry.type === "text")?.text;
 			return text ? new Text(this.view.theme.fg("toolOutput", text), 0, 0) : undefined;
 		}
-		const renderResult = this.attachment?.hasResult ? this.attachment.result : result;
+		const attachment = this.currentAttachment();
+		const renderResult = attachment?.hasResult ? attachment.result : result;
 		return renderer(
 			renderResult as AgentToolResult<unknown>,
 			{
@@ -232,7 +236,7 @@ export class PtcDispatchRow implements Component {
 
 	private createRenderContext(lastComponent: Component | undefined): NativeRenderContext {
 		return {
-			args: this.attachment?.args ?? sanitizeDisplayJson(this.dispatch.args),
+			args: this.currentAttachment()?.args ?? sanitizeDisplayJson(this.dispatch.args),
 			toolCallId: this.input.toolCallId,
 			invalidate: () => {
 				if (!this.mounted) return;
@@ -253,6 +257,10 @@ export class PtcDispatchRow implements Component {
 			showImages: this.view.showImages,
 			isError: this.dispatch.status === "err" || this.dispatch.result?.isError === true,
 		};
+	}
+
+	private currentAttachment(): PtcLiveRenderAttachment | undefined {
+		return this.attachment?.isCurrent() ? this.attachment : undefined;
 	}
 
 	private contain(error: unknown): void {

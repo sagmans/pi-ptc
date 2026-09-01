@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { TRANSPORT_NAME } from "../src/config.ts";
 import type { PtcDispatchDetails } from "../src/dispatch-details.ts";
+import type { PiRuntimeTool } from "../src/pi-runtime.ts";
 import {
 	createFakePi,
 	FAILURE_DESCRIPTION,
@@ -21,6 +22,54 @@ import {
 	SHUTDOWN_TOOL_CALL_ID,
 	startAndCapture,
 } from "./support/index-harness.ts";
+
+const LATE_FAILURE_TOOL_CALL_ID = "ptc-late-failure";
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+	let resolve!: () => void;
+	const promise = new Promise<void>((next) => {
+		resolve = next;
+	});
+	return { promise, resolve };
+}
+
+test("lifecycle clear rejects a late failure-details write", async () => {
+	const harness = createFakePi(["ls"]);
+	const started = deferred();
+	const release = deferred();
+	const executable: PiRuntimeTool = {
+		parameters: { type: "object" },
+		executionMode: "parallel",
+		async execute() {
+			started.resolve();
+			await release.promise;
+			return { content: [], details: {} };
+		},
+	};
+	harness.registerRuntimeTool("ls", executable);
+	installHarness(harness);
+	startAndCapture(harness);
+	const tool = harness.tools.get(TRANSPORT_NAME);
+	const toolResult = harness.handlers.get("tool_result");
+	assert.ok(tool);
+	assert.ok(toolResult);
+
+	const pending = tool.execute(
+		LATE_FAILURE_TOOL_CALL_ID,
+		{ code: FAILURE_PROGRAM, description: FAILURE_DESCRIPTION },
+		undefined,
+		undefined,
+		harness.ctx,
+	);
+	await started.promise;
+	harness.handlers.get("session_shutdown")?.({}, harness.ctx);
+	release.resolve();
+	await assert.rejects(pending);
+	assert.equal(
+		toolResult({ toolName: TRANSPORT_NAME, toolCallId: LATE_FAILURE_TOOL_CALL_ID }, harness.ctx),
+		undefined,
+	);
+});
 
 test("failed ptc details are patched once by call id and cleared on shutdown", async () => {
 	const harness = createFakePi(["read", "bash", "ls"]);

@@ -1,5 +1,9 @@
 import { AgentSession, VERSION } from "@earendil-works/pi-coding-agent";
-import { clearCurrentSlot, invocationOwnsSlotAtSettlement } from "./pi-runtime-association.ts";
+import {
+	beginLifecycleInvocation,
+	clearCurrentSlot,
+	invocationOwnsSlotAtSettlement,
+} from "./pi-runtime-association.ts";
 import type {
 	PiRuntimeInstaller,
 	PiRuntimePatchInstallation,
@@ -21,7 +25,6 @@ import type {
 	ValidatedPatchState,
 } from "./pi-runtime-registry.ts";
 import {
-	ASSOCIATION_SLOT_KIND,
 	BIND_EXTENSIONS_PROPERTY,
 	BIND_INVOCATION_SLOT_KIND,
 	getLifecycleCoordinatorRegistry,
@@ -52,18 +55,11 @@ export function createPatchedLifecycleMethod(
 	invocationKind: typeof BIND_INVOCATION_SLOT_KIND | typeof RELOAD_INVOCATION_SLOT_KIND,
 ): LifecycleMethod {
 	return async function (this: object, ...args: unknown[]): Promise<unknown> {
-		const currentSlot = slotBySession.get(this);
-		const retainedAssociation =
-			currentSlot?.kind === ASSOCIATION_SLOT_KIND
-				? currentSlot
-				: currentSlot?.kind === RELOAD_INVOCATION_SLOT_KIND
-					? currentSlot.retainedAssociation
-					: undefined;
-		const invocation: LifecycleInvocation =
-			invocationKind === BIND_INVOCATION_SLOT_KIND
-				? { kind: BIND_INVOCATION_SLOT_KIND }
-				: { kind: RELOAD_INVOCATION_SLOT_KIND, retainedAssociation };
-		slotBySession.set(this, invocation);
+		const invocation: LifecycleInvocation = beginLifecycleInvocation(
+			slotBySession,
+			this,
+			invocationKind,
+		);
 		let result: unknown;
 		try {
 			result = await Reflect.apply(originalFunction, this, args);

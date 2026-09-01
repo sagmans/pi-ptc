@@ -43,9 +43,14 @@ test("missing arbitrary result renderer sanitizes bounded live fallback for inco
 		},
 	};
 	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
-	attachPtcRenderDispatches(details, [rawDispatch]);
+	const rawRenderStore = attachPtcRenderDispatches(details, [rawDispatch]);
+	const tool = createPtcTool({
+		...LIMITS,
+		rawRenderStore,
+		createBindings: () => ({}),
+	});
 	const output = renderRaw(
-		createTool().renderResult(
+		tool.renderResult(
 			{ content: [{ type: "text", text: "ignored" }], details },
 			{ expanded: false, isPartial: false },
 			THEME,
@@ -74,7 +79,7 @@ test("live arbitrary images render when raw details are incompatible with persis
 		},
 	};
 	const details = createDeltaDetails(DESCRIPTION, rawDispatch);
-	attachPtcRenderDispatches(details, [rawDispatch]);
+	const rawRenderStore = attachPtcRenderDispatches(details, [rawDispatch]);
 	const tool = createPtcTool({
 		...LIMITS,
 		definitionProvider: () => [
@@ -83,6 +88,7 @@ test("live arbitrary images render when raw details are incompatible with persis
 				renderResult: () => new Text("", 0, 0),
 			}),
 		],
+		rawRenderStore,
 		createBindings: () => ({}),
 	});
 	const context = { ...createRenderContext(false), showImages: true };

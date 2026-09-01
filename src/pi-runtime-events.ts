@@ -1,6 +1,8 @@
 import {
 	clearCurrentSlot,
+	installAssociationEventFinalizers,
 	requireCurrentSessionParts,
+	restoreAssociationEventFinalizers,
 	throwStaleCapture,
 } from "./pi-runtime-association.ts";
 import type {
@@ -148,8 +150,7 @@ export function installCapturedRuntimeEventFinalizers(
 				: validation.diagnostic,
 		);
 	}
-	association.parts = validation.parts;
-	association.runtimeEventFinalizersInstalled = true;
+	installAssociationEventFinalizers(association, validation.parts);
 	installed = true;
 
 	return Object.freeze({
@@ -157,7 +158,7 @@ export function installCapturedRuntimeEventFinalizers(
 			if (restored) return;
 			restored = true;
 			installed = false;
-			association.runtimeEventFinalizersInstalled = false;
+			restoreAssociationEventFinalizers(association);
 			const restoreError = restoreOwnedWrappers();
 			clearCurrentSlot(slotBySession, session, association);
 			if (restoreError) throw restoreError;

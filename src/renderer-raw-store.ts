@@ -9,39 +9,76 @@ import {
 import { projectRenderResult } from "./dispatch-retention.ts";
 import type { PtcLiveRenderAttachment } from "./renderer-contract.ts";
 
-export const liveRenderAttachments = new WeakMap<
-	object,
-	ReadonlyMap<number, PtcLiveRenderAttachment>
->();
+const INITIAL_RAW_RENDER_EPOCH = 0;
+const RAW_RENDER_EPOCH_INCREMENT = 1;
+
+export type RawRenderToken = { readonly epoch: number };
+
+export type RawRenderStore = {
+	begin(): RawRenderToken;
+	attach(details: object, dispatches: readonly DispatchProgress[], token: RawRenderToken): void;
+	claim(details: object): ReadonlyMap<number, PtcLiveRenderAttachment> | undefined;
+	clear(): void;
+};
+
+export function createRawRenderStore(): RawRenderStore {
+	let epoch = INITIAL_RAW_RENDER_EPOCH;
+	let entries = new WeakMap<object, ReadonlyMap<number, PtcLiveRenderAttachment>>();
+	return Object.freeze({
+		begin() {
+			return Object.freeze({ epoch });
+		},
+		attach(details, dispatches, token) {
+			if (token.epoch !== epoch) return;
+			const attachmentEpoch = epoch;
+			let attachments: ReadonlyMap<number, PtcLiveRenderAttachment>;
+			const isCurrent = (): boolean =>
+				attachmentEpoch === epoch && entries.get(details) === attachments;
+			attachments = new Map(
+				dispatches.map((dispatch) => [dispatch.id, createLiveAttachment(dispatch, isCurrent)]),
+			);
+			entries.set(details, attachments);
+		},
+		claim(details) {
+			return entries.get(details);
+		},
+		clear() {
+			epoch += RAW_RENDER_EPOCH_INCREMENT;
+			entries = new WeakMap();
+		},
+	});
+}
 
 export function attachPtcRenderDispatches(
 	details: object,
 	dispatches: readonly DispatchProgress[],
-): void {
-	liveRenderAttachments.set(
-		details,
-		new Map(dispatches.map((dispatch) => [dispatch.id, createLiveAttachment(dispatch)])),
-	);
+): RawRenderStore {
+	const store = createRawRenderStore();
+	store.attach(details, dispatches, store.begin());
+	return store;
 }
 
-export function createLiveAttachment(dispatch: DispatchProgress): PtcLiveRenderAttachment {
+export function createLiveAttachment(
+	dispatch: DispatchProgress,
+	isCurrent: () => boolean,
+): PtcLiveRenderAttachment {
 	const core = isCoreToolName(dispatch.name);
 	const liveArguments = getLiveDispatchArguments(dispatch)?.arguments ?? dispatch.args;
 	const result = core ? undefined : getLiveDispatchResult(dispatch);
 	const args = core ? projectLiveDisplayArguments(dispatch.name, liveArguments) : liveArguments;
-	if (core) return { args, hasResult: false };
+	if (core) return { args, hasResult: false, isCurrent };
 	let retentionResult: DispatchRenderResult | undefined;
 	let projectedResult: unknown;
 	try {
 		retentionResult = getLiveDispatchRetentionResult(dispatch)?.result ?? dispatch.result;
 		projectedResult = result ? result.result : dispatch.result;
 	} catch {
-		return { args, hasResult: false };
+		return { args, hasResult: false, isCurrent };
 	}
 	const displayResult = createLiveDisplayResult(retentionResult);
 	return projectedResult === undefined
-		? { args, displayResult, hasResult: false }
-		: { args, displayResult, hasResult: true, result: projectedResult };
+		? { args, displayResult, hasResult: false, isCurrent }
+		: { args, displayResult, hasResult: true, isCurrent, result: projectedResult };
 }
 
 function createLiveDisplayResult(
