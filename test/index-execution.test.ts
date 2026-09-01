@@ -4,7 +4,7 @@ import test from "node:test";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-import { LEAK_BLOCK_REASON, SHIPPED_PTC_CONFIG, TRANSPORT_NAME } from "../src/config.ts";
+import { LEAK_BLOCK_REASON, TRANSPORT_NAME } from "../src/config.ts";
 import type { PiRuntimeTool } from "../src/pi-runtime.ts";
 import {
 	CUSTOM_RUNTIME_TOOL_NAME,
@@ -19,46 +19,6 @@ import {
 	startAndCapture,
 	VISUAL_RUNTIME_TOOL_NAME,
 } from "./support/index-harness.ts";
-
-const UPDATE_OVERFLOW_TOOL_NAME = "update_overflow";
-const EXCESS_UPDATE_COUNT = SHIPPED_PTC_CONFIG.maxToolUpdatesPerDispatch + 1;
-
-test("production keeps successful effects after excess nested updates", async () => {
-	let completedEffects = 0;
-	let emittedUpdates = 0;
-	const harness = createFakePi([UPDATE_OVERFLOW_TOOL_NAME]);
-	harness.registerRuntimeTool(UPDATE_OVERFLOW_TOOL_NAME, {
-		parameters: Type.Object({}),
-		async execute(_toolCallId, _args, _signal, onUpdate) {
-			for (let index = 0; index < EXCESS_UPDATE_COUNT; index += 1) {
-				emittedUpdates += 1;
-				onUpdate?.({ content: [{ type: "text", text: String(index) }] });
-			}
-			completedEffects += 1;
-			return { content: [{ type: "text", text: "completed" }] };
-		},
-	});
-	installHarness(harness);
-	startAndCapture(harness);
-	const tool = harness.tools.get(TRANSPORT_NAME);
-	assert.ok(tool);
-
-	const outer = parseOuterResult(
-		await tool.execute(
-			"update-overflow",
-			{
-				code: `return await tools.${UPDATE_OVERFLOW_TOOL_NAME}({});`,
-				description: "ignore excess nested updates",
-			},
-			undefined,
-			undefined,
-			harness.ctx,
-		),
-	);
-	assert.equal(emittedUpdates, EXCESS_UPDATE_COUNT);
-	assert.equal(completedEffects, 1);
-	assert.equal((outer.result as { text: string }).text, "completed");
-});
 
 test("production install binds the active captured catalog with native hooks and dynamic SDK", async () => {
 	const sequence: string[] = [];

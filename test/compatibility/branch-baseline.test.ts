@@ -4,7 +4,9 @@ import { join } from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
+import { SHIPPED_PTC_CONFIG, TRANSPORT_NAME } from "../../src/config.ts";
 import { createSnapshotDetails, parseDispatchDetails } from "../../src/dispatch-details.ts";
+import type { ExtensionAPI, ExtensionContext } from "../../src/host.ts";
 import {
 	adaptLegacyCapturedPiSession,
 	ensureSharedPiRuntimeCapturePatch,
@@ -16,7 +18,13 @@ import type {
 	PiRuntimeCapture,
 	PiRuntimePatchInstallation,
 } from "../../src/pi-runtime-contract.ts";
-import { createFakeSessionClass, STALE_CAPTURE_PATTERN } from "../support/pi-runtime-harness.ts";
+import { createPtcLifecycle } from "../../src/ptc-lifecycle.ts";
+import { createFailureDetailsStore } from "../../src/transport.ts";
+import {
+	createFakeSessionClass,
+	createTool,
+	STALE_CAPTURE_PATTERN,
+} from "../support/pi-runtime-harness.ts";
 import { loadBaselineModule, withBaselineCheckout } from "./baseline-runner.ts";
 import {
 	hasPiRuntimeV1CoordinatorShape,
@@ -31,6 +39,7 @@ const BASELINE_WORKER_PATH = "src/worker.ts";
 const MIXED_COPY_INSTALLATIONS = 2;
 const SHARED_PATCH_INSTALLATIONS = 1;
 const MIXED_TOOL_NAME = "sample";
+const COMPATIBILITY_CWD = "/tmp";
 const BASELINE_WORKER_SETTLEMENT_MS = 150;
 const BASELINE_WORKER_TIMEOUT_MS = 5_000;
 const DELIVERY_TOOL_NAME = "delivery";
@@ -114,6 +123,84 @@ async function proveSharedPatchOrder(first: RuntimeModule, second: RuntimeModule
 	assert.equal(reloaded.prepareToolArguments(MIXED_TOOL_NAME, {}).ok, true);
 }
 
+async function proveSharedLifecycleOrder(
+	first: RuntimeModule,
+	second: RuntimeModule,
+): Promise<void> {
+	const { Session } = createFakeSessionClass();
+	const globalObject = {};
+	const session = new Session();
+	session._toolRegistry.set(TRANSPORT_NAME, createTool());
+	const runtime = session.extensionRunner.runtime;
+	let activeTools = [MIXED_TOOL_NAME];
+	runtime.getActiveTools = () => [...activeTools];
+	runtime.setActiveTools = (names) => {
+		activeTools = names.filter((name) => session._toolRegistry.has(name));
+	};
+	const pi: ExtensionAPI = {
+		registerTool() {},
+		registerCommand() {},
+		on() {},
+		setActiveTools(names) {
+			runtime.setActiveTools(names);
+		},
+		getActiveTools: () => runtime.getActiveTools(),
+		getAllTools: () => [...session._toolRegistry.keys()].map((name) => ({ name })),
+		appendEntry() {},
+		events: { emit() {} },
+	};
+	const notifications: string[] = [];
+	const context: ExtensionContext = {
+		cwd: COMPATIBILITY_CWD,
+		ui: { notify: (message) => void notifications.push(message), setStatus() {} },
+		isProjectTrusted: () => true,
+	};
+	const lifecycle = createPtcLifecycle({
+		pi,
+		initialPresentation: SHIPPED_PTC_CONFIG.presentation,
+		maxParallelDispatches: SHIPPED_PTC_CONFIG.maxParallelDispatches,
+		failureDetails: createFailureDetailsStore(),
+		clearRenderSnapshots() {},
+	});
+	let captureCount = 0;
+	const installer = {
+		capturePiRuntime(capture: PiRuntimeCapture) {
+			captureCount += 1;
+			lifecycle.capture(capture);
+		},
+	};
+	const definition = {};
+	second.tagPtcToolDefinition(definition, installer);
+	session.ptcDefinition = definition;
+	lifecycle.sessionStart(context, SHIPPED_PTC_CONFIG.presentation);
+	for (const runtimeModule of [first, second]) {
+		const ensured = runtimeModule.ensureSharedPiRuntimeCapturePatch({
+			agentSession: Session,
+			version: SUPPORTED_PI_VERSION,
+			globalObject,
+		});
+		assert.equal(ensured.compatible, true);
+	}
+
+	await session.bindExtensions();
+	assert.equal(captureCount, 1);
+	assert.deepEqual(notifications, []);
+	const firstLease = lifecycle.issueExecutionLease();
+	const firstResult = await firstLease.dispatch.dispatch({ name: MIXED_TOOL_NAME, args: {} });
+	assert.equal(firstResult.isError, false);
+	lifecycle.clear("reload");
+	assert.throws(firstLease.assertCurrent, /capture|unavailable/i);
+	firstLease.release();
+	await session.reload();
+	assert.equal(captureCount, 2);
+	assert.deepEqual(notifications, []);
+	const secondLease = lifecycle.issueExecutionLease();
+	const secondResult = await secondLease.dispatch.dispatch({ name: MIXED_TOOL_NAME, args: {} });
+	assert.equal(secondResult.isError, false);
+	secondLease.release();
+	lifecycle.clear("teardown");
+}
+
 async function proveMixedOrder(first: RuntimeModule, second: RuntimeModule): Promise<void> {
 	const { Session, originalDescriptor, originalReloadDescriptor } = createFakeSessionClass();
 	const globalObject = {};
@@ -184,6 +271,8 @@ test("baseline and target Pi runtime copies interoperate in both load orders", a
 	await proveMixedOrder(target, baseline);
 	await proveSharedPatchOrder(baseline, target);
 	await proveSharedPatchOrder(target, baseline);
+	await proveSharedLifecycleOrder(baseline, target);
+	await proveSharedLifecycleOrder(target, baseline);
 });
 
 test("target details remain readable by baseline and baseline fixtures remain readable", async () => {

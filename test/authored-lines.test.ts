@@ -6,6 +6,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const AUTHORED_FILE_MAXIMUM_LINES = 449;
+const TEST_FILE_MAXIMUM_LINES = 440;
+const TEST_PATH_PREFIX = "test/";
 const REJECTED_FIXTURE_LINES = 500;
 const REPOSITORY_ROOT = new URL("..", import.meta.url);
 const TEMPORARY_DIRECTORY_PREFIX = "pi-ptc-authored-lines-";
@@ -82,7 +84,9 @@ function assertAuthoredLineBounds(root: string): void {
 	const failures: string[] = [];
 	for (const path of collectAuthoredFiles(root)) {
 		const lines = physicalLineCount(readFileSync(join(root, path), "utf8"));
-		const maximumLines = TARGET_FILE_MAXIMUM_LINES.get(path) ?? AUTHORED_FILE_MAXIMUM_LINES;
+		const maximumLines =
+			TARGET_FILE_MAXIMUM_LINES.get(path) ??
+			(path.startsWith(TEST_PATH_PREFIX) ? TEST_FILE_MAXIMUM_LINES : AUTHORED_FILE_MAXIMUM_LINES);
 		if (lines > maximumLines) {
 			failures.push(`${path}: ${lines} physical lines exceeds ${maximumLines}`);
 		}
@@ -90,7 +94,7 @@ function assertAuthoredLineBounds(root: string): void {
 	assert.deepEqual(failures, []);
 }
 
-test("every authored file keeps decomposition headroom below 450 physical lines", () => {
+test("authored files keep production and test decomposition headroom", () => {
 	const root = relative(process.cwd(), fileURLToPath(REPOSITORY_ROOT)) || ".";
 	assertAuthoredLineBounds(root);
 });
