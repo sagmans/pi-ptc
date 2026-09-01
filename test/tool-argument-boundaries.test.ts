@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { Type } from "typebox";
 import {
+	asSchema,
 	createPiToolArgumentPreparer,
 	getValidator,
 	validatorCache,
@@ -79,8 +80,8 @@ test("hostile schemas fail closed without exposing received arguments", () => {
 test("validator compilation is cached by schema identity", () => {
 	const schema = Type.Object({ count: Type.Integer() });
 	assert.equal(validatorCache.has(schema), false);
-	const first = getValidator(schema);
-	const second = getValidator(schema);
+	const first = getValidator(asSchema(schema));
+	const second = getValidator(asSchema(schema));
 	assert.equal(first, second);
 	assert.equal(validatorCache.get(schema), first);
 });

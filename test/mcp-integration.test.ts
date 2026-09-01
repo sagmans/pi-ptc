@@ -12,10 +12,11 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import { TRANSPORT_NAME } from "../src/config.ts";
-import type { ExtensionAPI } from "../src/host.ts";
-import installPtc from "../src/index.ts";
 import type { PtcPartialResult, PtcToolResult } from "../src/transport.ts";
+import { createRenderContext, TIMER_THEME } from "./support/transport-harness.ts";
 
 const TEST_TIMEOUT_MS = 30_000;
 const SERVER_REQUEST_TIMEOUT_MS = 5_000;
@@ -26,6 +27,9 @@ const DIRECT_SERVER = "direct";
 const PROXY_SERVER = "proxy";
 const DIRECT_TOOL = "direct_echo";
 const NAMESPACE_TOOL = "mcp__proxy";
+const CUSTOM_TOOL = "fixture_custom";
+const CUSTOM_CALL_MARKER = "fixture custom call";
+const CUSTOM_RESULT_MARKER = "fixture custom result";
 const ALLOWED_TOOL_NAMES = Object.freeze([
 	"read",
 	TRANSPORT_NAME,
@@ -39,16 +43,23 @@ const ALLOWED_TOOL_NAMES = Object.freeze([
 	"direct_reveal",
 	"direct_late",
 	"direct_slow",
+	CUSTOM_TOOL,
 	NAMESPACE_TOOL,
 ]);
 const FIXTURE_PATH = fileURLToPath(new URL("./fixtures/mcp-server.ts", import.meta.url));
 const MCP_APPROVAL_EVENT = "pi-mcp-adapter:tool-approval-request";
 const MCP_ADAPTER_PATH = fileURLToPath(import.meta.resolve("pi-mcp-adapter"));
+const PACKAGE_EXTENSION_PATH = fileURLToPath(new URL("../index.ts", import.meta.url));
 
 type ToolDefinition = {
 	name: string;
 	renderCall?: unknown;
-	renderResult?: unknown;
+	renderResult?: (
+		result: PtcToolResult,
+		options: { expanded: boolean; isPartial: boolean },
+		theme: typeof TIMER_THEME,
+		context: ReturnType<typeof createRenderContext>,
+	) => { render(width: number): string[] };
 	execute(
 		toolCallId: string,
 		params: { code: string; description: string },
@@ -115,11 +126,25 @@ async function createRuntime(): Promise<Runtime> {
 		cwd,
 		agentDir,
 		settingsManager,
-		additionalExtensionPaths: [MCP_ADAPTER_PATH],
+		additionalExtensionPaths: [MCP_ADAPTER_PATH, PACKAGE_EXTENSION_PATH],
 		extensionFactories: [
 			{
 				name: "mcp-observer",
 				factory(pi) {
+					pi.registerTool({
+						name: CUSTOM_TOOL,
+						label: "Fixture custom",
+						description: "Deterministic arbitrary-tool fixture",
+						parameters: Type.Object({ text: Type.String() }),
+						async execute(_id, args) {
+							return {
+								content: [{ type: "text", text: args.text }],
+								details: { source: CUSTOM_TOOL },
+							};
+						},
+						renderCall: () => new Text(CUSTOM_CALL_MARKER, 0, 0),
+						renderResult: () => new Text(CUSTOM_RESULT_MARKER, 0, 0),
+					});
 					pi.on("tool_call", (event) => {
 						hookCalls.push(`call:${event.toolName}`);
 					});
@@ -133,17 +158,6 @@ async function createRuntime(): Promise<Runtime> {
 						if (request.originalToolName !== "guarded") return;
 						approvalOrigins.push(request.origin);
 						request.claim(async () => "deny");
-					});
-				},
-			},
-			{
-				name: "pi-ptc",
-				factory(pi) {
-					installPtc(pi as unknown as ExtensionAPI, {
-						resolvePaths: () => ({
-							projectFile: join(cwd, ".pi", "ptc.json"),
-							userFile: join(agentDir, "ptc.json"),
-						}),
 					});
 				},
 			},
@@ -279,21 +293,40 @@ return { status, search, describe, called, progress, reveal, lateBefore, lateAft
 			JSON.stringify(runtime.session.getAllTools().map((tool) => tool.name)),
 		);
 		await waitForTool(runtime, "direct_late");
-		const second = outer(
-			await execute(
-				runtime,
-				"mcp-next-snapshot",
-				`
+		const secondExecution = await execute(
+			runtime,
+			"mcp-next-snapshot",
+			`
 const direct = await tools.${DIRECT_TOOL}({ text: "direct-ok" });
 const late = await tools.direct_late({});
 const namespaced = await tools.${NAMESPACE_TOOL}({ tool: "proxy_structured", args: { value: 7 } });
-return { direct, late, namespaced };
+const custom = await tools.${CUSTOM_TOOL}({ text: "custom-ok" });
+return { direct, late, namespaced, custom };
 `,
-			),
 		);
+		const second = outer(secondExecution);
 		assert.match(JSON.stringify(second.result), /direct-ok/);
 		assert.match(JSON.stringify(second.result), /structured:7/);
 		assert.match(JSON.stringify(second.result), /late-ok/);
+		assert.match(JSON.stringify(second.result), /custom-ok/);
+		assert.match(JSON.stringify(updates), /progress complete/);
+		assert.match(JSON.stringify(updates), /proxy_progress/);
+		assert.match(JSON.stringify(secondExecution.details), /structured:7/);
+		assert.match(JSON.stringify(secondExecution.details), new RegExp(CUSTOM_TOOL));
+		const renderResult = (
+			runtime.session.getToolDefinition(TRANSPORT_NAME) as unknown as ToolDefinition
+		).renderResult;
+		assert.ok(renderResult);
+		const rendered = renderResult(
+			secondExecution,
+			{ expanded: false, isPartial: false },
+			TIMER_THEME,
+			createRenderContext("mcp-next-snapshot"),
+		)
+			.render(120)
+			.join("\n");
+		assert.match(rendered, new RegExp(CUSTOM_CALL_MARKER));
+		assert.match(rendered, new RegExp(CUSTOM_RESULT_MARKER));
 		const allNames = runtime.session.getAllTools().map((tool) => tool.name);
 		assert.equal(allNames.includes(DIRECT_TOOL), true, JSON.stringify(allNames));
 		assert.equal(allNames.includes(NAMESPACE_TOOL), true, JSON.stringify(allNames));
