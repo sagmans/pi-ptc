@@ -152,6 +152,10 @@ activates additional registered tools, later PTC runs can use them.
 `fabric_exec`, `retype`, or `execute_tools` compete for the same tool
 surface. PTC stays inert when one is present.
 
+Mixed physical copies of the Pi patch and adapter can coexist during reload.
+Downgrading the complete extension lifecycle requires restarting Pi; hot
+rollback to an older lifecycle in the same process is not supported.
+
 ## Development
 
 ```bash

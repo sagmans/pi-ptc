@@ -14,7 +14,7 @@ All notable changes are documented here. The format follows
 - Nested Pi policy hooks, execution events, scheduling, and additive tool activation.
 - Pi-native nested rows with captured custom renderers and deterministic session restoration.
 - Real MCP adapter coverage for discovery, direct and scripted calls, updates, approval denial, cancellation, and dynamic tool changes.
-- Mixed-copy runtime and persisted-details rollback compatibility checks against the branch baseline.
+- Mixed-copy Pi patch/adapter coexistence and persisted-details reader compatibility checks against the branch baseline.
 
 ### Changed
 

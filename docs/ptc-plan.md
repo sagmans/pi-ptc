@@ -52,7 +52,8 @@ Version or private-shape drift leaves PTC inert and preserves native tools.
 `src/pi-runtime-association.ts` alone publishes slots and mutates generation,
 parts, and installed-capability state. Mixed module copies share versioned
 global registries and release independent leases without removing another
-copy's patches.
+copy's patches. Downgrading the complete extension lifecycle requires restarting
+Pi; same-process coexistence does not claim full-lifecycle hot rollback.
 
 `src/tool-catalog.ts` owns logical active state and additive activation.
 Refreshes preserve still-valid logical tools, drop removed tools, and adopt
@@ -194,5 +195,6 @@ npm run test:bun
 
 Node tests cover runtime capture, virtualization, schemas, execution lifecycle,
 scheduling, cancellation, canonical JSON, retention, persistence, rendering,
-mixed-copy rollback, and a real MCP adapter path. Bun smoke tests cover the
+mixed-copy patch/adapter coexistence, baseline details readers, and a real MCP
+adapter path. Bun smoke tests cover the
 worker and Pi renderer bindings used by the shipped host.
