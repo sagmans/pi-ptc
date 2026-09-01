@@ -18,6 +18,10 @@ import {
 test("generic display arguments redact normalized credential keys recursively", () => {
 	const projected = projectDisplayArguments(GENERIC_TOOL_NAME, {
 		Password: "one",
+		apiKey: "api",
+		private_key: "private",
+		credential: "credential",
+		passphrase: "passphrase",
 		nested: {
 			SECRET: "two",
 			token: "three",
@@ -33,6 +37,10 @@ test("generic display arguments redact normalized credential keys recursively", 
 
 	assert.deepEqual(projected, {
 		Password: GENERIC_REDACTION_MARKER,
+		apiKey: GENERIC_REDACTION_MARKER,
+		private_key: GENERIC_REDACTION_MARKER,
+		credential: GENERIC_REDACTION_MARKER,
+		passphrase: GENERIC_REDACTION_MARKER,
 		nested: {
 			SECRET: GENERIC_REDACTION_MARKER,
 			token: GENERIC_REDACTION_MARKER,

@@ -16,7 +16,13 @@ const CREDENTIAL_KEY_SEPARATOR_PATTERN = /[^a-z0-9]/gi;
 const CREDENTIAL_KEY_WORD_BOUNDARY_PATTERN = /([a-z0-9])([A-Z])/g;
 const CREDENTIAL_KEY_WORD_SEPARATOR_PATTERN = /[^a-z0-9]+/;
 const CREDENTIAL_KEYS = new Set([
+	"accesskey",
+	"apikey",
+	"bearer",
+	"credential",
+	"passphrase",
 	"password",
+	"privatekey",
 	"secret",
 	"token",
 	"authorization",
