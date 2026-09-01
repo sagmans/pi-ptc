@@ -7,6 +7,7 @@ import {
 	invocationIsCurrent,
 	publishSessionAssociation,
 	requireCurrentSessionParts,
+	type SessionAssociation,
 } from "./pi-runtime-association.ts";
 import type {
 	CapturedPiSession,
@@ -23,7 +24,6 @@ import type {
 	LifecycleInvocation,
 	LifecycleSlot,
 	PatchState,
-	SessionAssociation,
 	SessionParts,
 } from "./pi-runtime-registry.ts";
 import {

@@ -4,6 +4,7 @@ import {
 	installAssociationEventFinalizers,
 	requireCurrentSessionParts,
 	restoreAssociationEventFinalizers,
+	type SessionAssociation,
 	throwStaleCapture,
 } from "./pi-runtime-association.ts";
 import type {
@@ -16,7 +17,6 @@ import type {
 	PatchState,
 	RunnerEventMethod,
 	RunnerEventProperty,
-	SessionAssociation,
 	SessionParts,
 } from "./pi-runtime-registry.ts";
 import {

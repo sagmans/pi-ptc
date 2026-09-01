@@ -6,6 +6,7 @@ import {
 	refreshAssociationTools,
 	requireCurrentSessionParts,
 	restoreAssociationRuntimeActions,
+	type SessionAssociation,
 	throwStaleCapture,
 } from "./pi-runtime-association.ts";
 import type {
@@ -15,12 +16,7 @@ import type {
 	PiSharedRuntime,
 } from "./pi-runtime-contract.ts";
 import { diagnostic, PI_RUNTIME_DIAGNOSTICS } from "./pi-runtime-contract.ts";
-import type {
-	LifecycleSlot,
-	PatchState,
-	SessionAssociation,
-	SessionParts,
-} from "./pi-runtime-registry.ts";
+import type { LifecycleSlot, PatchState, SessionParts } from "./pi-runtime-registry.ts";
 import {
 	GET_ACTIVE_TOOLS_PROPERTY,
 	PiRuntimeCompatibilityError,

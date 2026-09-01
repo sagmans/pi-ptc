@@ -4,7 +4,6 @@ import type {
 	LifecycleInvocation,
 	LifecycleSlot,
 	PatchState,
-	SessionAssociation,
 	SessionParts,
 } from "./pi-runtime-registry.ts";
 import {
@@ -19,33 +18,50 @@ import { sessionPartsMatch, validateSession } from "./pi-runtime-shape.ts";
 
 const INITIAL_TOOL_GENERATION = 0;
 const TOOL_GENERATION_INCREMENT = 1;
+declare const SESSION_ASSOCIATION_HANDLE: unique symbol;
+
+export type SessionAssociation = {
+	readonly [SESSION_ASSOCIATION_HANDLE]: true;
+};
+
+type SessionAssociationState = {
+	kind: typeof ASSOCIATION_SLOT_KIND;
+	installer: PiRuntimeInstaller;
+	definition: object;
+	parts: SessionParts;
+	toolGeneration: number;
+	runtimeActionsInstalled: boolean;
+	runtimeEventFinalizersInstalled: boolean;
+};
+
+function associationState(association: SessionAssociation): SessionAssociationState {
+	return association as unknown as SessionAssociationState;
+}
 
 export function associationToolGeneration(association: SessionAssociation): number {
-	return association.toolGeneration;
+	return associationState(association).toolGeneration;
 }
 
 export function associationToolSnapshots(
 	association: SessionAssociation,
 ): SessionParts["toolSnapshots"] {
-	return association.parts.toolSnapshots;
+	return associationState(association).parts.toolSnapshots;
 }
 
 export function associationRuntimeActionsInstalled(association: SessionAssociation): boolean {
-	return association.runtimeActionsInstalled;
+	return associationState(association).runtimeActionsInstalled;
 }
 
 export function associationEventFinalizersInstalled(association: SessionAssociation): boolean {
-	return association.runtimeEventFinalizersInstalled;
+	return associationState(association).runtimeEventFinalizersInstalled;
 }
 
 export function associationOwnsDefinition(
 	association: SessionAssociation,
 	definition: unknown,
 ): boolean {
-	return (
-		definition === association.definition &&
-		getTaggedInstaller(definition) === association.installer
-	);
+	const state = associationState(association);
+	return definition === state.definition && getTaggedInstaller(definition) === state.installer;
 }
 
 export function beginLifecycleInvocation(
@@ -86,7 +102,7 @@ export function publishSessionAssociation(
 	parts: SessionParts,
 ): SessionAssociation | undefined {
 	if (slotBySession.get(session) !== invocation) return undefined;
-	const association: SessionAssociation = {
+	const association: SessionAssociationState = {
 		kind: ASSOCIATION_SLOT_KIND,
 		installer,
 		definition,
@@ -96,55 +112,59 @@ export function publishSessionAssociation(
 		runtimeEventFinalizersInstalled: false,
 	};
 	slotBySession.set(session, association);
-	return association;
+	return association as unknown as SessionAssociation;
 }
 
 export function installAssociationRuntimeActions(
 	association: SessionAssociation,
 	parts: SessionParts,
 ): void {
-	association.parts = parts;
-	association.runtimeActionsInstalled = true;
+	const state = associationState(association);
+	state.parts = parts;
+	state.runtimeActionsInstalled = true;
 }
 
 export function refreshAssociationTools(
 	association: SessionAssociation,
 	parts: SessionParts,
 ): void {
-	association.parts = parts;
-	association.toolGeneration += TOOL_GENERATION_INCREMENT;
+	const state = associationState(association);
+	state.parts = parts;
+	state.toolGeneration += TOOL_GENERATION_INCREMENT;
 }
 
 export function restoreAssociationRuntimeActions(association: SessionAssociation): void {
-	association.runtimeActionsInstalled = false;
+	associationState(association).runtimeActionsInstalled = false;
 }
 
 export function installAssociationEventFinalizers(
 	association: SessionAssociation,
 	parts: SessionParts,
 ): void {
-	association.parts = parts;
-	association.runtimeEventFinalizersInstalled = true;
+	const state = associationState(association);
+	state.parts = parts;
+	state.runtimeEventFinalizersInstalled = true;
 }
 
 export function restoreAssociationEventFinalizers(association: SessionAssociation): void {
-	association.runtimeEventFinalizersInstalled = false;
+	associationState(association).runtimeEventFinalizersInstalled = false;
 }
 
 export function clearCurrentSlot(
 	slotBySession: WeakMap<object, LifecycleSlot>,
 	session: object,
-	expectedSlot: LifecycleSlot,
+	expectedSlot: LifecycleSlot | SessionAssociation,
 ): void {
+	const expectedState = expectedSlot as LifecycleSlot;
 	const currentSlot = slotBySession.get(session);
-	if (currentSlot === expectedSlot) {
+	if (currentSlot === expectedState) {
 		slotBySession.delete(session);
 		return;
 	}
 	if (
-		expectedSlot.kind === ASSOCIATION_SLOT_KIND &&
+		expectedState.kind === ASSOCIATION_SLOT_KIND &&
 		currentSlot?.kind === RELOAD_INVOCATION_SLOT_KIND &&
-		currentSlot.retainedAssociation === expectedSlot
+		currentSlot.retainedAssociation === expectedState
 	) {
 		currentSlot.retainedAssociation = undefined;
 	}
@@ -185,10 +205,11 @@ export function requireCurrentSessionParts(
 	association: SessionAssociation,
 ): SessionParts {
 	const currentSlot = slotBySession.get(session);
+	const expectedAssociation = association as unknown as object;
 	const associationIsCurrent =
-		currentSlot === association ||
+		currentSlot === expectedAssociation ||
 		(currentSlot?.kind === RELOAD_INVOCATION_SLOT_KIND &&
-			currentSlot.retainedAssociation === association);
+			currentSlot.retainedAssociation === expectedAssociation);
 	if (!state.active || !associationIsCurrent) {
 		throwStaleCapture(state, slotBySession, session, association);
 	}
@@ -198,10 +219,11 @@ export function requireCurrentSessionParts(
 	} catch {
 		throwStaleCapture(state, slotBySession, session, association);
 	}
-	if (!validation.compatible || !sessionPartsMatch(validation.parts, association.parts)) {
+	const associationRecord = associationState(association);
+	if (!validation.compatible || !sessionPartsMatch(validation.parts, associationRecord.parts)) {
 		throwStaleCapture(state, slotBySession, session, association);
 	}
-	const expectedParts = association.parts;
+	const expectedParts = associationRecord.parts;
 	let definition: unknown;
 	try {
 		definition = Reflect.apply(expectedParts.getToolDefinition, session, [PTC_TOOL_NAME]);
@@ -209,8 +231,8 @@ export function requireCurrentSessionParts(
 		throwStaleCapture(state, slotBySession, session, association);
 	}
 	if (
-		definition !== association.definition ||
-		getTaggedInstaller(definition) !== association.installer
+		definition !== associationRecord.definition ||
+		getTaggedInstaller(definition) !== associationRecord.installer
 	) {
 		throwStaleCapture(state, slotBySession, session, association);
 	}

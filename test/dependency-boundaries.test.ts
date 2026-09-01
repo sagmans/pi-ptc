@@ -4,6 +4,8 @@ import { basename, join, relative, sep } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import type { SessionAssociation } from "../src/pi-runtime-association.ts";
+
 const REPOSITORY_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SOURCE_ROOT = join(REPOSITORY_ROOT, "src");
 const PI_RUNTIME_PREFIX = "pi-runtime-";
@@ -17,8 +19,22 @@ const RENDERER_RAW_STORE = "renderer-raw-store.ts";
 const WORKER_PROTOCOL = "worker-protocol.ts";
 const PACKAGE_FILE = "package.json";
 const ROOT_EXPORT = ".";
-const ASSOCIATION_STATE_ACCESS_PATTERN =
-	/association\.(?:parts|toolGeneration|runtimeActionsInstalled|runtimeEventFinalizersInstalled|definition|installer)\b/;
+const ASSOCIATION_FIELD_NAMES = [
+	"parts",
+	"toolGeneration",
+	"runtimeActionsInstalled",
+	"runtimeEventFinalizersInstalled",
+	"definition",
+	"installer",
+] as const;
+const ASSOCIATION_STATE_ACCESS_PATTERN = new RegExp(
+	`association\\.(?:${ASSOCIATION_FIELD_NAMES.join("|")})\\b`,
+);
+type LeakedAssociationField = Extract<
+	keyof SessionAssociation,
+	(typeof ASSOCIATION_FIELD_NAMES)[number]
+>;
+const ASSOCIATION_FIELDS_ARE_OPAQUE: [LeakedAssociationField] extends [never] ? true : false = true;
 const STATIC_IMPORT_PATTERN = /(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g;
 const DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
 const RAW_STORE_FORBIDDEN_PATTERN =
@@ -110,6 +126,8 @@ test("session association state stays opaque outside its owner", () => {
 	const violations = sourceFiles()
 		.filter((path) => path.startsWith(PI_RUNTIME_PREFIX) && path !== PI_RUNTIME_ASSOCIATION)
 		.filter((path) => ASSOCIATION_STATE_ACCESS_PATTERN.test(source(path)));
+	assert.equal(ASSOCIATION_FIELDS_ARE_OPAQUE, true);
+	assert.doesNotMatch(source("pi-runtime-registry.ts"), /export type SessionAssociation\b/);
 	assert.deepEqual(violations, []);
 });
 

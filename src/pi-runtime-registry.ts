@@ -1,7 +1,6 @@
 import type {
 	PiExtensionRunner,
 	PiRuntimeCapture,
-	PiRuntimeInstaller,
 	PiRuntimePatchInstallation,
 	PiRuntimeTool,
 	PiSharedRuntime,
@@ -98,22 +97,12 @@ export type BindLifecycleInvocation = {
 
 export type ReloadLifecycleInvocation = {
 	kind: typeof RELOAD_INVOCATION_SLOT_KIND;
-	retainedAssociation: SessionAssociation | undefined;
+	retainedAssociation: object | undefined;
 };
 
 export type LifecycleInvocation = BindLifecycleInvocation | ReloadLifecycleInvocation;
 
-export type SessionAssociation = {
-	kind: typeof ASSOCIATION_SLOT_KIND;
-	installer: PiRuntimeInstaller;
-	definition: object;
-	parts: SessionParts;
-	toolGeneration: number;
-	runtimeActionsInstalled: boolean;
-	runtimeEventFinalizersInstalled: boolean;
-};
-
-export type LifecycleSlot = LifecycleInvocation | SessionAssociation;
+export type LifecycleSlot = LifecycleInvocation | { readonly kind: typeof ASSOCIATION_SLOT_KIND };
 
 export type PatchState = {
 	active: boolean;
