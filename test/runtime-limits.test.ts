@@ -148,6 +148,39 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 	releaseReservations(reservations);
 });
 
+test("worker rejects oversized binding arguments before host execution", async () => {
+	let bindingCalls = 0;
+	const outcome = await runCode({
+		program:
+			'try { await tools.echo({ value: "x".repeat(256) }); } catch (error) { return { name: error.name, message: error.message }; }',
+		bindings: {
+			functions: {
+				async echo() {
+					bindingCalls += 1;
+					return null;
+				},
+			},
+		},
+		maxOutputBytes: 128,
+	});
+	assert.equal(bindingCalls, 0);
+	assert.deepEqual(outcome, {
+		logs: [],
+		result: {
+			name: "ToolCallError",
+			message: "binding arguments exceed maxOutputBytes",
+		},
+	});
+});
+
+test("worker rejects oversized outer values before host delivery", async () => {
+	const outcome = await runCode({
+		program: 'return "x".repeat(256);',
+		maxOutputBytes: 128,
+	});
+	assert.deepEqual(outcome, { logs: [], error: { kind: "output-limit" } });
+});
+
 test("runCode terminates when serialized logs exceed the byte limit", async () => {
 	const outcome = await runCode({
 		program: 'console.log("12345"); return 1;',

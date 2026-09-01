@@ -11,6 +11,7 @@ import {
 	type WorkerBootData,
 } from "./worker-protocol.ts";
 
+const BINDING_ARGUMENT_LIMIT_MESSAGE = "binding arguments exceed maxOutputBytes";
 const EMPTY_FAILURE_MESSAGE = "";
 const UTF8_ENCODING = "utf8";
 
@@ -69,12 +70,19 @@ port.on("message", (raw: unknown) => {
 	}
 });
 
+function exceedsPayloadLimit(value: JsonValue): boolean {
+	return Buffer.byteLength(JSON.stringify(value), UTF8_ENCODING) > boot.maxOutputBytes;
+}
+
 const bindings: Record<string, (args: JsonValue) => Promise<JsonValue>> = Object.create(null);
 for (const name of boot.bindingNames) {
 	bindings[name] = async (args: JsonValue) => {
 		const id = nextCallId;
 		nextCallId += 1;
 		const snapshot = snapshotJsonValue(args);
+		if (exceedsPayloadLimit(snapshot)) {
+			throw new ToolCallError(name, BINDING_ARGUMENT_LIMIT_MESSAGE);
+		}
 		const result = new Promise<JsonValue>((resolve, reject) => {
 			pending.set(id, { resolve, reject });
 		});
@@ -107,7 +115,12 @@ void (async () => {
 		if (value === undefined) {
 			port.postMessage({ type: "done" });
 		} else {
-			port.postMessage({ type: "done", value: snapshotJsonValue(value) });
+			const snapshot = snapshotJsonValue(value);
+			if (exceedsPayloadLimit(snapshot)) {
+				port.postMessage({ type: "fail", kind: "output-limit", message: EMPTY_FAILURE_MESSAGE });
+				return;
+			}
+			port.postMessage({ type: "done", value: snapshot });
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
