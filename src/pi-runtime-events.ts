@@ -1,4 +1,5 @@
 import {
+	associationEventFinalizersInstalled,
 	clearCurrentSlot,
 	installAssociationEventFinalizers,
 	requireCurrentSessionParts,
@@ -42,7 +43,7 @@ export function installCapturedRuntimeEventFinalizers(
 	if (!validateRuntimeEventFinalizers(finalizers)) {
 		throw new TypeError(PI_RUNTIME_DIAGNOSTICS.INVALID_RUNTIME_EVENT_FINALIZERS);
 	}
-	if (association.runtimeEventFinalizersInstalled) {
+	if (associationEventFinalizersInstalled(association)) {
 		throw new PiRuntimeCompatibilityError(
 			PI_RUNTIME_DIAGNOSTICS.RUNTIME_EVENT_FINALIZERS_ALREADY_INSTALLED,
 		);
@@ -52,7 +53,7 @@ export function installCapturedRuntimeEventFinalizers(
 	let installed = false;
 	const wrappers = {} as Record<RunnerEventProperty, RunnerEventMethod>;
 	const requireInstalledParts = (): SessionParts => {
-		if (restored || !installed || !association.runtimeEventFinalizersInstalled) {
+		if (restored || !installed || !associationEventFinalizersInstalled(association)) {
 			throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.STALE_CAPTURE);
 		}
 		const parts = requireCurrentSessionParts(state, slotBySession, session, association);

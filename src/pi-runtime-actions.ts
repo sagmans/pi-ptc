@@ -1,4 +1,6 @@
 import {
+	associationOwnsDefinition,
+	associationRuntimeActionsInstalled,
 	clearCurrentSlot,
 	installAssociationRuntimeActions,
 	refreshAssociationTools,
@@ -27,7 +29,6 @@ import {
 	RUNTIME_ACTION_PROPERTIES,
 	SET_ACTIVE_TOOLS_PROPERTY,
 } from "./pi-runtime-registry.ts";
-import { getTaggedInstaller } from "./pi-runtime-registry-validation.ts";
 import {
 	getRuntimeActionDescriptors,
 	sessionPartsMatchAfterToolRefresh,
@@ -48,7 +49,7 @@ export function installCapturedRuntimeActions(
 	if (!validateRuntimeActionReplacements(replacements)) {
 		throw new TypeError(PI_RUNTIME_DIAGNOSTICS.INVALID_RUNTIME_ACTION_REPLACEMENTS);
 	}
-	if (association.runtimeActionsInstalled) {
+	if (associationRuntimeActionsInstalled(association)) {
 		throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.RUNTIME_ACTIONS_ALREADY_INSTALLED);
 	}
 	const originalDescriptors = getRuntimeActionDescriptors(initialParts.sharedRuntime, initialParts);
@@ -62,7 +63,7 @@ export function installCapturedRuntimeActions(
 	let installed = false;
 	let ownedActions: PiSharedRuntime;
 	const requireInstalledParts = (): SessionParts => {
-		if (restored || !installed || !association.runtimeActionsInstalled) {
+		if (restored || !installed || !associationRuntimeActionsInstalled(association)) {
 			throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.STALE_CAPTURE);
 		}
 		const parts = requireCurrentSessionParts(state, slotBySession, session, association);
@@ -183,10 +184,7 @@ export function installCapturedRuntimeActions(
 			} catch {
 				throwStaleCapture(state, slotBySession, session, association);
 			}
-			if (
-				definition !== association.definition ||
-				getTaggedInstaller(definition) !== association.installer
-			) {
+			if (!associationOwnsDefinition(association, definition)) {
 				throwStaleCapture(state, slotBySession, session, association);
 			}
 			refreshAssociationTools(association, refreshed.parts);

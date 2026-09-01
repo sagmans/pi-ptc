@@ -17,8 +17,8 @@ const RENDERER_RAW_STORE = "renderer-raw-store.ts";
 const WORKER_PROTOCOL = "worker-protocol.ts";
 const PACKAGE_FILE = "package.json";
 const ROOT_EXPORT = ".";
-const ASSOCIATION_MUTATION_PATTERN =
-	/association\.(?:parts|toolGeneration|runtimeActionsInstalled|runtimeEventFinalizersInstalled)\s*(?:=|\+=|-=|\+\+|--)/;
+const ASSOCIATION_STATE_ACCESS_PATTERN =
+	/association\.(?:parts|toolGeneration|runtimeActionsInstalled|runtimeEventFinalizersInstalled|definition|installer)\b/;
 const STATIC_IMPORT_PATTERN = /(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g;
 const DYNAMIC_IMPORT_PATTERN = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
 const RAW_STORE_FORBIDDEN_PATTERN =
@@ -106,10 +106,10 @@ test("Pi shape, action, and event dependencies remain acyclic", () => {
 	}
 });
 
-test("only the association owner mutates session association state", () => {
+test("session association state stays opaque outside its owner", () => {
 	const violations = sourceFiles()
 		.filter((path) => path.startsWith(PI_RUNTIME_PREFIX) && path !== PI_RUNTIME_ASSOCIATION)
-		.filter((path) => ASSOCIATION_MUTATION_PATTERN.test(source(path)));
+		.filter((path) => ASSOCIATION_STATE_ACCESS_PATTERN.test(source(path)));
 	assert.deepEqual(violations, []);
 });
 

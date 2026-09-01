@@ -1,6 +1,8 @@
 import { installCapturedRuntimeActions } from "./pi-runtime-actions.ts";
 import { createPiToolArgumentPreparer } from "./pi-runtime-arguments.ts";
 import {
+	associationToolGeneration,
+	associationToolSnapshots,
 	clearCurrentSlot,
 	invocationIsCurrent,
 	publishSessionAssociation,
@@ -43,10 +45,10 @@ export function createCapturedSession(
 ): CapturedPiSession {
 	const validate = (): SessionParts =>
 		requireCurrentSessionParts(state, slotBySession, session, association);
-	const initialToolGeneration = association.toolGeneration;
+	const initialToolGeneration = associationToolGeneration(association);
 	const validateInitialTools = (): SessionParts => {
 		const parts = validate();
-		if (association.toolGeneration !== initialToolGeneration) {
+		if (associationToolGeneration(association) !== initialToolGeneration) {
 			throw new PiRuntimeCompatibilityError(PI_RUNTIME_DIAGNOSTICS.STALE_CAPTURE);
 		}
 		return parts;
@@ -75,12 +77,10 @@ export function createCapturedSession(
 			Reflect.apply(parts.refreshTools, parts.sharedRuntime, []);
 		},
 	});
-	const toolRegistry = createToolRegistryFacade(
-		validateInitialTools,
-		association.parts.toolSnapshots,
-	);
+	const toolSnapshots = associationToolSnapshots(association);
+	const toolRegistry = createToolRegistryFacade(validateInitialTools, toolSnapshots);
 	const prepareInitialToolArguments = createPiToolArgumentPreparer(
-		new Map(association.parts.toolSnapshots.map((snapshot) => [snapshot.name, snapshot.entry])),
+		new Map(toolSnapshots.map((snapshot) => [snapshot.name, snapshot.entry])),
 	);
 	const beforeToolCall = (...args: unknown[]): Promise<unknown> => {
 		const parts = validate();

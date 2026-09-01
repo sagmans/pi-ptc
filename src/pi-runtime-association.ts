@@ -20,6 +20,34 @@ import { sessionPartsMatch, validateSession } from "./pi-runtime-shape.ts";
 const INITIAL_TOOL_GENERATION = 0;
 const TOOL_GENERATION_INCREMENT = 1;
 
+export function associationToolGeneration(association: SessionAssociation): number {
+	return association.toolGeneration;
+}
+
+export function associationToolSnapshots(
+	association: SessionAssociation,
+): SessionParts["toolSnapshots"] {
+	return association.parts.toolSnapshots;
+}
+
+export function associationRuntimeActionsInstalled(association: SessionAssociation): boolean {
+	return association.runtimeActionsInstalled;
+}
+
+export function associationEventFinalizersInstalled(association: SessionAssociation): boolean {
+	return association.runtimeEventFinalizersInstalled;
+}
+
+export function associationOwnsDefinition(
+	association: SessionAssociation,
+	definition: unknown,
+): boolean {
+	return (
+		definition === association.definition &&
+		getTaggedInstaller(definition) === association.installer
+	);
+}
+
 export function beginLifecycleInvocation(
 	slotBySession: WeakMap<object, LifecycleSlot>,
 	session: object,
