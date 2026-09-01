@@ -90,7 +90,9 @@ Execution follows this path:
 7. `src/canonical.ts` returns canonical JSON or throws `ToolCallError`.
 8. Retry-unsafe post-execution delivery failure uses the distinct
    `ToolResultDeliveryError` protocol path.
-9. The worker returns captured logs and an optional JSON result.
+9. The worker returns captured logs and an optional JSON result. Output-limit
+   failures report only their scope, measured count, configured limit, and limit
+   name; rejected output is never echoed.
 
 The worker is killable containment, not a sandbox. Model code has
 user-equivalent host authority.

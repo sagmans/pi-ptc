@@ -36,6 +36,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Report measured byte or line counts for output-limit failures without echoing rejected output.
 - Drain or terminalize cancelled nested work without accepting late display updates.
 - Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
 - Restore current and historical display details with explicit bounded fallbacks.

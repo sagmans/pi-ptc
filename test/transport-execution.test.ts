@@ -12,6 +12,9 @@ import {
 	OVERSIZED_FAILURE_MESSAGE,
 } from "./support/transport-harness.ts";
 
+const TRANSPORT_OUTPUT_LIMIT_MESSAGE =
+	"ptc failed (output-limit): worker error message exceeds maxOutputBytes: 7000 > 1234";
+
 test("ptc returns logs and a curated result", async () => {
 	const tool = createPtcTool({
 		...LIMITS,
@@ -78,7 +81,7 @@ test("ptc bounds worker failure messages before Pi persists them", async () => {
 		rejection = error as Error;
 	}
 
-	assert.equal(rejection?.message, "ptc failed (output-limit): output-limit");
+	assert.equal(rejection?.message, TRANSPORT_OUTPUT_LIMIT_MESSAGE);
 	assert.ok(Buffer.byteLength(rejection?.message ?? "", "utf8") <= CUSTOM_MAX_OUTPUT_BYTES);
 });
 

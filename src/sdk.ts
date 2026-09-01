@@ -23,6 +23,7 @@ Call active runtime tools only from a ptc program. The code argument is the body
 Top-level await and return are legal. Use erasable TypeScript only.
 Successful bindings resolve to canonical JSON. Failed tool calls reject ToolCallError(toolName, message).
 ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true because retry may repeat effects.
+Keep logs and return values concise; intermediate binding values stay model-hidden.
 Tool calls follow active runtime scheduling modes.
 `;
 const SKILL_COMMAND_GUIDANCE = "/skill:name still works.\n";

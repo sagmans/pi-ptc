@@ -7,6 +7,7 @@ const NEVER_SETTLING_TIMEOUT_MS = 100;
 const NEVER_SETTLING_DRAIN_TIMEOUT_MS = 30;
 const OUTPUT_LIMIT_BYTES = 17;
 const OUTPUT_LIMIT_LINES = 2000;
+const OUTPUT_LIMIT_MESSAGE = "log output exceeds maxOutputBytes: 18 > 17";
 const DRAIN_OBSERVATION_MS = 500;
 
 async function settledWithinDrainObservation(promise: Promise<unknown>): Promise<boolean> {
@@ -69,7 +70,7 @@ const outputLimitOutcome = await runCode({
 });
 if (
 	JSON.stringify(outputLimitOutcome) !==
-	JSON.stringify({ logs: [], error: { kind: "output-limit" } })
+	JSON.stringify({ logs: [], error: { kind: "output-limit", message: OUTPUT_LIMIT_MESSAGE } })
 ) {
 	console.error(JSON.stringify({ outputLimitOutcome }));
 	process.exit(1);

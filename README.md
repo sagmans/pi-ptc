@@ -145,7 +145,8 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 - 256,000-byte or 10,000-line outer output, checked in the worker before delivery;
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
-Only presentation has project and user overrides.
+Output-limit failures report the measured byte or line count without echoing the
+rejected output. Only presentation has project and user overrides.
 
 ## Compatibility
 

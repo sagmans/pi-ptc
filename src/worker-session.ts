@@ -12,6 +12,10 @@ import {
 	type WorkerToHost,
 } from "./worker-protocol.ts";
 
+const LOG_OUTPUT_LIMIT_SUBJECT = "log output";
+const MAX_OUTPUT_BYTES_NAME = "maxOutputBytes";
+const MAX_OUTPUT_LINES_NAME = "maxOutputLines";
+const WORKER_FAILURE_LIMIT_SUBJECT = "worker failure message";
 const LOG_SEPARATOR_BYTES = 1;
 const EMPTY_LOGS_SERIALIZED_BYTES = Buffer.byteLength(JSON.stringify({ logs: [] }), "utf8");
 const UTF8_ENCODING = "utf8";
@@ -79,6 +83,24 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			void close(outcome, mustAbort);
 		};
 
+		const finishOutputLimit = (
+			subject: string,
+			limitName: "maxOutputBytes" | "maxOutputLines",
+			observed: number,
+			limit: number,
+		): void => {
+			finish(
+				{
+					logs: [...logs],
+					error: {
+						kind: "output-limit",
+						message: `${subject} exceeds ${limitName}: ${observed} > ${limit}`,
+					},
+				},
+				true,
+			);
+		};
+
 		const postReply = (message: HostToWorker): void => {
 			if (closing) return;
 			try {
@@ -104,8 +126,22 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				separatorBytes +
 				Buffer.byteLength(JSON.stringify(message.text), UTF8_ENCODING);
 			const nextLines = logOutputLines + logicalLineCount(message.text);
-			if (nextBytes > maxOutputBytes || nextLines > maxOutputLines) {
-				finish({ logs: [...logs], error: { kind: "output-limit" } }, true);
+			if (nextBytes > maxOutputBytes) {
+				finishOutputLimit(
+					LOG_OUTPUT_LIMIT_SUBJECT,
+					MAX_OUTPUT_BYTES_NAME,
+					nextBytes,
+					maxOutputBytes,
+				);
+				return;
+			}
+			if (nextLines > maxOutputLines) {
+				finishOutputLimit(
+					LOG_OUTPUT_LIMIT_SUBJECT,
+					MAX_OUTPUT_LINES_NAME,
+					nextLines,
+					maxOutputLines,
+				);
 				return;
 			}
 			logOutputBytes = nextBytes;
@@ -203,12 +239,24 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const handleFailure = (message: Extract<WorkerToHost, { type: "fail" }>): void => {
-			if (
-				message.kind === "output-limit" ||
-				Buffer.byteLength(message.message, UTF8_ENCODING) > maxOutputBytes ||
-				logicalLineCount(message.message) > maxOutputLines
-			) {
-				finish({ logs: [...logs], error: { kind: "output-limit" } }, true);
+			const messageBytes = Buffer.byteLength(message.message, UTF8_ENCODING);
+			const messageLines = logicalLineCount(message.message);
+			if (messageBytes > maxOutputBytes) {
+				finishOutputLimit(
+					WORKER_FAILURE_LIMIT_SUBJECT,
+					MAX_OUTPUT_BYTES_NAME,
+					messageBytes,
+					maxOutputBytes,
+				);
+				return;
+			}
+			if (messageLines > maxOutputLines) {
+				finishOutputLimit(
+					WORKER_FAILURE_LIMIT_SUBJECT,
+					MAX_OUTPUT_LINES_NAME,
+					messageLines,
+					maxOutputLines,
+				);
 				return;
 			}
 			finish({ logs: [...logs], error: { kind: message.kind, message: message.message } }, true);
