@@ -24,6 +24,7 @@ import {
 } from "./support/index-harness.ts";
 
 const LATE_FAILURE_TOOL_CALL_ID = "ptc-late-failure";
+const RECAPTURE_FAILURE_TOOL_CALL_ID = "ptc-recapture-failure";
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
 	let resolve!: () => void;
@@ -69,6 +70,22 @@ test("lifecycle clear rejects a late failure-details write", async () => {
 		toolResult({ toolName: TRANSPORT_NAME, toolCallId: LATE_FAILURE_TOOL_CALL_ID }, harness.ctx),
 		undefined,
 	);
+
+	const preLeaseToolCallId = "ptc-pre-lease-failure";
+	await assert.rejects(
+		tool.execute(
+			preLeaseToolCallId,
+			{ code: FAILURE_PROGRAM, description: FAILURE_DESCRIPTION },
+			undefined,
+			undefined,
+			harness.ctx,
+		),
+		/capture|unavailable/i,
+	);
+	assert.equal(
+		toolResult({ toolName: TRANSPORT_NAME, toolCallId: preLeaseToolCallId }, harness.ctx),
+		undefined,
+	);
 });
 
 test("failed ptc details are patched once by call id and cleared on shutdown", async () => {
@@ -110,6 +127,16 @@ test("failed ptc details are patched once by call id and cleared on shutdown", a
 	assert.equal(JSON.stringify(patch.details).includes(FAILURE_PROGRAM), false);
 	assert.equal(
 		toolResult({ toolName: TRANSPORT_NAME, toolCallId: FAILURE_TOOL_CALL_ID }, harness.ctx),
+		undefined,
+	);
+
+	await executeFailure(RECAPTURE_FAILURE_TOOL_CALL_ID);
+	harness.captureRuntime();
+	assert.equal(
+		toolResult(
+			{ toolName: TRANSPORT_NAME, toolCallId: RECAPTURE_FAILURE_TOOL_CALL_ID },
+			harness.ctx,
+		),
 		undefined,
 	);
 

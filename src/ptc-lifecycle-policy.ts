@@ -43,6 +43,13 @@ export type CaptureReadiness = "pending" | "active" | "inert";
 export type AggregatedToolCallResult = { block?: unknown };
 export type AggregatedBeforeAgentStartResult = { messages?: unknown; systemPrompt?: unknown };
 
+export function clearLifecycleStores(
+	options: Pick<PtcLifecycleOptions, "failureDetails" | "clearRenderSnapshots">,
+): void {
+	options.failureDetails.clear();
+	options.clearRenderSnapshots();
+}
+
 export function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
 	return (typeof value === "object" && value !== null) || typeof value === "function";
 }
@@ -55,10 +62,13 @@ export function describeError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export function sameNames(actual: readonly string[], expected: readonly string[]): boolean {
-	return (
-		actual.length === expected.length && actual.every((name, index) => name === expected[index])
-	);
+export function assertNativeRestoration(
+	actual: readonly string[],
+	expected: readonly string[],
+): void {
+	const sameNames =
+		actual.length === expected.length && actual.every((name, index) => name === expected[index]);
+	if (!sameNames) throw new Error(NATIVE_RESTORATION_VERIFICATION_FAILURE);
 }
 
 export function supportsCurrentCaptureContract(session: CapturedPiSession): boolean {

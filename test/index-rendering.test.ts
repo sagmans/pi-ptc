@@ -190,8 +190,8 @@ test("failed native restoration verification stays inert with explicit cleanup f
 	}
 });
 
-test("shutdown and inert transitions clear unrendered execution renderer snapshots", async () => {
-	for (const lifecycle of ["shutdown", "inert"] as const) {
+test("shutdown, recapture, and inert transitions clear unrendered renderer snapshots", async () => {
+	for (const lifecycle of ["shutdown", "recapture", "inert"] as const) {
 		const marker = `${lifecycle} renderer`;
 		const harness = createFakePi([VISUAL_RUNTIME_TOOL_NAME]);
 		harness.registerRuntimeTool(
@@ -238,6 +238,8 @@ test("shutdown and inert transitions clear unrendered execution renderer snapsho
 		const unrenderedResult = await execute(unrenderedCallId);
 		if (lifecycle === "shutdown") {
 			harness.handlers.get("session_shutdown")?.({}, harness.ctx);
+		} else if (lifecycle === "recapture") {
+			harness.captureRuntime();
 		} else {
 			harness.captureIncompatible("Bound AgentSession._toolRegistry is unavailable");
 		}

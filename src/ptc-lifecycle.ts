@@ -17,24 +17,24 @@ import { hasCompetingOwner } from "./presentation.ts";
 import { createPtcExecution } from "./ptc-execution.ts";
 import {
 	type AggregatedBeforeAgentStartResult,
+	assertNativeRestoration,
 	BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX,
 	BEFORE_AGENT_START_SYSTEM_PROMPT_ARGUMENT_INDEX,
 	CATALOG_ROLLBACK_FAILURE_PREFIX,
 	type CaptureReadiness,
+	clearLifecycleStores,
 	describeError,
 	INERT_STATUS,
 	isBlockingToolCallResult,
 	isRecord,
 	MISSING_RUNTIME_CAPTURE_MESSAGE,
 	NATIVE_RESTORATION_RETRY_FAILURE_PREFIX,
-	NATIVE_RESTORATION_VERIFICATION_FAILURE,
 	OBSOLETE_CAPTURE_CONTRACT_MESSAGE,
 	OWNED_TRANSPORT_CLEANUP_FAILURE_PREFIX,
 	PTC_RUNTIME_UNAVAILABLE_MESSAGE,
 	type PtcLifecycleController,
 	type PtcLifecycleOptions,
 	RUNTIME_INCOMPATIBILITY_PREFIX,
-	sameNames,
 	supportsCurrentCaptureContract,
 	TOOL_CALL_EVENT_ARGUMENT_INDEX,
 } from "./ptc-lifecycle-policy.ts";
@@ -112,8 +112,7 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 		capturedSession !== undefined &&
 		inertMessage === undefined;
 	const becomeRuntimeInert = (message: string, context?: ExtensionContext): void => {
-		options.failureDetails.clear();
-		options.clearRenderSnapshots();
+		clearLifecycleStores(options);
 		let cleanupError: unknown;
 		try {
 			restoreControlledRuntime();
@@ -139,9 +138,7 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 			message += `: ${CATALOG_ROLLBACK_FAILURE_PREFIX}: ${describeError(failure.rollbackError)}`;
 			try {
 				options.pi.setActiveTools([...failure.previousLogicalActiveTools]);
-				if (!sameNames(options.pi.getActiveTools(), failure.previousLogicalActiveTools)) {
-					throw new Error(NATIVE_RESTORATION_VERIFICATION_FAILURE);
-				}
+				assertNativeRestoration(options.pi.getActiveTools(), failure.previousLogicalActiveTools);
 			} catch (error) {
 				message += `: ${NATIVE_RESTORATION_RETRY_FAILURE_PREFIX}: ${describeError(error)}`;
 			}
@@ -213,6 +210,9 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 			else if (inertMessage) reportInert(context);
 		},
 		capture(capture: PiRuntimeCapture) {
+			if (catalog || capturedSession || eventFinalizers || transportOwnership) {
+				clearLifecycleStores(options);
+			}
 			try {
 				restoreControlledRuntime();
 			} catch (error) {
@@ -325,8 +325,7 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 			return options.failureDetails.consume(toolCallId);
 		},
 		clear(_reason: PtcLifecycleClearReason) {
-			options.failureDetails.clear();
-			options.clearRenderSnapshots();
+			clearLifecycleStores(options);
 			restoreControlledRuntime();
 			captureReadiness = "pending";
 			inertMessage = undefined;

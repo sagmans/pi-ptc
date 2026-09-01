@@ -99,7 +99,6 @@ export type PtcToolOptions = {
 	maxRendererCallIdHistory?: number;
 	definitionProvider?: PtcDefinitionProvider;
 	rawRenderStore?: RawRenderStore;
-	failureDetails?: FailureDetailsStore;
 	run?: typeof runCode;
 } & (
 	| {
@@ -114,7 +113,6 @@ export type PtcToolOptions = {
 
 export function createPtcTool(options: PtcToolOptions) {
 	const run = options.run ?? runCode;
-	const failureDetails = options.failureDetails ?? createFailureDetailsStore();
 	const rawRenderStore = options.rawRenderStore ?? createRawRenderStore();
 	const rendererTokens = createRendererTokens(
 		options.maxPendingRenderSnapshots ?? MAX_PENDING_RENDER_SNAPSHOTS,
@@ -277,7 +275,7 @@ export function createPtcTool(options: PtcToolOptions) {
 					rawRenderStore,
 					rawRenderToken,
 				);
-				(recordFailure ?? failureDetails.remember)(toolCallId, details);
+				recordFailure?.(toolCallId, details);
 				throw error;
 			} finally {
 				releaseExecution?.();
