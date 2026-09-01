@@ -1,6 +1,5 @@
 import type { Presentation } from "./config.ts";
 import type { ExtensionAPI, ExtensionContext } from "./host.ts";
-import type { CapturedPiSession } from "./pi-runtime.ts";
 import type { FailureDetailsStore, PtcLifecycle } from "./ptc-tool-contract.ts";
 
 export const INERT_STATUS = "ptc: inert";
@@ -69,11 +68,4 @@ export function assertNativeRestoration(
 	const sameNames =
 		actual.length === expected.length && actual.every((name, index) => name === expected[index]);
 	if (!sameNames) throw new Error(NATIVE_RESTORATION_VERIFICATION_FAILURE);
-}
-
-export function supportsCurrentCaptureContract(session: CapturedPiSession): boolean {
-	return (
-		typeof (session as unknown as { prepareToolArguments?: unknown }).prepareToolArguments ===
-		"function"
-	);
 }

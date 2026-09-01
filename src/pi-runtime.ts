@@ -23,5 +23,6 @@ export {
 	PI_RUNTIME_PRIVATE_PROPERTIES,
 	SUPPORTED_PI_VERSION,
 } from "./pi-runtime-contract.ts";
+export { adaptLegacyCapturedPiSession } from "./pi-runtime-legacy-session.ts";
 export { installPiRuntimeCapturePatch, tagPtcToolDefinition } from "./pi-runtime-patch.ts";
 export { ensureSharedPiRuntimeCapturePatch } from "./pi-runtime-shared-patch.ts";

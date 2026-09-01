@@ -264,6 +264,8 @@ export function createFakePi(
 			captureInstaller.capturePiRuntime({ compatible: true, session: capturedSession });
 		},
 		captureObsoleteRuntime() {
+			registry = new Map(desiredRegistry);
+			runtimeBound = true;
 			assert.ok(captureInstaller);
 			const obsolete = { ...capturedSession, prepareToolArguments: undefined } as unknown;
 			captureInstaller.capturePiRuntime({

@@ -7,11 +7,12 @@ import {
 } from "./config.ts";
 import type { PtcDispatchDetails } from "./dispatch-details.ts";
 import type { ExtensionContext } from "./host.ts";
-import type {
-	CapturedPiSession,
-	PiRuntimeCapture,
-	PiRuntimeEventFinalizersInstallation,
-	PtcTransportOwnership,
+import {
+	adaptLegacyCapturedPiSession,
+	type CapturedPiSession,
+	type PiRuntimeCapture,
+	type PiRuntimeEventFinalizersInstallation,
+	type PtcTransportOwnership,
 } from "./pi-runtime.ts";
 import { hasCompetingOwner } from "./presentation.ts";
 import { createPtcExecution } from "./ptc-execution.ts";
@@ -35,7 +36,6 @@ import {
 	type PtcLifecycleController,
 	type PtcLifecycleOptions,
 	RUNTIME_INCOMPATIBILITY_PREFIX,
-	supportsCurrentCaptureContract,
 	TOOL_CALL_EVENT_ARGUMENT_INDEX,
 } from "./ptc-lifecycle-policy.ts";
 import type {
@@ -229,7 +229,8 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 				becomeRuntimeInert(COMPETING_OWNER_MESSAGE, lastContext);
 				return;
 			}
-			if (!supportsCurrentCaptureContract(capture.session)) {
+			const session = adaptLegacyCapturedPiSession(capture.session);
+			if (!session) {
 				becomeRuntimeInert(
 					`${RUNTIME_INCOMPATIBILITY_PREFIX}: ${OBSOLETE_CAPTURE_CONTRACT_MESSAGE}`,
 					lastContext,
@@ -240,15 +241,15 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 			reportedInertMessage = undefined;
 			try {
 				catalog = createToolCatalog({
-					session: capture.session,
+					session,
 					getPresentation: () => presentation,
 					onRefreshFailure: (failure) => becomeRefreshFailureInert(failure, lastContext),
 				});
-				eventFinalizers = capture.session.installRuntimeEventFinalizers({
+				eventFinalizers = session.installRuntimeEventFinalizers({
 					finalizeToolCall: controller.finalizeToolCall,
 					finalizeBeforeAgentStart: controller.finalizeBeforeAgentStart,
 				});
-				capturedSession = capture.session;
+				capturedSession = session;
 				generation += 1;
 			} catch (error) {
 				becomeCapturedRuntimeInert(error, lastContext);

@@ -6,6 +6,8 @@ import { Worker } from "node:worker_threads";
 
 import { createSnapshotDetails, parseDispatchDetails } from "../../src/dispatch-details.ts";
 import {
+	adaptLegacyCapturedPiSession,
+	ensureSharedPiRuntimeCapturePatch,
 	installPiRuntimeCapturePatch,
 	SUPPORTED_PI_VERSION,
 	tagPtcToolDefinition,
@@ -27,12 +29,19 @@ const BASELINE_RUNTIME_PATH = "src/pi-runtime.ts";
 const BASELINE_DETAILS_PATH = "src/dispatch-details.ts";
 const BASELINE_WORKER_PATH = "src/worker.ts";
 const MIXED_COPY_INSTALLATIONS = 2;
+const SHARED_PATCH_INSTALLATIONS = 1;
+const MIXED_TOOL_NAME = "sample";
 const BASELINE_WORKER_SETTLEMENT_MS = 150;
 const BASELINE_WORKER_TIMEOUT_MS = 5_000;
 const DELIVERY_TOOL_NAME = "delivery";
 const DELIVERY_MESSAGE = "delivery failed after execution";
 
 type RuntimeModule = {
+	ensureSharedPiRuntimeCapturePatch(options: {
+		agentSession: { prototype: object };
+		version: string;
+		globalObject: object;
+	}): { compatible: true } | { compatible: false; diagnostic: string };
 	installPiRuntimeCapturePatch(options: {
 		agentSession: { prototype: object };
 		version: string;
@@ -65,6 +74,44 @@ function registryInstallations(globalObject: object, prototype: object): number 
 	const registry = readPiRuntimeV1Registry(globalObject, "patchRegistry");
 	const state = registry?.get(prototype) as PatchState | undefined;
 	return state?.installations;
+}
+
+async function proveSharedPatchOrder(first: RuntimeModule, second: RuntimeModule): Promise<void> {
+	const { Session } = createFakeSessionClass();
+	const globalObject = {};
+	const captures: PiRuntimeCapture[] = [];
+	const installer = {
+		capturePiRuntime(capture: PiRuntimeCapture) {
+			captures.push(capture);
+		},
+	};
+	const definition = {};
+	second.tagPtcToolDefinition(definition, installer);
+	const session = new Session();
+	session.ptcDefinition = definition;
+	const firstEnsure = first.ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+	const secondEnsure = second.ensureSharedPiRuntimeCapturePatch({
+		agentSession: Session,
+		version: SUPPORTED_PI_VERSION,
+		globalObject,
+	});
+	assert.equal(firstEnsure.compatible, true);
+	assert.equal(secondEnsure.compatible, true);
+	assert.equal(registryInstallations(globalObject, Session.prototype), SHARED_PATCH_INSTALLATIONS);
+
+	await session.bindExtensions();
+	const captured = adaptLegacyCapturedPiSession(assertCompatibleCapture(captures[0]));
+	assert.ok(captured);
+	assert.equal(captured.prepareToolArguments(MIXED_TOOL_NAME, {}).ok, true);
+	await session.reload();
+	assert.throws(() => captured.prepareToolArguments(MIXED_TOOL_NAME, {}), STALE_CAPTURE_PATTERN);
+	const reloaded = adaptLegacyCapturedPiSession(assertCompatibleCapture(captures[1]));
+	assert.ok(reloaded);
+	assert.equal(reloaded.prepareToolArguments(MIXED_TOOL_NAME, {}).ok, true);
 }
 
 async function proveMixedOrder(first: RuntimeModule, second: RuntimeModule): Promise<void> {
@@ -129,11 +176,14 @@ async function proveMixedOrder(first: RuntimeModule, second: RuntimeModule): Pro
 test("baseline and target Pi runtime copies interoperate in both load orders", async () => {
 	const baseline = (await loadBaselineModule(BASELINE_RUNTIME_PATH)) as RuntimeModule;
 	const target: RuntimeModule = {
+		ensureSharedPiRuntimeCapturePatch,
 		installPiRuntimeCapturePatch,
 		tagPtcToolDefinition,
 	};
 	await proveMixedOrder(baseline, target);
 	await proveMixedOrder(target, baseline);
+	await proveSharedPatchOrder(baseline, target);
+	await proveSharedPatchOrder(target, baseline);
 });
 
 test("target details remain readable by baseline and baseline fixtures remain readable", async () => {
