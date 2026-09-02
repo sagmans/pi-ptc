@@ -25,7 +25,11 @@ export type WorkerToHost =
 	| { type: "done"; value?: JsonValue }
 	| {
 			type: "fail";
-			kind: "throw" | "invalid-output" | "result-delivery";
+			kind:
+				| "program-compile"
+				| "program-runtime"
+				| "invalid-output"
+				| "result-delivery";
 			message: string;
 	  }
 	| {
@@ -126,8 +130,13 @@ function parseOutputLimitFailure(value: Record<string, unknown>): WorkerToHost {
 
 function isWorkerFailureKind(
 	value: unknown,
-): value is "throw" | "invalid-output" | "result-delivery" {
-	return value === "throw" || value === "invalid-output" || value === "result-delivery";
+): value is "program-compile" | "program-runtime" | "invalid-output" | "result-delivery" {
+	return (
+		value === "program-compile" ||
+		value === "program-runtime" ||
+		value === "invalid-output" ||
+		value === "result-delivery"
+	);
 }
 
 function invalidWorkerMessage(): Error {

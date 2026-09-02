@@ -9,18 +9,23 @@ import {
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 
 const BINDING_SIGNATURES = Object.freeze({
-	bash: "await tools.bash({ command, timeout? })",
-	edit: "await tools.edit({ path, edits })",
-	find: "await tools.find({ pattern, path?, limit? })",
-	grep: "await tools.grep({ pattern, path?, glob?, ignoreCase?, literal?, context?, limit? })",
-	ls: "await tools.ls({ path?, limit? })",
-	read: "await tools.read({ path, offset?, limit? })",
-	write: "await tools.write({ path, content })",
+	bash: "{ command: string; timeout?: number }",
+	edit: "{ path: string; edits: { oldText: string; newText: string }[] }",
+	find: "{ pattern: string; path?: string; limit?: number }",
+	grep: "{ pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
+	ls: "{ path?: string; limit?: number }",
+	read: "{ path: string; offset?: number; limit?: number }",
+	write: "{ path: string; content: string }",
 } as const satisfies Record<CoreToolName, string>);
 
 const ACTIVE_SDK_HEADER = `tools:sdk
-Call active runtime tools only from a ptc program. The code argument is the body of an async function.
-Top-level await and return are legal. Use erasable TypeScript only.
+Call active runtime tools only from a ptc program. tools is injected; do not import it.
+The code argument is an async function body: no Markdown fences, imports, exports, JSX, enums, namespaces, or decorators.
+Top-level await and return are legal. Prefer plain JavaScript; use erasable TypeScript only when needed.
+Each binding takes one argument matching its schema below. Schemas are reference notation, not copyable calls; pass concrete values.
+Binding arguments and returned results must be lossless JSON: null, booleans, finite numbers except -0, strings, dense arrays, and plain objects.
+Omit undefined fields or replace them with null. Convert BigInt, Date, Map, Set, class instances, and other values before crossing a boundary.
+Await every dispatch. Use Promise.all only for independent calls. Project large results before returning them.
 Successful bindings resolve to canonical JSON. Failed tool calls reject ToolCallError(toolName, message).
 ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true because retry may repeat effects.
 Keep logs and return values concise; intermediate binding values stay model-hidden.
@@ -46,7 +51,10 @@ export function renderSdkPrompt(catalog: readonly ToolCatalogEntry[]): string {
 
 function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	if (isCoreToolName(entry.name)) {
-		return { name: entry.name, line: BINDING_SIGNATURES[entry.name] };
+		return {
+			name: entry.name,
+			line: `tools.${entry.name} arguments: ${BINDING_SIGNATURES[entry.name]}`,
+		};
 	}
 	let signature = SCHEMA_SIGNATURE_FALLBACK;
 	try {
@@ -55,7 +63,7 @@ function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	const reference = ASCII_IDENTIFIER_PATTERN.test(entry.name)
 		? `tools.${entry.name}`
 		: `tools[${renderSafeJsonStringLiteral(entry.name)}]`;
-	return { name: entry.name, line: `await ${reference}(${signature})` };
+	return { name: entry.name, line: `${reference} arguments: ${signature}` };
 }
 
 function compareToolLines(left: SdkToolLine, right: SdkToolLine): number {

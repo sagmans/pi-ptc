@@ -55,7 +55,7 @@ test("runCode byte-bounds newline-rich hostile worker failures", async () => {
 	const outcome = await runCode({
 		program: hostileWorkerMessageProgram({
 			type: "fail",
-			kind: "throw",
+			kind: "program-runtime",
 			message: "\n".repeat(MULTILINE_FAILURE_BYTES),
 		}),
 		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
@@ -72,7 +72,7 @@ test("runCode replaces oversized hostile worker failures with numeric diagnostic
 	const outcome = await runCode({
 		program: hostileWorkerMessageProgram({
 			type: "fail",
-			kind: "throw",
+			kind: "program-runtime",
 			message: HOSTILE_FAILURE_MESSAGE,
 		}),
 		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,

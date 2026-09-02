@@ -39,14 +39,29 @@ const consoleShim = {
 
 // Bun does not pump worker parentPort replies during top-level await.
 void (async () => {
+	let program: (
+		tools: unknown,
+		toolCallError: unknown,
+		toolResultDeliveryError: unknown,
+		console: unknown,
+	) => Promise<unknown>;
 	try {
-		const create = new Function(`${boot.program}\nreturn ${PROGRAM_WRAPPER_NAME};`) as () => (
-			tools: unknown,
-			toolCallError: unknown,
-			console: unknown,
-		) => Promise<unknown>;
+		const create = new Function(`${boot.program}\nreturn ${PROGRAM_WRAPPER_NAME};`) as () => typeof program;
+		program = create();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		port.postMessage({ type: "fail", kind: "program-compile", message });
+		return;
+	}
+
+	try {
 		const workerGlobals = { [WORKER_BINDING_NAME]: bindings };
-		const value = await create()(workerGlobals[WORKER_BINDING_NAME], ToolCallError, consoleShim);
+		const value = await program(
+			workerGlobals[WORKER_BINDING_NAME],
+			ToolCallError,
+			ToolResultDeliveryError,
+			consoleShim,
+		);
 		if (value === undefined) {
 			port.postMessage({ type: "done" });
 		} else {
@@ -89,7 +104,7 @@ void (async () => {
 				? "result-delivery"
 				: message.includes("lossless JSON")
 					? "invalid-output"
-					: "throw";
+					: "program-runtime";
 		port.postMessage({ type: "fail", kind, message });
 	}
 })();

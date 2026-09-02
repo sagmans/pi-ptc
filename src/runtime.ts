@@ -23,14 +23,17 @@ export async function runCode(request: CodeRunRequest): Promise<CodeRunResult> {
 	try {
 		// Strip a function wrapper so top-level return/await stay legal.
 		program = stripProgram(
-			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, console) {
+			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, ToolResultDeliveryError, console) {
 ${request.program}
 }`,
 		);
 	} catch (error) {
 		return {
 			logs: [],
-			error: { kind: "throw", message: error instanceof Error ? error.message : String(error) },
+			error: {
+				kind: "program-transform",
+				message: error instanceof Error ? error.message : String(error),
+			},
 		};
 	}
 

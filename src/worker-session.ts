@@ -100,7 +100,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const finishWorkerMessage = (
-			kind: "throw" | "invalid-output" | "result-delivery",
+			kind: "program-compile" | "program-runtime" | "invalid-output" | "result-delivery",
 			message: string,
 			subject: outputLimit.OutputLimitSubject,
 		): void => {
@@ -317,7 +317,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const onError = (error: Error): void => {
-			finishWorkerMessage("throw", error.message, outputLimit.WORKER_ERROR_SUBJECT);
+			finishWorkerMessage("program-runtime", error.message, outputLimit.WORKER_ERROR_SUBJECT);
 		};
 
 		const onExit = (code: number): void => {

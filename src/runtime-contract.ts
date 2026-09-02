@@ -4,7 +4,9 @@ import type { JsonValue } from "./json.ts";
 export type BindingFn = (args: JsonValue, signal: AbortSignal) => Promise<JsonValue>;
 
 export type CodeRunFailure =
-	| { kind: "throw"; message: string }
+	| { kind: "program-transform"; message: string }
+	| { kind: "program-compile"; message: string }
+	| { kind: "program-runtime"; message: string }
 	| { kind: "timeout" }
 	| { kind: "abort" }
 	| { kind: "invalid-output"; message: string }
