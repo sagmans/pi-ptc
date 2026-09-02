@@ -16,13 +16,11 @@ import {
 	LATE_WORKER_ACTIVITY_DELAY_MS,
 	NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	NEVER_SETTLING_TEST_TIMEOUT_MS,
-	NEVER_SETTLING_TIMEOUT_MS,
 	nextTurn,
 	RUNTIME_TEST_TIMEOUT_MS,
 	settledWithinDrainObservation,
 	WORKER_TERMINATION_DRAIN_TIMEOUT_MS,
 	WORKER_TERMINATION_TEST_TIMEOUT_MS,
-	WORKER_TERMINATION_TIMEOUT_MS,
 } from "./support/runtime-harness.ts";
 
 test("runCode aborts an active binding signal on timeout", async () => {
@@ -68,7 +66,7 @@ test("runCode returns after the drain deadline when a timed-out binding never se
 				},
 			},
 		},
-		timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	});
 	await bindingStarted.promise;
@@ -114,6 +112,7 @@ test("runCode returns after the drain deadline when an aborted binding never set
 test("runCode terminates worker-authored activity before draining host bindings", {
 	timeout: WORKER_TERMINATION_TEST_TIMEOUT_MS,
 }, async () => {
+	const controller = new AbortController();
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-worker-close-"));
 	const markerPath = join(directory, "late-worker-activity.txt");
 	const bindingStarted = deferred();
@@ -136,12 +135,14 @@ return null;
 					},
 				},
 			},
-			timeoutMs: WORKER_TERMINATION_TIMEOUT_MS,
+			signal: controller.signal,
+			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 			drainTimeoutMs: WORKER_TERMINATION_DRAIN_TIMEOUT_MS,
 		});
 		await bindingStarted.promise;
+		controller.abort();
 		const outcome = await pending;
-		assert.deepEqual(outcome.error, { kind: "timeout" });
+		assert.deepEqual(outcome.error, { kind: "abort" });
 		assert.equal(existsSync(markerPath), false);
 	} finally {
 		allowBindingToSettle.resolve();
