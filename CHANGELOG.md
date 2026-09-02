@@ -22,6 +22,8 @@ All notable changes are documented here. The format follows
 - Expanded the original seven-core-tool design to the complete logical active set.
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.
 - Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.
+- Replaced copy-prone pseudo-calls with explicit argument-schema notation and executable SDK examples.
+- Added concise program, injected-binding, lossless-JSON, and retry guidance to the model SDK.
 - Bootstrap unsupported Pi hosts before loading private-runtime-dependent implementation.
 
 ### Security
@@ -41,6 +43,9 @@ All notable changes are documented here. The format follows
 - Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.
 - Restore current and historical display details with explicit bounded fallbacks.
 - Distinguish retry-unsafe result-delivery failures from ordinary tool-call failures.
+- Expose both failure classes to programs and preserve stable failure codes, causes, resolutions, and retry safety.
+- Keep formatted failures classified and bounded while safely escaping hostile tool names.
+- Report the rejected lossless-JSON category without echoing the rejected value.
 - Enforce one process-wide unresolved-binding ceiling across concurrent workers and physical module copies.
 - Recover exact render-retention capacity when a dispatch projection is replaced or cleared.
 - Reject stale failure-detail writes after lifecycle clear and centralize mutable Pi association transitions.

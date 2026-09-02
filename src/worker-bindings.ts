@@ -1,9 +1,14 @@
 import type { MessagePort } from "node:worker_threads";
 
-import { type JsonValue, snapshotJsonValue } from "./json.ts";
+import { type JsonValue, LosslessJsonError, snapshotJsonValue } from "./json.ts";
 import type { HostToWorker, WorkerBootData } from "./worker-protocol.ts";
 
 const BINDING_ARGUMENT_LIMIT_MESSAGE = "binding arguments exceed maxOutputBytes";
+
+export type ToolCallFailureKind =
+	| "binding-arguments-json"
+	| "binding-arguments-limit"
+	| "tool-call";
 const UTF8_ENCODING = "utf8";
 
 export class ToolResultDeliveryError extends Error {
@@ -19,11 +24,13 @@ export class ToolResultDeliveryError extends Error {
 }
 
 export class ToolCallError extends Error {
+	readonly failureKind: ToolCallFailureKind;
 	readonly toolName: string;
 
-	constructor(toolName: string, message: string) {
+	constructor(toolName: string, message: string, failureKind: ToolCallFailureKind = "tool-call") {
 		super(message);
 		this.name = "ToolCallError";
+		this.failureKind = failureKind;
 		this.toolName = toolName;
 	}
 }
@@ -70,8 +77,18 @@ export function createWorkerBindings(
 		bindings[name] = async (args: JsonValue) => {
 			const id = nextCallId;
 			nextCallId += 1;
-			const snapshot = snapshotWorkerPayload(args, boot.maxOutputBytes);
-			if (!snapshot.ok) throw new ToolCallError(name, BINDING_ARGUMENT_LIMIT_MESSAGE);
+			let snapshot: WorkerPayloadSnapshot;
+			try {
+				snapshot = snapshotWorkerPayload(args, boot.maxOutputBytes);
+			} catch (error) {
+				if (error instanceof LosslessJsonError) {
+					throw new ToolCallError(name, error.message, "binding-arguments-json");
+				}
+				throw error;
+			}
+			if (!snapshot.ok) {
+				throw new ToolCallError(name, BINDING_ARGUMENT_LIMIT_MESSAGE, "binding-arguments-limit");
+			}
 			const result = new Promise<JsonValue>((resolve, reject) => {
 				pending.set(id, { resolve, reject });
 			});

@@ -95,15 +95,18 @@ test("production install binds the active captured catalog with native hooks and
 	assert.deepEqual(value.value.details, { source: "after-hook" });
 
 	const prompt = (await harness.emitBeforeAgentStart("prompt")) as { systemPrompt: string };
-	assert.match(prompt.systemPrompt, /await tools\.read\(\{ path, offset\?, limit\? \}\)/);
+	assert.match(
+		prompt.systemPrompt,
+		/tools\.read arguments: \{ path: string; offset\?: number; limit\?: number \}/,
+	);
 	assert.equal(
 		prompt.systemPrompt.includes(
-			`await tools[${JSON.stringify(CUSTOM_RUNTIME_TOOL_NAME)}]({ city: string })`,
+			`tools[${JSON.stringify(CUSTOM_RUNTIME_TOOL_NAME)}] arguments: { city: string }`,
 		),
 		true,
 	);
 	assert.doesNotMatch(prompt.systemPrompt, /tools\.inactive_runtime/);
-	assert.doesNotMatch(prompt.systemPrompt, /await tools\.ptc\(/);
+	assert.doesNotMatch(prompt.systemPrompt, /tools\.ptc arguments:/);
 	assert.deepEqual(await harness.emitToolCall({ toolName: CUSTOM_RUNTIME_TOOL_NAME }), {
 		block: true,
 		reason: LEAK_BLOCK_REASON,

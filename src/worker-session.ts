@@ -1,10 +1,15 @@
 import type { Worker } from "node:worker_threads";
 
 import { ToolResultDeliveryError } from "./canonical.ts";
-import { snapshotJsonValue } from "./json.ts";
+import { LosslessJsonError, snapshotJsonValue } from "./json.ts";
 import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
 import * as outputLimit from "./output-limit.ts";
-import type { BindingFn, CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
+import type {
+	BindingFn,
+	CodeRunFailure,
+	CodeRunRequest,
+	CodeRunResult,
+} from "./runtime-contract.ts";
 import {
 	type HostToWorker,
 	INVALID_WORKER_CALL_ID_MESSAGE,
@@ -100,21 +105,20 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const finishWorkerMessage = (
-			kind: "throw" | "invalid-output" | "result-delivery",
-			message: string,
+			failure: Extract<CodeRunFailure, { message: string }>,
 			subject: outputLimit.OutputLimitSubject,
 		): void => {
-			const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
+			const messageBytes = Buffer.byteLength(failure.message, UTF8_ENCODING);
 			if (messageBytes > maxOutputBytes) {
 				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_BYTES_NAME, messageBytes, maxOutputBytes);
 				return;
 			}
-			const messageLines = logicalLineCount(message);
+			const messageLines = logicalLineCount(failure.message);
 			if (messageLines > maxOutputLines) {
 				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_LINES_NAME, messageLines, maxOutputLines);
 				return;
 			}
-			finish({ logs: [...logs], error: { kind, message } }, true);
+			finish({ logs: [...logs], error: failure }, true);
 		};
 
 		const postReply = (message: HostToWorker): void => {
@@ -170,7 +174,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				finish(
 					{
 						logs: [...logs],
-						error: { kind: "invalid-output", message: INVALID_WORKER_CALL_ID_MESSAGE },
+						error: { kind: "worker-protocol", message: INVALID_WORKER_CALL_ID_MESSAGE },
 					},
 					true,
 				);
@@ -210,13 +214,20 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 					});
 				})
 				.catch((error: unknown) => {
+					const settledError =
+						error instanceof LosslessJsonError
+							? new ToolResultDeliveryError(message.name, error.message)
+							: error;
 					const toolName =
-						error instanceof Error && "toolName" in error && typeof error.toolName === "string"
-							? error.toolName
+						settledError instanceof Error &&
+						"toolName" in settledError &&
+						typeof settledError.toolName === "string"
+							? settledError.toolName
 							: message.name;
-					const errorMessage = error instanceof Error ? error.message : String(error);
+					const errorMessage =
+						settledError instanceof Error ? settledError.message : String(settledError);
 					postReply(
-						error instanceof ToolResultDeliveryError
+						settledError instanceof ToolResultDeliveryError
 							? {
 									type: "result-delivery",
 									id: message.id,
@@ -256,7 +267,11 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 
 		const handleFailure = (message: Extract<WorkerToHost, { type: "fail" }>): void => {
 			if ("message" in message) {
-				finishWorkerMessage(message.kind, message.message, outputLimit.WORKER_FAILURE_SUBJECT);
+				const failure: Extract<CodeRunFailure, { message: string }> =
+					"toolName" in message
+						? { kind: message.kind, toolName: message.toolName, message: message.message }
+						: { kind: message.kind, message: message.message };
+				finishWorkerMessage(failure, outputLimit.WORKER_FAILURE_SUBJECT);
 				return;
 			}
 			const expectedLimit =
@@ -265,7 +280,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				finish(
 					{
 						logs: [...logs],
-						error: { kind: "invalid-output", message: INVALID_OUTPUT_LIMIT_MESSAGE },
+						error: { kind: "worker-protocol", message: INVALID_OUTPUT_LIMIT_MESSAGE },
 					},
 					true,
 				);
@@ -288,7 +303,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 					{
 						logs: [...logs],
 						error: {
-							kind: "invalid-output",
+							kind: "worker-protocol",
 							message: error instanceof Error ? error.message : String(error),
 						},
 					},
@@ -317,7 +332,10 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		};
 
 		const onError = (error: Error): void => {
-			finishWorkerMessage("throw", error.message, outputLimit.WORKER_ERROR_SUBJECT);
+			finishWorkerMessage(
+				{ kind: "program-runtime", message: error.message },
+				outputLimit.WORKER_ERROR_SUBJECT,
+			);
 		};
 
 		const onExit = (code: number): void => {

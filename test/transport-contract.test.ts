@@ -45,11 +45,11 @@ test("uncaught delivery failures warn that retry may repeat effects", () => {
 			serializeOuterResult(
 				{
 					logs: [],
-					error: { kind: "result-delivery", message: "delivery failed" },
+					error: { kind: "result-delivery", toolName: "delivery", message: "delivery failed" },
 				},
 				LIMITS,
 			),
-		/execution may have succeeded; retry may repeat effects: delivery failed/,
+		/PTC_TOOL_RESULT_DELIVERY[\s\S]*delivery failed[\s\S]*never retry a mutation blindly[\s\S]*retry may repeat effects/,
 	);
 });
 

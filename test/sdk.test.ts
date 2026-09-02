@@ -2,17 +2,18 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 
 import { CORE_TOOL_NAMES } from "../src/config.ts";
+import { runCode } from "../src/runtime.ts";
 import { renderSdkPrompt } from "../src/sdk.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 
 const CORE_SIGNATURE_LINES = [
-	"await tools.bash({ command, timeout? })",
-	"await tools.edit({ path, edits })",
-	"await tools.find({ pattern, path?, limit? })",
-	"await tools.grep({ pattern, path?, glob?, ignoreCase?, literal?, context?, limit? })",
-	"await tools.ls({ path?, limit? })",
-	"await tools.read({ path, offset?, limit? })",
-	"await tools.write({ path, content })",
+	"tools.bash arguments: { command: string; timeout?: number }",
+	"tools.edit arguments: { path: string; edits: { oldText: string; newText: string }[] }",
+	"tools.find arguments: { pattern: string; path?: string; limit?: number }",
+	"tools.grep arguments: { pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
+	"tools.ls arguments: { path?: string; limit?: number }",
+	"tools.read arguments: { path: string; offset?: number; limit?: number }",
+	"tools.write arguments: { path: string; content: string }",
 ] as const;
 const FALLBACK_SIGNATURE = "Record<string, unknown>";
 const OVERSIZED_SCHEMA_TEXT = "x".repeat(5_000);
@@ -35,8 +36,39 @@ function catalogEntry(name: string, parameters: object): ToolCatalogEntry {
 }
 
 function toolLines(prompt: string): string[] {
-	return prompt.split("\n").filter((line) => line.startsWith("await tools"));
+	return prompt
+		.split("\n")
+		.filter((line) => line.startsWith("tools.") || line.startsWith("tools["));
 }
+
+test("displayed usage examples execute as written", async () => {
+	const prompt = renderSdkPrompt([
+		catalogEntry("read", { type: "object", additionalProperties: false }),
+	]);
+	const programs = [...prompt.matchAll(/```ts\n([\s\S]*?)```/gu)].map((match) => match[1] ?? "");
+	assert.equal(programs.length, 2);
+	assert.match(prompt, /replace placeholder paths/i);
+	assert.doesNotMatch(prompt, /package\.json|config\.json|optional\.txt/);
+	for (const program of programs) {
+		const outcome = await runCode({
+			program,
+			bindings: {
+				functions: {
+					read: async (args) => {
+						const path = (args as { path: string }).path;
+						if (path === "optional.txt") {
+							throw Object.assign(new Error("missing"), { toolName: "read" });
+						}
+						return {
+							text: path === "package.json" ? '{"name":"pi-ptc"}' : '{"presentation":"code"}',
+						};
+					},
+				},
+			},
+		});
+		assert.equal(outcome.error, undefined, program);
+	}
+});
 
 test("supplied catalog prose omits inactive core guidance", () => {
 	const prompt = renderSdkPrompt([
@@ -46,6 +78,10 @@ test("supplied catalog prose omits inactive core guidance", () => {
 	assert.match(prompt, /Call active runtime tools only/);
 	assert.match(prompt, /ToolResultDeliveryError.*retryUnsafe.*repeat effects/);
 	assert.match(prompt, /Keep logs and return values concise.*model-hidden/);
+	assert.match(prompt, /tools is injected; do not import it/i);
+	assert.match(prompt, /Prefer plain JavaScript/);
+	assert.match(prompt, /schemas are reference notation, not copyable calls/i);
+	assert.match(prompt, /undefined fields.*null/i);
 	for (const name of CORE_TOOL_NAMES) {
 		assert.doesNotMatch(prompt, new RegExp(`\\b${name}\\b`), name);
 	}
@@ -61,15 +97,15 @@ test("supplied catalog is authoritative, sorted by exact name, and preserves cor
 	];
 	const reversed = [...catalog].reverse();
 	const expected = [
-		"await tools.$alpha_2({})",
+		"tools.$alpha_2 arguments: {}",
 		CORE_SIGNATURE_LINES[5],
 		CORE_SIGNATURE_LINES[6],
-		"await tools.zeta({})",
+		"tools.zeta arguments: {}",
 	];
 
 	assert.deepEqual(toolLines(renderSdkPrompt(catalog)), expected);
 	assert.equal(renderSdkPrompt(catalog), renderSdkPrompt(reversed));
-	assert.doesNotMatch(renderSdkPrompt(catalog), /await tools\.bash\(/);
+	assert.doesNotMatch(renderSdkPrompt(catalog), /tools\.bash arguments:/);
 });
 
 test("sdk safely renders arbitrary exact tool names", () => {
@@ -82,9 +118,9 @@ test("sdk safely renders arbitrary exact tool names", () => {
 	const lines = toolLines(renderSdkPrompt(catalog));
 
 	assert.deepEqual(lines, [
-		"await tools.normal_name({})",
-		`await tools[${JSON.stringify(hostileName)}]({})`,
-		'await tools["slash/name"]({})',
+		"tools.normal_name arguments: {}",
+		`tools[${JSON.stringify(hostileName)}] arguments: {}`,
+		'tools["slash/name"] arguments: {}',
 	]);
 	assert.equal(lines.join("\n").includes("\u001b[2J"), false);
 	assert.equal(lines.length, catalog.length);
@@ -141,7 +177,7 @@ test("schema signatures cover objects, properties, arrays, primitives, and quoti
 	]);
 
 	assert.deepEqual(toolLines(prompt), [
-		'await tools.schema({ active: boolean; count: number; integer: number; items: string[]; nothing: null; "quoted-name"?: number; text: string })',
+		'tools.schema arguments: { active: boolean; count: number; integer: number; items: string[]; nothing: null; "quoted-name"?: number; text: string }',
 	]);
 });
 
@@ -174,9 +210,9 @@ test("schema signatures cover const, enum, unions, and additional properties", (
 	]);
 
 	assert.deepEqual(toolLines(prompt), [
-		'await tools.literals({ any: "x" | number; choice: "fast" | "slow" | 2 | null | true; constant: "fixed"; multi: null | number | string; one: boolean | string; unionItems: (null | string)[] })',
-		"await tools.schemaExtras({ [key: string]: boolean })",
-		"await tools.unknownExtras({ [key: string]: unknown })",
+		'tools.literals arguments: { any: "x" | number; choice: "fast" | "slow" | 2 | null | true; constant: "fixed"; multi: null | number | string; one: boolean | string; unionItems: (null | string)[] }',
+		"tools.schemaExtras arguments: { [key: string]: boolean }",
+		"tools.unknownExtras arguments: { [key: string]: unknown }",
 	]);
 });
 
@@ -221,7 +257,7 @@ test("hostile, cyclic, unsupported, deep, wide, and oversized schemas fail close
 
 	assert.deepEqual(
 		toolLines(renderSdkPrompt(catalog)),
-		catalog.map(({ name }) => `await tools.${name}(${FALLBACK_SIGNATURE})`),
+		catalog.map(({ name }) => `tools.${name} arguments: ${FALLBACK_SIGNATURE}`),
 	);
 	assert.equal(getterCalls, 0);
 });

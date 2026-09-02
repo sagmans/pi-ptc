@@ -37,7 +37,30 @@ pi -e /absolute/path/to/pi-ptc
 
 ## Usage
 
-The model calls `ptc` with an async function body:
+The model calls `ptc` with two required arguments:
+
+```ts
+{
+  code: string;
+  description: string;
+}
+```
+
+`code` is the body of an async function. PTC injects `tools`,
+`ToolCallError`, `ToolResultDeliveryError`, and `console` into that
+function. The program does not import them.
+
+Before each model response, PTC adds a compact SDK section to the system prompt.
+It lists the sorted active bindings and their argument schemas. Each PTC run
+uses a fixed snapshot of that list.
+
+The SDK displays schemas as reference notation, not as executable calls:
+
+```text
+tools.read arguments: { path: string; offset?: number; limit?: number }
+```
+
+Pass concrete values in program code:
 
 ```ts
 const [pkg, ts] = await Promise.all([
@@ -50,9 +73,36 @@ return {
 };
 ```
 
-Every active runtime tool receives a generated `tools.<name>(args)` binding,
-including built-ins, SDK and extension tools, and adapter-backed tools such as
-MCP. Tool names that are not JavaScript identifiers use bracket notation.
+Every active runtime tool receives a generated `tools.<name>(args)` binding.
+This includes built-in, SDK, extension, and adapter-backed tools such as MCP.
+Tool names that are not JavaScript identifiers use bracket notation.
+
+Use these rules when you write a program:
+
+- Use an async-function body without Markdown fences.
+- Prefer plain JavaScript. Use erasable TypeScript only when necessary.
+- Do not use imports, exports, JSX, enums, namespaces, or decorators.
+- Pass one lossless-JSON argument to each binding.
+- Await every dispatch. Use `Promise.all` only for independent calls.
+- Return a small lossless-JSON projection.
+
+Lossless JSON contains `null`, booleans, finite numbers except `-0`, strings,
+dense arrays, and plain objects. Omit `undefined` fields or replace them with
+`null`. Convert `BigInt`, `Date`, `Map`, `Set`, and class instances
+before they cross a binding or result boundary.
+
+Independent calls can run together:
+
+```ts
+const [pkg, config] = await Promise.all([
+  tools.read({ path: "package.json" }),
+  tools.read({ path: "config.json" }),
+]);
+return {
+  name: JSON.parse(pkg.text).name,
+  presentation: JSON.parse(config.text).presentation,
+};
+```
 
 Core `read` values expose file content through `.text`. Truncated reads retain
 truncation metadata but omit its duplicate `content` field. Project or summarize
@@ -60,19 +110,25 @@ binding values instead of returning raw batches that waste the bounded outer
 result.
 
 Failed tool dispatches reject with `ToolCallError(toolName, message)`. A result
-that cannot be delivered after tool execution rejects with the distinct
-`ToolResultDeliveryError`; callers must not infer that retry is safe.
+that cannot be delivered after tool execution rejects with
+`ToolResultDeliveryError`. Do not retry this failure without checking the
+external state first.
 
 ```ts
 try {
   return await tools.bash({ command: "exit 7" });
 } catch (error) {
-  return {
-    caught: error instanceof ToolCallError,
-    toolName: error.toolName,
-  };
+  if (error instanceof ToolResultDeliveryError) throw error;
+  if (error instanceof ToolCallError) {
+    return { ok: false, toolName: error.toolName, message: error.message };
+  }
+  throw error;
 }
 ```
+
+Uncaught PTC failures contain a stable code, cause, resolution, and retry
+safety. The agent uses this information to submit a corrected call. PTC does
+not rewrite programs or retry calls automatically.
 
 Adapter authorization remains adapter-owned. PTC neither bypasses approval
 brokers nor performs OAuth on the program's behalf.

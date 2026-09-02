@@ -1,10 +1,6 @@
-import { type JsonValue, snapshotJsonValue } from "./json.ts";
-import {
-	isOutputLimitName,
-	isOutputLimitSubject,
-	type OutputLimitName,
-	type OutputLimitSubject,
-} from "./output-limit.ts";
+import type { JsonValue } from "./json.ts";
+import type { OutputLimitName, OutputLimitSubject } from "./output-limit.ts";
+import { parseWorkerMessageValue } from "./worker-protocol-parser.ts";
 
 export const WORKER_BINDING_NAME = "tools";
 
@@ -17,7 +13,6 @@ export type WorkerBootData = {
 
 export const INVALID_WORKER_CALL_ID_MESSAGE =
 	"worker call id must be a positive safe integer that strictly increases";
-const INVALID_WORKER_MESSAGE = "worker emitted an invalid protocol message";
 
 export type WorkerToHost =
 	| { type: "log"; text: string }
@@ -25,7 +20,13 @@ export type WorkerToHost =
 	| { type: "done"; value?: JsonValue }
 	| {
 			type: "fail";
-			kind: "throw" | "invalid-output" | "result-delivery";
+			kind: "program-compile" | "program-runtime" | "program-result-json";
+			message: string;
+	  }
+	| {
+			type: "fail";
+			kind: "binding-arguments-json" | "binding-arguments-limit" | "tool-call" | "result-delivery";
+			toolName: string;
 			message: string;
 	  }
 	| {
@@ -37,7 +38,11 @@ export type WorkerToHost =
 			limit: number;
 	  };
 
-export type BindingFailureKind = "tool-call" | "result-delivery";
+export type BindingFailureKind =
+	| "binding-arguments-json"
+	| "binding-arguments-limit"
+	| "tool-call"
+	| "result-delivery";
 
 export type HostToWorker =
 	| { type: "reply"; id: number; ok: true; value: JsonValue }
@@ -57,83 +62,10 @@ export type HostToWorker =
 			message: string;
 	  };
 
+export function parseWorkerMessage(value: unknown): WorkerToHost {
+	return parseWorkerMessageValue(value) as WorkerToHost;
+}
+
 export function logicalLineCount(text: string): number {
 	return text.split(/\r\n|\r|\n/).length;
-}
-
-export function parseWorkerMessage(value: unknown): WorkerToHost {
-	if (!isRecord(value) || typeof value.type !== "string") throw invalidWorkerMessage();
-	switch (value.type) {
-		case "log":
-			return parseLogMessage(value);
-		case "call":
-			return parseCallMessage(value);
-		case "done":
-			return parseDoneMessage(value);
-		case "fail":
-			return parseFailureMessage(value);
-		default:
-			throw invalidWorkerMessage();
-	}
-}
-
-function parseLogMessage(value: Record<string, unknown>): WorkerToHost {
-	if (typeof value.text !== "string") throw invalidWorkerMessage();
-	return { type: "log", text: value.text };
-}
-
-function parseCallMessage(value: Record<string, unknown>): WorkerToHost {
-	if (typeof value.id !== "number" || typeof value.name !== "string") {
-		throw invalidWorkerMessage();
-	}
-	return { type: "call", id: value.id, name: value.name, args: snapshotJsonValue(value.args) };
-}
-
-function parseDoneMessage(value: Record<string, unknown>): WorkerToHost {
-	return "value" in value
-		? { type: "done", value: snapshotJsonValue(value.value) }
-		: { type: "done" };
-}
-
-function parseFailureMessage(value: Record<string, unknown>): WorkerToHost {
-	if (value.kind === "output-limit") return parseOutputLimitFailure(value);
-	if (!isWorkerFailureKind(value.kind) || typeof value.message !== "string") {
-		throw invalidWorkerMessage();
-	}
-	return { type: "fail", kind: value.kind, message: value.message };
-}
-
-function parseOutputLimitFailure(value: Record<string, unknown>): WorkerToHost {
-	if (
-		!isOutputLimitSubject(value.subject) ||
-		!isOutputLimitName(value.limitName) ||
-		typeof value.observed !== "number" ||
-		!Number.isSafeInteger(value.observed) ||
-		typeof value.limit !== "number" ||
-		!Number.isSafeInteger(value.limit)
-	) {
-		throw invalidWorkerMessage();
-	}
-	return {
-		type: "fail",
-		kind: "output-limit",
-		subject: value.subject,
-		limitName: value.limitName,
-		observed: value.observed,
-		limit: value.limit,
-	};
-}
-
-function isWorkerFailureKind(
-	value: unknown,
-): value is "throw" | "invalid-output" | "result-delivery" {
-	return value === "throw" || value === "invalid-output" || value === "result-delivery";
-}
-
-function invalidWorkerMessage(): Error {
-	return new Error(INVALID_WORKER_MESSAGE);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

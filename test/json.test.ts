@@ -7,8 +7,10 @@ test("snapshot keeps objects, arrays, and scalar JSON", () => {
 	assert.deepEqual(snapshotJsonValue({ a: [1, "x", true, null] }), { a: [1, "x", true, null] });
 });
 
-test("snapshot rejects undefined", () => {
-	assert.throws(() => snapshotJsonValue({ a: undefined }), /lossless JSON/);
+test("snapshot reports why undefined is not lossless JSON", () => {
+	assert.throws(() => snapshotJsonValue({ a: undefined }), {
+		message: "value is not lossless JSON: undefined is unsupported",
+	});
 });
 
 test("snapshot rejects NaN and Infinity", () => {
@@ -39,7 +41,9 @@ test("snapshot accepts null-prototype records", () => {
 });
 
 test("snapshot rejects exotic records", () => {
-	assert.throws(() => snapshotJsonValue(new Date(0)), /lossless JSON/);
+	assert.throws(() => snapshotJsonValue(new Date(0)), {
+		message: "value is not lossless JSON: object must be a plain object or dense array",
+	});
 	assert.throws(() => snapshotJsonValue(new Map([["safe", 1]])), /lossless JSON/);
 });
 

@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import { ToolResultDeliveryError } from "../src/canonical.ts";
 import { runCode } from "../src/runtime.ts";
 
 test("runCode returns the program completion value", async () => {
@@ -20,9 +21,21 @@ test("runCode omits result when the program returns undefined", async () => {
 	assert.deepEqual(outcome, { logs: [] });
 });
 
-test("runCode reports a thrown program error", async () => {
-	const outcome = await runCode({ program: 'throw new Error("boom");' });
-	assert.deepEqual(outcome.error, { kind: "throw", message: "boom" });
+test("runCode distinguishes transform, compilation, and runtime failures", async (t) => {
+	await t.test("transform", async () => {
+		const outcome = await runCode({ program: "return (;" });
+		assert.equal(outcome.error?.kind, "program-transform");
+	});
+
+	await t.test("compile", async () => {
+		const outcome = await runCode({ program: "return import.meta;" });
+		assert.equal(outcome.error?.kind, "program-compile");
+	});
+
+	await t.test("runtime", async () => {
+		const outcome = await runCode({ program: 'throw new Error("boom");' });
+		assert.deepEqual(outcome.error, { kind: "program-runtime", message: "boom" });
+	});
 });
 
 test("runCode calls host bindings and returns their JSON value", async () => {
@@ -36,6 +49,85 @@ test("runCode calls host bindings and returns their JSON value", async () => {
 		timeoutMs: 1500,
 	});
 	assert.deepEqual(outcome, { logs: [], result: { n: 3 } });
+});
+
+test("runCode exposes ToolResultDeliveryError to program code", async () => {
+	const outcome = await runCode({
+		program: `
+try {
+  await tools.fail({});
+  return "nope";
+} catch (error) {
+  return {
+    isDeliveryError: error instanceof ToolResultDeliveryError,
+    retryUnsafe: error.retryUnsafe,
+  };
+}
+`,
+		bindings: {
+			functions: {
+				fail: async () => {
+					throw new ToolResultDeliveryError("fail", "delivery failed");
+				},
+			},
+		},
+	});
+	assert.deepEqual(outcome, {
+		logs: [],
+		result: { isDeliveryError: true, retryUnsafe: true },
+	});
+});
+
+test("runCode identifies invalid binding arguments before dispatch", async () => {
+	let bindingCalls = 0;
+	const outcome = await runCode({
+		program: "return await tools.echo({ when: new Date() });",
+		bindings: {
+			functions: {
+				echo: async () => {
+					bindingCalls += 1;
+					return null;
+				},
+			},
+		},
+	});
+	assert.equal(bindingCalls, 0);
+	assert.equal(outcome.error?.kind, "binding-arguments-json");
+});
+
+test("runCode identifies invalid final program results", async () => {
+	const outcome = await runCode({ program: "return { missing: undefined };" });
+	assert.equal(outcome.error?.kind, "program-result-json");
+});
+
+test("runCode treats invalid host binding results as retry-unsafe delivery failures", async () => {
+	const outcome = await runCode({
+		program: "return await tools.bad_result({});",
+		bindings: {
+			functions: {
+				bad_result: async () => ({ missing: undefined }) as never,
+			},
+		},
+	});
+	assert.deepEqual(outcome.error, {
+		kind: "result-delivery",
+		toolName: "bad_result",
+		message: "value is not lossless JSON: undefined is unsupported",
+	});
+});
+
+test("runCode preserves uncaught tool-call identity", async () => {
+	const outcome = await runCode({
+		program: "return await tools.fail({});",
+		bindings: {
+			functions: {
+				fail: async () => {
+					throw Object.assign(new Error("denied"), { toolName: "fail" });
+				},
+			},
+		},
+	});
+	assert.deepEqual(outcome.error, { kind: "tool-call", toolName: "fail", message: "denied" });
 });
 
 test("runCode rejects binding failures as ToolCallError", async () => {
