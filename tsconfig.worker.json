@@ -1,0 +1,13 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"declaration": false,
+		"noEmit": false,
+		"outDir": "worker-dist",
+		"rewriteRelativeImportExtensions": true,
+		"rootDir": "src",
+		"sourceMap": false
+	},
+	"include": ["src/worker.ts"]
+}

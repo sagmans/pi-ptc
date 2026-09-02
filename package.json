@@ -9,11 +9,13 @@
 	"files": [
 		"index.ts",
 		"src",
+		"worker-dist",
 		"config.json",
 		"docs",
 		"CHANGELOG.md",
 		"CONTEXT.md",
-		"SECURITY.md"
+		"SECURITY.md",
+		"RELEASE.md"
 	],
 	"repository": {
 		"type": "git",
@@ -45,6 +47,9 @@
 		"check": "biome check .",
 		"check:fix": "biome check --write .",
 		"audit": "npm audit --audit-level=moderate",
+		"prepack": "tsc -p tsconfig.worker.json",
+		"pretest": "tsc -p tsconfig.worker.json",
+		"smoke": "node scripts/smoke-package.mjs",
 		"verify": "npm run check && npm run typecheck && npm test",
 		"verify:ci": "npm run audit && npm run verify"
 	},

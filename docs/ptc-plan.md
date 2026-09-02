@@ -94,6 +94,11 @@ Execution follows this path:
     failures report only their scope, measured count, configured limit, and limit
     name. Rejected output is never echoed.
 
+Published tarballs include a precompiled worker graph because Node does not strip
+TypeScript below `node_modules`. Checkout development retains the source-worker
+fallback. Package smoke executes the installed worker before loading the extension
+through Pi.
+
 The worker is killable containment, not a sandbox. Model code has
 user-equivalent host authority. PTC reports program errors but does not rewrite
 or retry model code.
