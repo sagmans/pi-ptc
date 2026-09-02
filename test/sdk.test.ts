@@ -2,6 +2,7 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 
 import { CORE_TOOL_NAMES } from "../src/config.ts";
+import { runCode } from "../src/runtime.ts";
 import { renderSdkPrompt } from "../src/sdk.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 
@@ -39,6 +40,33 @@ function toolLines(prompt: string): string[] {
 		.split("\n")
 		.filter((line) => line.startsWith("tools.") || line.startsWith("tools["));
 }
+
+test("displayed usage examples execute as written", async () => {
+	const prompt = renderSdkPrompt([
+		catalogEntry("read", { type: "object", additionalProperties: false }),
+	]);
+	const programs = [...prompt.matchAll(/```ts\n([\s\S]*?)```/gu)].map((match) => match[1] ?? "");
+	assert.equal(programs.length, 3);
+	for (const program of programs) {
+		const outcome = await runCode({
+			program,
+			bindings: {
+				functions: {
+					read: async (args) => {
+						const path = (args as { path: string }).path;
+						if (path === "optional.txt") {
+							throw Object.assign(new Error("missing"), { toolName: "read" });
+						}
+						return {
+							text: path === "package.json" ? '{"name":"pi-ptc"}' : '{"presentation":"code"}',
+						};
+					},
+				},
+			},
+		});
+		assert.equal(outcome.error, undefined, program);
+	}
+});
 
 test("supplied catalog prose omits inactive core guidance", () => {
 	const prompt = renderSdkPrompt([

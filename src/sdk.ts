@@ -31,6 +31,35 @@ ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true 
 Keep logs and return values concise; intermediate binding values stay model-hidden.
 Tool calls follow active runtime scheduling modes.
 `;
+const READ_USAGE_EXAMPLES = `Copyable examples:
+\`\`\`ts
+const file = await tools.read({ path: "package.json" });
+return JSON.parse(file.text).name;
+\`\`\`
+Independent calls may run together:
+\`\`\`ts
+const [pkg, config] = await Promise.all([
+  tools.read({ path: "package.json" }),
+  tools.read({ path: "config.json" }),
+]);
+return {
+  name: JSON.parse(pkg.text).name,
+  presentation: JSON.parse(config.text).presentation,
+};
+\`\`\`
+Handle ordinary tool failures; never retry delivery failures blindly:
+\`\`\`ts
+try {
+  return await tools.read({ path: "optional.txt" });
+} catch (error) {
+  if (error instanceof ToolResultDeliveryError) throw error;
+  if (error instanceof ToolCallError) {
+    return { ok: false, toolName: error.toolName, message: error.message };
+  }
+  throw error;
+}
+\`\`\`
+`;
 const SKILL_COMMAND_GUIDANCE = "/skill:name still works.\n";
 const READ_SKILL_GUIDANCE =
 	"Load skills with tools.read({ path }), not a native read call. /skill:name still works.\n";
@@ -46,7 +75,8 @@ export function renderSdkPrompt(catalog: readonly ToolCatalogEntry[]): string {
 	const guidance = catalog.some((entry) => entry.name === "read")
 		? READ_SKILL_GUIDANCE
 		: SKILL_COMMAND_GUIDANCE;
-	return `${ACTIVE_SDK_HEADER}${guidance}${lines.map(({ line }) => line).join("\n")}\n`;
+	const examples = catalog.some((entry) => entry.name === "read") ? READ_USAGE_EXAMPLES : "";
+	return `${ACTIVE_SDK_HEADER}${guidance}${lines.map(({ line }) => line).join("\n")}\n${examples}`;
 }
 
 function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {

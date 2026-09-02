@@ -79,23 +79,24 @@ renderer changes apply to the next call, never midway through a running program.
 
 Execution follows this path:
 
-1. `src/sdk.ts` renders stable model guidance from active schemas.
-2. `src/runtime.ts` type-strips erasable TypeScript.
+1. `src/sdk.ts` renders stable guidance, reference schemas, and compact examples.
+2. `src/runtime.ts` type-strips the async-function body.
 3. A fresh `worker_threads.Worker` starts with an empty environment and bounded heap.
-4. `src/worker-bindings.ts` exposes one async binding per snapshot entry.
+4. `src/worker-bindings.ts` injects one async binding per snapshot entry.
 5. Calls cross the worker boundary as lossless JSON after worker-side argument
    and outer-result byte checks.
 6. `src/tool-executor.ts` orchestrates the captured Pi argument, hook, event,
    execution, and finalization capabilities.
 7. `src/canonical.ts` returns canonical JSON or throws `ToolCallError`.
-8. Retry-unsafe post-execution delivery failure uses the distinct
-   `ToolResultDeliveryError` protocol path.
-9. The worker returns captured logs and an optional JSON result. Output-limit
-   failures report only their scope, measured count, configured limit, and limit
-   name; rejected output is never echoed.
+8. The worker exposes `ToolCallError` and `ToolResultDeliveryError` to the program.
+9. Failure paths preserve stable codes, causes, resolutions, and retry safety.
+10. The worker returns captured logs and an optional JSON result. Output-limit
+    failures report only their scope, measured count, configured limit, and limit
+    name. Rejected output is never echoed.
 
 The worker is killable containment, not a sandbox. Model code has
-user-equivalent host authority.
+user-equivalent host authority. PTC reports program errors but does not rewrite
+or retry model code.
 
 ## Dispatch lifecycle
 
