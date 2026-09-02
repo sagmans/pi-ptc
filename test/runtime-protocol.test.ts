@@ -48,7 +48,7 @@ test("runCode rejects forged output-limit messages", async () => {
 		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
-	assert.equal(outcome.error?.kind, "invalid-output");
+	assert.equal(outcome.error?.kind, "worker-protocol");
 });
 
 test("runCode byte-bounds newline-rich hostile worker failures", async () => {
@@ -92,7 +92,7 @@ test("runCode fails closed on malformed worker protocol messages", async () => {
 			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		});
 
-		assert.equal(outcome.error?.kind, "invalid-output", JSON.stringify(message));
+		assert.equal(outcome.error?.kind, "worker-protocol", JSON.stringify(message));
 	}
 });
 
@@ -113,7 +113,7 @@ test("runCode rejects worker call IDs that are not positive, safe, and increasin
 		});
 
 		assert.equal(bindingCalls, testCase.expectedBindingCalls, testCase.name);
-		assert.equal(outcome.error?.kind, "invalid-output", testCase.name);
+		assert.equal(outcome.error?.kind, "worker-protocol", testCase.name);
 	}
 });
 
@@ -154,7 +154,7 @@ test("runCode preserves uncaught retry-unsafe delivery failures", async () => {
 	});
 	assert.deepEqual(outcome, {
 		logs: [],
-		error: { kind: "result-delivery", message: "delivery failed" },
+		error: { kind: "result-delivery", toolName: "delivery", message: "delivery failed" },
 	});
 });
 
@@ -207,5 +207,5 @@ return null;
 	assert.equal(callsBeforeRelease, 1);
 	assert.equal(returnedBeforeDrain, false);
 	assert.equal(bindingSettled, true);
-	assert.equal(outcome.error?.kind, "invalid-output");
+	assert.equal(outcome.error?.kind, "worker-protocol");
 });

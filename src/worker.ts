@@ -3,6 +3,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
+import { LosslessJsonError } from "./json.ts";
 import * as outputLimit from "./output-limit.ts";
 import {
 	createWorkerBindings,
@@ -46,7 +47,9 @@ void (async () => {
 		console: unknown,
 	) => Promise<unknown>;
 	try {
-		const create = new Function(`${boot.program}\nreturn ${PROGRAM_WRAPPER_NAME};`) as () => typeof program;
+		const create = new Function(
+			`${boot.program}\nreturn ${PROGRAM_WRAPPER_NAME};`,
+		) as () => typeof program;
 		program = create();
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -65,7 +68,16 @@ void (async () => {
 		if (value === undefined) {
 			port.postMessage({ type: "done" });
 		} else {
-			const snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
+			let snapshot: ReturnType<typeof snapshotWorkerPayload>;
+			try {
+				snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
+			} catch (error) {
+				if (error instanceof LosslessJsonError) {
+					port.postMessage({ type: "fail", kind: "program-result-json", message: error.message });
+					return;
+				}
+				throw error;
+			}
 			if (snapshot.ok) {
 				port.postMessage({ type: "done", value: snapshot.value });
 			} else {
@@ -99,12 +111,24 @@ void (async () => {
 			);
 			return;
 		}
-		const kind =
-			error instanceof ToolResultDeliveryError
-				? "result-delivery"
-				: message.includes("lossless JSON")
-					? "invalid-output"
-					: "program-runtime";
-		port.postMessage({ type: "fail", kind, message });
+		if (error instanceof ToolResultDeliveryError) {
+			port.postMessage({
+				type: "fail",
+				kind: "result-delivery",
+				toolName: error.toolName,
+				message,
+			});
+			return;
+		}
+		if (error instanceof ToolCallError) {
+			port.postMessage({
+				type: "fail",
+				kind: error.failureKind,
+				toolName: error.toolName,
+				message,
+			});
+			return;
+		}
+		port.postMessage({ type: "fail", kind: "program-runtime", message });
 	}
 })();

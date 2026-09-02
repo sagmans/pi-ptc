@@ -25,11 +25,13 @@ export type WorkerToHost =
 	| { type: "done"; value?: JsonValue }
 	| {
 			type: "fail";
-			kind:
-				| "program-compile"
-				| "program-runtime"
-				| "invalid-output"
-				| "result-delivery";
+			kind: "program-compile" | "program-runtime" | "program-result-json";
+			message: string;
+	  }
+	| {
+			type: "fail";
+			kind: "binding-arguments-json" | "binding-arguments-limit" | "tool-call" | "result-delivery";
+			toolName: string;
 			message: string;
 	  }
 	| {
@@ -41,7 +43,11 @@ export type WorkerToHost =
 			limit: number;
 	  };
 
-export type BindingFailureKind = "tool-call" | "result-delivery";
+export type BindingFailureKind =
+	| "binding-arguments-json"
+	| "binding-arguments-limit"
+	| "tool-call"
+	| "result-delivery";
 
 export type HostToWorker =
 	| { type: "reply"; id: number; ok: true; value: JsonValue }
@@ -104,6 +110,10 @@ function parseFailureMessage(value: Record<string, unknown>): WorkerToHost {
 	if (!isWorkerFailureKind(value.kind) || typeof value.message !== "string") {
 		throw invalidWorkerMessage();
 	}
+	if (isBindingFailureKind(value.kind)) {
+		if (typeof value.toolName !== "string") throw invalidWorkerMessage();
+		return { type: "fail", kind: value.kind, toolName: value.toolName, message: value.message };
+	}
 	return { type: "fail", kind: value.kind, message: value.message };
 }
 
@@ -128,13 +138,22 @@ function parseOutputLimitFailure(value: Record<string, unknown>): WorkerToHost {
 	};
 }
 
-function isWorkerFailureKind(
-	value: unknown,
-): value is "program-compile" | "program-runtime" | "invalid-output" | "result-delivery" {
+type WorkerFailureKind = Extract<WorkerToHost, { type: "fail"; message: string }>["kind"];
+
+function isWorkerFailureKind(value: unknown): value is WorkerFailureKind {
 	return (
 		value === "program-compile" ||
 		value === "program-runtime" ||
-		value === "invalid-output" ||
+		value === "program-result-json" ||
+		isBindingFailureKind(value)
+	);
+}
+
+function isBindingFailureKind(value: unknown): value is BindingFailureKind {
+	return (
+		value === "binding-arguments-json" ||
+		value === "binding-arguments-limit" ||
+		value === "tool-call" ||
 		value === "result-delivery"
 	);
 }

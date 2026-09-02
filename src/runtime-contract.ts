@@ -9,8 +9,12 @@ export type CodeRunFailure =
 	| { kind: "program-runtime"; message: string }
 	| { kind: "timeout" }
 	| { kind: "abort" }
-	| { kind: "invalid-output"; message: string }
-	| { kind: "result-delivery"; message: string }
+	| { kind: "binding-arguments-json"; toolName: string; message: string }
+	| { kind: "binding-arguments-limit"; toolName: string; message: string }
+	| { kind: "tool-call"; toolName: string; message: string }
+	| { kind: "program-result-json"; message: string }
+	| { kind: "result-delivery"; toolName: string; message: string }
+	| { kind: "worker-protocol"; message: string }
 	| { kind: "output-limit"; message: string }
 	| { kind: "dispatch-limit" }
 	| { kind: "dangling-dispatch" }

@@ -78,6 +78,42 @@ try {
 	});
 });
 
+test("runCode identifies invalid binding arguments before dispatch", async () => {
+	let bindingCalls = 0;
+	const outcome = await runCode({
+		program: "return await tools.echo({ when: new Date() });",
+		bindings: {
+			functions: {
+				echo: async () => {
+					bindingCalls += 1;
+					return null;
+				},
+			},
+		},
+	});
+	assert.equal(bindingCalls, 0);
+	assert.equal(outcome.error?.kind, "binding-arguments-json");
+});
+
+test("runCode identifies invalid final program results", async () => {
+	const outcome = await runCode({ program: "return { missing: undefined };" });
+	assert.equal(outcome.error?.kind, "program-result-json");
+});
+
+test("runCode preserves uncaught tool-call identity", async () => {
+	const outcome = await runCode({
+		program: "return await tools.fail({});",
+		bindings: {
+			functions: {
+				fail: async () => {
+					throw Object.assign(new Error("denied"), { toolName: "fail" });
+				},
+			},
+		},
+	});
+	assert.deepEqual(outcome.error, { kind: "tool-call", toolName: "fail", message: "denied" });
+});
+
 test("runCode rejects binding failures as ToolCallError", async () => {
 	const outcome = await runCode({
 		program: `

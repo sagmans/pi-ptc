@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
+import type { CodeRunFailure } from "../src/runtime-contract.ts";
 import {
 	assertOuterResultWithinLimits,
 	createPtcTool,
@@ -17,11 +18,64 @@ import {
 } from "./support/transport-harness.ts";
 
 const TRANSPORT_OUTPUT_LIMIT_MESSAGE =
-	"ptc failed (output-limit): worker error message exceeds maxOutputBytes: 7000 > 1234";
+	"ptc failed [PTC_OUTPUT_LIMIT]\n" +
+	"Cause: worker error message exceeds maxOutputBytes: 7000 > 1234\n" +
+	"Resolution: Return a smaller projection and keep console output concise.\n" +
+	"Retry safety: verify state before retrying; nested tools may have executed";
 const COMBINED_OUTER_BYTES = 27;
 const COMBINED_OUTER_MAX_BYTES = COMBINED_OUTER_BYTES - 1;
 const OUTER_LINE_COUNT = 2;
 const OUTER_MAX_LINES = OUTER_LINE_COUNT - 1;
+
+test("every runtime failure gives the agent a unique code and correction guidance", () => {
+	const cases: Array<{ error: CodeRunFailure; code: string }> = [
+		{ error: { kind: "program-transform", message: "bad syntax" }, code: "PTC_PROGRAM_TRANSFORM" },
+		{ error: { kind: "program-compile", message: "bad syntax" }, code: "PTC_PROGRAM_COMPILE" },
+		{ error: { kind: "program-runtime", message: "boom" }, code: "PTC_PROGRAM_RUNTIME" },
+		{
+			error: { kind: "binding-arguments-json", toolName: "read", message: "undefined" },
+			code: "PTC_BINDING_ARGUMENT_JSON",
+		},
+		{
+			error: { kind: "binding-arguments-limit", toolName: "read", message: "too large" },
+			code: "PTC_BINDING_ARGUMENT_LIMIT",
+		},
+		{
+			error: { kind: "tool-call", toolName: "read", message: "missing" },
+			code: "PTC_TOOL_CALL",
+		},
+		{
+			error: { kind: "program-result-json", message: "undefined" },
+			code: "PTC_PROGRAM_RESULT_JSON",
+		},
+		{
+			error: { kind: "result-delivery", toolName: "write", message: "lost" },
+			code: "PTC_TOOL_RESULT_DELIVERY",
+		},
+		{ error: { kind: "worker-protocol", message: "invalid" }, code: "PTC_WORKER_PROTOCOL" },
+		{ error: { kind: "output-limit", message: "too large" }, code: "PTC_OUTPUT_LIMIT" },
+		{ error: { kind: "dispatch-limit" }, code: "PTC_DISPATCH_LIMIT" },
+		{ error: { kind: "dangling-dispatch" }, code: "PTC_DANGLING_DISPATCH" },
+		{ error: { kind: "orphan-limit" }, code: "PTC_ORPHAN_LIMIT" },
+		{ error: { kind: "timeout" }, code: "PTC_TIMEOUT" },
+		{ error: { kind: "abort" }, code: "PTC_ABORTED" },
+		{ error: { kind: "worker-exit", message: "exit 1" }, code: "PTC_WORKER_EXIT" },
+	];
+	const codes = new Set<string>();
+	for (const testCase of cases) {
+		assert.throws(
+			() => serializeOuterResult({ logs: [], error: testCase.error }, LIMITS),
+			(error: unknown) => {
+				assert.ok(error instanceof Error);
+				assert.equal(error.message.startsWith(`ptc failed [${testCase.code}]\nCause: `), true);
+				assert.match(error.message, /\nResolution: .+\nRetry safety: .+/);
+				return true;
+			},
+		);
+		assert.equal(codes.has(testCase.code), false);
+		codes.add(testCase.code);
+	}
+});
 
 test("ptc returns logs and a curated result", async () => {
 	const tool = createPtcTool({
