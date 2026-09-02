@@ -126,7 +126,7 @@ test("ptc terminalizes and quarantines dispatches left active at runtime settlem
 				(partial) => updates.push(partial),
 				{ cwd: process.cwd() },
 			),
-		/timeout/,
+		/PTC_TIMEOUT/,
 	);
 
 	assert.equal(updates.at(-1)?.details.dispatches[0]?.status, "err");
@@ -178,7 +178,7 @@ test("ptc abort reaches an active core executor before settlement", async () => 
 	);
 	await executorStarted;
 	controller.abort();
-	await assert.rejects(pending, /abort/);
+	await assert.rejects(pending, /PTC_ABORTED/);
 	assert.equal(executorSignal?.aborted, true);
 });
 
@@ -275,7 +275,7 @@ test("terminal abort updates clear the native bash timer before outer rejection"
 		await executorStarted;
 		assert.equal(intervalCreations, 1);
 		controller.abort();
-		await assert.rejects(pending, /abort/i);
+		await assert.rejects(pending, /PTC_ABORTED/);
 		rejectionObserved = true;
 		assert.equal(terminalObserved, true);
 		assert.equal(intervalClears, 1);

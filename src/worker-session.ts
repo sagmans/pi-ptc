@@ -1,7 +1,7 @@
 import type { Worker } from "node:worker_threads";
 
 import { ToolResultDeliveryError } from "./canonical.ts";
-import { snapshotJsonValue } from "./json.ts";
+import { LosslessJsonError, snapshotJsonValue } from "./json.ts";
 import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
 import * as outputLimit from "./output-limit.ts";
 import type {
@@ -214,13 +214,20 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 					});
 				})
 				.catch((error: unknown) => {
+					const settledError =
+						error instanceof LosslessJsonError
+							? new ToolResultDeliveryError(message.name, error.message)
+							: error;
 					const toolName =
-						error instanceof Error && "toolName" in error && typeof error.toolName === "string"
-							? error.toolName
+						settledError instanceof Error &&
+						"toolName" in settledError &&
+						typeof settledError.toolName === "string"
+							? settledError.toolName
 							: message.name;
-					const errorMessage = error instanceof Error ? error.message : String(error);
+					const errorMessage =
+						settledError instanceof Error ? settledError.message : String(settledError);
 					postReply(
-						error instanceof ToolResultDeliveryError
+						settledError instanceof ToolResultDeliveryError
 							? {
 									type: "result-delivery",
 									id: message.id,

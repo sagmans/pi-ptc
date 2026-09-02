@@ -3,7 +3,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
-import { LosslessJsonError } from "./json.ts";
 import * as outputLimit from "./output-limit.ts";
 import {
 	createWorkerBindings,
@@ -11,22 +10,13 @@ import {
 	ToolCallError,
 	ToolResultDeliveryError,
 } from "./worker-bindings.ts";
-import { logicalLineCount, WORKER_BINDING_NAME, type WorkerBootData } from "./worker-protocol.ts";
+import { postWorkerFailure, postWorkerOutputLimit } from "./worker-failure.ts";
+import { WORKER_BINDING_NAME, type WorkerBootData } from "./worker-protocol.ts";
 
-const UTF8_ENCODING = "utf8";
 const port = parentPort;
 if (port === null) throw new Error("ptc worker must run as a worker thread");
 const boot = workerData as WorkerBootData;
 const bindings = createWorkerBindings(port, boot);
-
-const postOutputLimit = (
-	subject: outputLimit.OutputLimitSubject,
-	limitName: outputLimit.OutputLimitName,
-	observed: number,
-	limit: number,
-): void => {
-	port.postMessage({ type: "fail", kind: "output-limit", subject, limitName, observed, limit });
-};
 
 const emitLog = (args: unknown[]): void => {
 	port.postMessage({ type: "log", text: args.map(String).join(" ") });
@@ -52,8 +42,7 @@ void (async () => {
 		) as () => typeof program;
 		program = create();
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		port.postMessage({ type: "fail", kind: "program-compile", message });
+		postWorkerFailure(port, boot, error, "program-compile");
 		return;
 	}
 
@@ -67,68 +56,27 @@ void (async () => {
 		);
 		if (value === undefined) {
 			port.postMessage({ type: "done" });
-		} else {
-			let snapshot: ReturnType<typeof snapshotWorkerPayload>;
-			try {
-				snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
-			} catch (error) {
-				if (error instanceof LosslessJsonError) {
-					port.postMessage({ type: "fail", kind: "program-result-json", message: error.message });
-					return;
-				}
-				throw error;
-			}
-			if (snapshot.ok) {
-				port.postMessage({ type: "done", value: snapshot.value });
-			} else {
-				postOutputLimit(
-					outputLimit.PROGRAM_RESULT_SUBJECT,
-					outputLimit.MAX_OUTPUT_BYTES_NAME,
-					snapshot.bytes,
-					boot.maxOutputBytes,
-				);
-			}
+			return;
 		}
+		let snapshot: ReturnType<typeof snapshotWorkerPayload>;
+		try {
+			snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
+		} catch (error) {
+			postWorkerFailure(port, boot, error, "program-result-json");
+			return;
+		}
+		if (snapshot.ok) {
+			port.postMessage({ type: "done", value: snapshot.value });
+			return;
+		}
+		postWorkerOutputLimit(
+			port,
+			outputLimit.PROGRAM_RESULT_SUBJECT,
+			outputLimit.MAX_OUTPUT_BYTES_NAME,
+			snapshot.bytes,
+			boot.maxOutputBytes,
+		);
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		const messageBytes = Buffer.byteLength(message, UTF8_ENCODING);
-		if (messageBytes > boot.maxOutputBytes) {
-			postOutputLimit(
-				outputLimit.WORKER_ERROR_SUBJECT,
-				outputLimit.MAX_OUTPUT_BYTES_NAME,
-				messageBytes,
-				boot.maxOutputBytes,
-			);
-			return;
-		}
-		const messageLines = logicalLineCount(message);
-		if (messageLines > boot.maxOutputLines) {
-			postOutputLimit(
-				outputLimit.WORKER_ERROR_SUBJECT,
-				outputLimit.MAX_OUTPUT_LINES_NAME,
-				messageLines,
-				boot.maxOutputLines,
-			);
-			return;
-		}
-		if (error instanceof ToolResultDeliveryError) {
-			port.postMessage({
-				type: "fail",
-				kind: "result-delivery",
-				toolName: error.toolName,
-				message,
-			});
-			return;
-		}
-		if (error instanceof ToolCallError) {
-			port.postMessage({
-				type: "fail",
-				kind: error.failureKind,
-				toolName: error.toolName,
-				message,
-			});
-			return;
-		}
-		port.postMessage({ type: "fail", kind: "program-runtime", message });
+		postWorkerFailure(port, boot, error);
 	}
 })();

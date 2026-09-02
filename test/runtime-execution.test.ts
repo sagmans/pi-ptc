@@ -100,6 +100,22 @@ test("runCode identifies invalid final program results", async () => {
 	assert.equal(outcome.error?.kind, "program-result-json");
 });
 
+test("runCode treats invalid host binding results as retry-unsafe delivery failures", async () => {
+	const outcome = await runCode({
+		program: "return await tools.bad_result({});",
+		bindings: {
+			functions: {
+				bad_result: async () => ({ missing: undefined }) as never,
+			},
+		},
+	});
+	assert.deepEqual(outcome.error, {
+		kind: "result-delivery",
+		toolName: "bad_result",
+		message: "value is not lossless JSON: undefined is unsupported",
+	});
+});
+
 test("runCode preserves uncaught tool-call identity", async () => {
 	const outcome = await runCode({
 		program: "return await tools.fail({});",

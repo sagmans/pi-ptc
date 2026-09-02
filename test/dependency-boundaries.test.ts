@@ -44,6 +44,7 @@ const PROTOCOL_DECLARATION_PATTERN =
 const PROTOCOL_CONSUMERS = new Set([
 	"runtime.ts",
 	"worker-bindings.ts",
+	"worker-failure.ts",
 	"worker-session.ts",
 	"worker.ts",
 ]);
