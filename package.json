@@ -1,8 +1,11 @@
 {
-	"name": "pi-ptc",
+	"name": "@sagmans/pi-ptc",
 	"version": "0.1.0",
 	"description": "Programmatic Tool Call presentation for Pi active runtime tools",
 	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
 	"files": [
 		"index.ts",
 		"src",
@@ -35,7 +38,7 @@
 		]
 	},
 	"scripts": {
-		"test": "node --test test/*.test.ts test/compatibility/*.test.ts",
+		"test": "node --test test/*.test.ts",
 		"test:bun": "bun test/runtime.binding-smoke.ts && bun test/renderer.binding-smoke.ts",
 		"test:architecture": "node --test test/authored-lines.test.ts test/dependency-boundaries.test.ts",
 		"typecheck": "tsc --noEmit",

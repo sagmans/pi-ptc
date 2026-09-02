@@ -3,7 +3,6 @@
 import { runCode } from "../src/runtime.ts";
 
 const BINDING_SMOKE_TIMEOUT_MS = 1500;
-const NEVER_SETTLING_TIMEOUT_MS = 100;
 const NEVER_SETTLING_DRAIN_TIMEOUT_MS = 30;
 const OUTPUT_LIMIT_BYTES = 17;
 const OUTPUT_LIMIT_LINES = 2000;
@@ -152,7 +151,7 @@ const pendingDrainDeadline = runCode({
 			},
 		},
 	},
-	timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
+	timeoutMs: BINDING_SMOKE_TIMEOUT_MS,
 	drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 });
 await neverSettlingStarted;

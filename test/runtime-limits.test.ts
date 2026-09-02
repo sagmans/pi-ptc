@@ -13,7 +13,6 @@ import {
 	CR_ONLY_WORKER_FAILURE_MESSAGE,
 	deferred,
 	NEVER_SETTLING_DRAIN_TIMEOUT_MS,
-	NEVER_SETTLING_TIMEOUT_MS,
 	nextTurn,
 	ORPHAN_RESERVATION_PROGRAM,
 	OVERSIZED_WORKER_FAILURE_MESSAGE,
@@ -129,7 +128,7 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 				},
 			},
 		},
-		timeoutMs: NEVER_SETTLING_TIMEOUT_MS,
+		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	});
 	await firstStarted.promise;

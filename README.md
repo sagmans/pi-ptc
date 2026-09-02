@@ -8,7 +8,25 @@ The default `code` presentation exposes only `ptc` to the model. `both`
 exposes `ptc` and the active tools; `native` disables PTC.
 
 > PTC runs model-written code with user-equivalent authority. Its worker is
-> containment, not a sandbox.
+> containment, not a sandbox. Tool-specific gate and permission extensions do
+> not constrain direct Node.js operations inside a PTC program. Only nested
+> `tools.*` calls pass through captured Pi tool hooks.
+
+## When it helps
+
+Use native batch calls for independent tool work. PTC adds value when later calls
+depend on earlier results, or when intermediate results are too large to return to
+the model. One program can branch, loop, parse, filter, sort, and aggregate across
+nested calls without another model round trip. The model receives only the bounded
+outer `{ logs, result? }` payload instead of every intermediate tool result.
+
+Aggregation is deterministic because normal code performs the transformation. For
+example, a program can read many files, select exact fields, sort them, and return
+one small JSON value without asking the model to summarize each tool response.
+
+The `code` presentation reduces the callable model-facing tool list to `ptc`; it
+does not remove tool awareness or all schema prompt cost. Generated binding
+signatures remain in the `ptc` description so the model can write valid calls.
 
 ## Requirements
 
@@ -22,6 +40,12 @@ registering PTC; runtime shape drift after supported-host loading reports
 `ptc: inert`. Future Pi versions require verification before joining the allowlist.
 
 ## Install
+
+npm package after the first release:
+
+```bash
+pi install npm:@sagmans/pi-ptc
+```
 
 Local checkout:
 
@@ -130,8 +154,9 @@ Uncaught PTC failures contain a stable code, cause, resolution, and retry
 safety. The agent uses this information to submit a corrected call. PTC does
 not rewrite programs or retry calls automatically.
 
-Adapter authorization remains adapter-owned. PTC neither bypasses approval
-brokers nor performs OAuth on the program's behalf.
+Adapter authorization remains adapter-owned when a program uses an adapter
+binding. Direct Node.js operations do not use adapter policy. PTC does not
+perform OAuth on the program's behalf.
 
 ## Presentation
 
@@ -173,8 +198,9 @@ Each `ptc` call:
 Tools honor their Pi `executionMode`. Without one, `bash`, `edit`, and
 `write` run exclusively; other tools may run in parallel.
 
-The worker has an empty environment, but nested tools retain their normal Pi
-behavior and operating-system authority.
+The worker has an empty environment, but the program retains ambient Node.js
+authority. It can access files, processes, and networks without a `tools.*` call.
+Nested tools retain their normal Pi behavior and operating-system authority.
 
 ## Display
 
