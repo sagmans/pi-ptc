@@ -294,6 +294,7 @@ test("runCode aborts and drains active work when an override limit is exceeded",
 
 test("runCode drains a late binding rejection without an unhandled rejection", async () => {
 	const bindingStarted = deferred();
+	const bindingAbortObserved = deferred();
 	const unhandledRejections: unknown[] = [];
 	let rejectBinding!: (error: Error) => void;
 	const onUnhandledRejection = (error: unknown): void => {
@@ -305,8 +306,14 @@ test("runCode drains a late binding rejection without an unhandled rejection", a
 			program: "void tools.late(null); return null;",
 			bindings: {
 				functions: {
-					late: (_args, _signal) => {
+					late: (_args, signal) => {
 						bindingStarted.resolve();
+						if (signal.aborted) bindingAbortObserved.resolve();
+						else {
+							signal.addEventListener("abort", () => bindingAbortObserved.resolve(), {
+								once: true,
+							});
+						}
 						return new Promise<never>((_resolve, reject) => {
 							rejectBinding = reject;
 						});
@@ -316,7 +323,7 @@ test("runCode drains a late binding rejection without an unhandled rejection", a
 			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		});
 		await bindingStarted.promise;
-		await nextTurn();
+		await bindingAbortObserved.promise;
 		rejectBinding(new Error(LATE_BINDING_ERROR));
 		const outcome = await pending;
 		await nextTurn();
