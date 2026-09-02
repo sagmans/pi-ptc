@@ -77,6 +77,59 @@ test("every runtime failure gives the agent a unique code and correction guidanc
 	}
 });
 
+test("binding argument failures do not claim earlier dispatches were absent", () => {
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{
+					logs: [],
+					error: {
+						kind: "binding-arguments-json",
+						toolName: "read",
+						message: "undefined",
+					},
+				},
+				LIMITS,
+			),
+		/Retry safety: verify state before retrying; nested tools may have executed/,
+	);
+});
+
+test("failure tool names escape terminal, bidi, and line controls", () => {
+	const toolName = "tool\u0085\u009b\u2028\u202eend";
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{
+					logs: [],
+					error: { kind: "tool-call", toolName, message: "failed" },
+				},
+				LIMITS,
+			),
+		(error: unknown) => {
+			assert.ok(error instanceof Error);
+			assert.match(error.message, /for tool "tool\\u0085\\u009b\\u2028\\u202eend"/);
+			assert.equal(error.message.includes(toolName), false);
+			return true;
+		},
+	);
+});
+
+test("failure guidance overflow remains a classified output-limit failure", () => {
+	const maxOutputBytes = 512;
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{
+					logs: [],
+					error: { kind: "program-runtime", message: "x".repeat(maxOutputBytes - 1) },
+				},
+				{ maxOutputBytes, maxOutputLines: CUSTOM_MAX_OUTPUT_LINES },
+			),
+		/PTC_OUTPUT_LIMIT/,
+	);
+});
+
 test("ptc returns logs and a curated result", async () => {
 	const tool = createPtcTool({
 		...LIMITS,

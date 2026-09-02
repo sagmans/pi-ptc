@@ -31,26 +31,18 @@ ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true 
 Keep logs and return values concise; intermediate binding values stay model-hidden.
 Tool calls follow active runtime scheduling modes.
 `;
-const READ_USAGE_EXAMPLES = `Copyable examples:
+const READ_USAGE_EXAMPLES = `Examples (replace placeholder paths):
 \`\`\`ts
-const file = await tools.read({ path: "package.json" });
-return JSON.parse(file.text).name;
+return await tools.read({ path: "<path>" });
 \`\`\`
-Independent calls may run together:
-\`\`\`ts
-const [pkg, config] = await Promise.all([
-  tools.read({ path: "package.json" }),
-  tools.read({ path: "config.json" }),
-]);
-return {
-  name: JSON.parse(pkg.text).name,
-  presentation: JSON.parse(config.text).presentation,
-};
-\`\`\`
-Handle ordinary tool failures; never retry delivery failures blindly:
+Independent calls and failures:
 \`\`\`ts
 try {
-  return await tools.read({ path: "optional.txt" });
+  const [first, second] = await Promise.all([
+    tools.read({ path: "<path-a>" }),
+    tools.read({ path: "<path-b>" }),
+  ]);
+  return { first: first.text, second: second.text };
 } catch (error) {
   if (error instanceof ToolResultDeliveryError) throw error;
   if (error instanceof ToolCallError) {

@@ -1,4 +1,5 @@
 import type { CodeRunFailure } from "./runtime-contract.ts";
+import { renderSafeJsonStringLiteral } from "./schema-signature.ts";
 
 type FailureKind = CodeRunFailure["kind"];
 type FailureDefinition = {
@@ -23,12 +24,12 @@ const FAILURE_DEFINITIONS = Object.freeze({
 		code: "PTC_BINDING_ARGUMENT_JSON",
 		resolution:
 			"Pass one lossless-JSON value using concrete values; omit undefined fields or use null.",
-		retrySafety: RETRY_SAFE,
+		retrySafety: RETRY_VERIFY,
 	},
 	"binding-arguments-limit": {
 		code: "PTC_BINDING_ARGUMENT_LIMIT",
 		resolution: "Reduce the binding arguments and submit a corrected call.",
-		retrySafety: RETRY_SAFE,
+		retrySafety: RETRY_VERIFY,
 	},
 	"dangling-dispatch": {
 		code: "PTC_DANGLING_DISPATCH",
@@ -106,7 +107,8 @@ const FAILURE_DEFINITIONS = Object.freeze({
 
 export function formatCodeRunFailure(error: CodeRunFailure): string {
 	const definition: FailureDefinition = FAILURE_DEFINITIONS[error.kind];
-	const tool = "toolName" in error ? ` for tool ${JSON.stringify(error.toolName)}` : "";
+	const tool =
+		"toolName" in error ? ` for tool ${renderSafeJsonStringLiteral(error.toolName)}` : "";
 	const cause = "message" in error ? `${error.message}${tool}` : definition.cause;
 	return `ptc failed [${definition.code}]\nCause: ${cause}\nResolution: ${definition.resolution}\nRetry safety: ${definition.retrySafety}`;
 }

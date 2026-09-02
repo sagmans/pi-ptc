@@ -44,6 +44,7 @@ All notable changes are documented here. The format follows
 - Restore current and historical display details with explicit bounded fallbacks.
 - Distinguish retry-unsafe result-delivery failures from ordinary tool-call failures.
 - Expose both failure classes to programs and preserve stable failure codes, causes, resolutions, and retry safety.
+- Keep formatted failures classified and bounded while safely escaping hostile tool names.
 - Report the rejected lossless-JSON category without echoing the rejected value.
 - Enforce one process-wide unresolved-binding ceiling across concurrent workers and physical module copies.
 - Recover exact render-retention capacity when a dispatch projection is replaced or cleared.

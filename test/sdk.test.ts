@@ -46,7 +46,9 @@ test("displayed usage examples execute as written", async () => {
 		catalogEntry("read", { type: "object", additionalProperties: false }),
 	]);
 	const programs = [...prompt.matchAll(/```ts\n([\s\S]*?)```/gu)].map((match) => match[1] ?? "");
-	assert.equal(programs.length, 3);
+	assert.equal(programs.length, 2);
+	assert.match(prompt, /replace placeholder paths/i);
+	assert.doesNotMatch(prompt, /package\.json|config\.json|optional\.txt/);
 	for (const program of programs) {
 		const outcome = await runCode({
 			program,

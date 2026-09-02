@@ -302,16 +302,28 @@ export function serializeOuterResult(
 	outcome: CodeRunResult,
 	limits: { maxOutputBytes: number; maxOutputLines: number },
 ): string {
-	if (outcome.error) {
-		const failure = describeRunFailure(outcome.error);
-		assertOuterResultWithinLimits(failure, limits);
-		throw new Error(failure);
-	}
+	if (outcome.error) throw new Error(describeBoundedRunFailure(outcome.error, limits));
 	const outer: { logs: string[]; result?: JsonValue } =
 		"result" in outcome ? { logs: outcome.logs, result: outcome.result } : { logs: outcome.logs };
 	const text = JSON.stringify(outer);
 	assertOuterResultWithinLimits(text, limits);
 	return text;
+}
+
+function describeBoundedRunFailure(
+	error: NonNullable<CodeRunResult["error"]>,
+	limits: { maxOutputBytes: number; maxOutputLines: number },
+): string {
+	const failure = describeRunFailure(error);
+	try {
+		assertOuterResultWithinLimits(failure, limits);
+		return failure;
+	} catch (limitError) {
+		const message = limitError instanceof Error ? limitError.message : String(limitError);
+		const fallback = formatCodeRunFailure({ kind: "output-limit", message });
+		assertOuterResultWithinLimits(fallback, limits);
+		return fallback;
+	}
 }
 
 export function assertOuterResultWithinLimits(
