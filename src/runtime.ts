@@ -1,5 +1,6 @@
 // Host-side code runtime. The worker is a containment isolate, not a sandbox.
 
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
@@ -16,7 +17,9 @@ export type {
 } from "./runtime-contract.ts";
 export { logicalLineCount } from "./worker-protocol.ts";
 
-const WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));
+const COMPILED_WORKER_PATH = fileURLToPath(new URL("../worker-dist/worker.js", import.meta.url));
+const SOURCE_WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));
+const WORKER_PATH = existsSync(COMPILED_WORKER_PATH) ? COMPILED_WORKER_PATH : SOURCE_WORKER_PATH;
 
 export async function runCode(request: CodeRunRequest): Promise<CodeRunResult> {
 	let program: string;

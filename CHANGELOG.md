@@ -16,6 +16,7 @@ All notable changes are documented here. The format follows
 - Real MCP adapter coverage for discovery, direct and scripted calls, updates, approval denial, cancellation, and dynamic tool changes.
 - Mixed-copy Pi patch/adapter coexistence and persisted-details reader compatibility through versioned fixtures.
 - Pinned CI checks for Node, Bun, dependency audit, and package contents.
+- CLI-only npm bootstrap, GitHub release controls, trusted-publisher hardening, exact-artifact smoke, and post-release verification.
 
 ### Changed
 
@@ -42,6 +43,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Ship a precompiled worker graph because Node does not strip TypeScript below `node_modules`.
 - Report measured byte or line counts for output-limit failures without echoing rejected output.
 - Drain or terminalize cancelled nested work without accepting late display updates.
 - Preserve native renderer behavior across streaming, reload, resume, theme, image, and failure paths.

@@ -255,3 +255,5 @@ npm run test:bun
 
 `npm run verify` runs formatting, type checks, and Node tests.
 `npm run test:bun` covers the shipped Pi/Bun worker and renderer bindings.
+
+Maintainers must follow [`RELEASE.md`](RELEASE.md). The linked CLI-only setup automates npm bootstrap, GitHub approval controls, trusted publishing, hardening, and verification.
