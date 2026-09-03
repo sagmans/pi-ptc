@@ -241,6 +241,19 @@ activates additional registered tools, later PTC runs can use them.
 `fabric_exec`, `retype`, or `execute_tools` compete for the same tool
 surface. PTC stays inert when one is present.
 
+Third-party Pi extensions keep observing nested tool traffic. A
+`pi.on("tool_call")` and `pi.on("tool_result")` pair observes every
+`tools.read` executed inside a PTC program, exactly once per dispatch, while
+direct Node filesystem calls in the same program emit no Pi tool hooks:
+
+```ts
+pi.on("tool_call", (event) => {
+  if (event.toolName === "read") {
+    auditTrail.push(event.input.path); // observed for tools.read inside PTC
+  }
+});
+```
+
 Mixed physical copies of the Pi patch and adapter can coexist during reload.
 Downgrading the complete extension lifecycle requires restarting Pi; hot
 rollback to an older lifecycle in the same process is not supported.

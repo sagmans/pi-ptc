@@ -76,10 +76,12 @@ type ApprovalRequest = {
 
 type Runtime = {
 	directory: string;
+	cwd: string;
 	exitMarker: string;
 	session: Awaited<ReturnType<typeof createAgentSession>>["session"];
 	notifications: string[];
 	hookCalls: string[];
+	readPaths: string[];
 	approvalOrigins: string[];
 };
 
@@ -103,6 +105,7 @@ async function createRuntime(): Promise<Runtime> {
 	mkdirSync(agentDir, { recursive: true });
 	const notifications: string[] = [];
 	const hookCalls: string[] = [];
+	const readPaths: string[] = [];
 	const approvalOrigins: string[] = [];
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	process.env.PI_MCP_CONFIG_MODE = "exclusive";
@@ -147,6 +150,12 @@ async function createRuntime(): Promise<Runtime> {
 					});
 					pi.on("tool_call", (event) => {
 						hookCalls.push(`call:${event.toolName}`);
+						if (
+							event.toolName === "read" &&
+							typeof (event.input as { path?: unknown }).path === "string"
+						) {
+							readPaths.push((event.input as { path: string }).path);
+						}
 					});
 					pi.on("tool_result", (event) => {
 						hookCalls.push(`result:${event.toolName}:${String(event.isError)}`);
@@ -193,7 +202,16 @@ async function createRuntime(): Promise<Runtime> {
 			setStatus() {},
 		} as never,
 	});
-	return { directory, exitMarker, session, notifications, hookCalls, approvalOrigins };
+	return {
+		directory,
+		cwd,
+		exitMarker,
+		session,
+		notifications,
+		hookCalls,
+		readPaths,
+		approvalOrigins,
+	};
 }
 
 function ptcTool(runtime: Runtime): ToolDefinition {
@@ -343,6 +361,38 @@ return { direct, late, namespaced, custom };
 			runtime.hookCalls.some((entry) => entry.startsWith(`result:${DIRECT_TOOL}:false`)),
 			true,
 		);
+	} finally {
+		await shutdown(runtime);
+		assert.equal(existsSync(runtime.exitMarker), true);
+		delete process.env.PI_CODING_AGENT_DIR;
+		delete process.env.PI_MCP_CONFIG_MODE;
+		delete process.env.MCP_DIRECT_TOOLS;
+		rmSync(runtime.directory, { recursive: true, force: true });
+	}
+});
+
+test("third-party read observers survive nested PTC dispatch", {
+	timeout: TEST_TIMEOUT_MS,
+}, async () => {
+	const runtime = await createRuntime();
+	const HOOK_FILE_NAME = "hook-fixture.txt";
+	const observedPath = join(runtime.cwd, HOOK_FILE_NAME);
+	try {
+		writeFileSync(observedPath, "hook fixture contents\n");
+		const outerResult = outer(
+			await execute(
+				runtime,
+				"nested-read-hooks",
+				`
+const readResult = await tools.read({ path: ${JSON.stringify(observedPath)} });
+return { readResult };
+`,
+			),
+		);
+		assert.deepEqual(runtime.readPaths, [observedPath]);
+		assert.equal(runtime.hookCalls.filter((value) => value === "call:read").length, 1);
+		assert.equal(runtime.hookCalls.filter((value) => value === "result:read:false").length, 1);
+		assert.match(JSON.stringify(outerResult.result), /hook fixture contents/);
 	} finally {
 		await shutdown(runtime);
 		assert.equal(existsSync(runtime.exitMarker), true);
