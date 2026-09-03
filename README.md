@@ -81,7 +81,7 @@ uses a fixed snapshot of that list.
 The SDK displays schemas as reference notation, not as executable calls:
 
 ```text
-tools.read arguments: { path: string; offset?: number; limit?: number }
+tools.read arguments: { path: string; offset?: number; limit?: number }; returns: { text: string; [key: string]: JsonValue }
 ```
 
 Pass concrete values in program code:
@@ -151,8 +151,9 @@ try {
 ```
 
 Uncaught PTC failures contain a stable code, cause, resolution, and retry
-safety. The agent uses this information to submit a corrected call. PTC does
-not rewrite programs or retry calls automatically.
+safety. Lossless-JSON failures also identify the exact rejected path, such as
+`$.result.rows[0].value`. The agent uses this information to submit a corrected
+call. PTC does not rewrite programs or retry calls automatically.
 
 Adapter authorization remains adapter-owned when a program uses an adapter
 binding. Direct Node.js operations do not use adapter policy. PTC does not
@@ -223,7 +224,9 @@ Each `ptc` call:
 6. Sends only `{ logs, result? }` to model context.
 
 Tools honor their Pi `executionMode`. Without one, `bash`, `edit`, and
-`write` run exclusively; other tools may run in parallel.
+`write` run exclusively; other tools may run in parallel. PTC sets no
+program-wide deadline. Nested tools keep their own timeout behavior, and Pi or
+user cancellation aborts the worker and active nested tools.
 
 The worker has an empty environment, but the program retains ambient Node.js
 authority. It can access files, processes, and networks without a `tools.*` call.
@@ -246,7 +249,6 @@ exhausted, PTC keeps a deterministic preview instead of a partial native result.
 
 Shipped limits live in [`config.json`](config.json). Defaults include:
 
-- 120-second program timeout;
 - 100 dispatches per program;
 - 100 progress updates per dispatch;
 - 10 parallel dispatches;

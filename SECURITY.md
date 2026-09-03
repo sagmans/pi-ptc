@@ -80,7 +80,7 @@ Security reports are in scope when they demonstrate:
 - hidden-tool execution outside an authorized PTC dispatch;
 - bypass of captured tool policy or result hooks;
 - nested results leaking into model context outside the outer result;
-- escape from documented time, memory, output, dispatch, or persistence bounds;
+- escape from documented memory, output, dispatch, or persistence bounds;
 - terminal-control, renderer, or restored-session injection;
 - unsafe recovery that leaves the native tool surface unavailable.
 

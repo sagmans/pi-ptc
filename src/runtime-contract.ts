@@ -1,14 +1,13 @@
 import type { ArtifactRuntime } from "./artifacts.ts";
 import type { JsonValue } from "./json.ts";
 
-// Bindings should settle after abort, while the deadline prevents a broken binding from pinning Pi.
+// Bindings should settle after abort so Pi can finish cancellation without leaking host work.
 export type BindingFn = (args: JsonValue, signal: AbortSignal) => Promise<JsonValue>;
 
 export type CodeRunFailure =
 	| { kind: "program-transform"; message: string }
 	| { kind: "program-compile"; message: string }
 	| { kind: "program-runtime"; message: string }
-	| { kind: "timeout" }
 	| { kind: "abort" }
 	| { kind: "binding-arguments-json"; toolName: string; message: string }
 	| { kind: "binding-arguments-limit"; toolName: string; message: string }
@@ -28,7 +27,6 @@ export type CodeRunRequest = {
 		functions: Record<string, BindingFn>;
 	};
 	signal?: AbortSignal;
-	timeoutMs?: number;
 	drainTimeoutMs?: number;
 	maxOutputBytes?: number;
 	maxOutputLines?: number;

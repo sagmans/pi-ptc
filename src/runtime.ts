@@ -41,7 +41,6 @@ ${request.program}
 	}
 
 	const functions = request.bindings?.functions ?? {};
-	const timeoutMs = request.timeoutMs ?? SHIPPED_PTC_CONFIG.timeoutMs;
 	const drainTimeoutMs = request.drainTimeoutMs ?? SHIPPED_PTC_CONFIG.drainTimeoutMs;
 	const maxOutputBytes = request.maxOutputBytes ?? SHIPPED_PTC_CONFIG.maxOutputBytes;
 	const maxOutputLines = request.maxOutputLines ?? SHIPPED_PTC_CONFIG.maxOutputLines;
@@ -66,7 +65,6 @@ ${request.program}
 		worker,
 		request,
 		functions,
-		timeoutMs,
 		drainTimeoutMs,
 		maxOutputBytes,
 		maxOutputLines,

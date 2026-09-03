@@ -25,6 +25,7 @@ All notable changes are documented here. The format follows
 
 ### Fixed
 
+- Lossless-JSON failures identify the exact rejected object or array path.
 - `maxOutputLines` now counts CRLF, CR, and LF sequences inside result string values before JSON escaping, so multiline results cannot bypass the limit.
 
 ### Changed
@@ -34,7 +35,8 @@ All notable changes are documented here. The format follows
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.
 - Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.
 - Replaced copy-prone pseudo-calls with explicit argument-schema notation and executable SDK examples.
-- Added concise program, injected-binding, lossless-JSON, and retry guidance to the model SDK.
+- Added concise program, injected-binding, lossless-JSON, retry, and canonical return-shape guidance to the model SDK.
+- Removed the independent PTC program deadline so nested tools retain Pi-native timeout behavior.
 - Bootstrap unsupported Pi hosts before loading private-runtime-dependent implementation.
 - Prepared npm publication as `@sagmans/pi-ptc`.
 - Documented PTC tradeoffs against native batch calls and deterministic aggregation.
@@ -43,7 +45,7 @@ All notable changes are documented here. The format follows
 ### Security
 
 - Fail closed to native tools on runtime drift, missing transport, competing ownership, or rollback failure.
-- Bound worker time, memory, dispatches, per-dispatch updates, orphaned bindings, output, render data, and persisted details.
+- Bound worker memory, dispatches, per-dispatch updates, orphaned bindings, output, render data, and persisted details while preserving Pi-native tool timeouts and cancellation.
 - Reject oversized binding arguments and outer values inside the worker before host delivery.
 - Sanitize terminal controls, display arguments, results, images, and diagnostics without echoing rejected raw arguments.
 - Keep worker environment variables empty while documenting user-equivalent host authority.

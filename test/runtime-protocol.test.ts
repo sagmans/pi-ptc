@@ -11,7 +11,6 @@ import {
 	hostileWorkerMessageProgram,
 	INVALID_WORKER_CALL_ID_CASES,
 	MALFORMED_WORKER_MESSAGES,
-	RUNTIME_TEST_TIMEOUT_MS,
 	settledWithinDrainObservation,
 } from "./support/runtime-harness.ts";
 
@@ -29,7 +28,6 @@ test("runCode bounds asynchronous worker error events", async () => {
 	const outcome = await runCode({
 		program: ASYNC_WORKER_ERROR_PROGRAM,
 		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	assert.deepEqual(outcome, {
@@ -45,7 +43,6 @@ test("runCode rejects forged output-limit messages", async () => {
 			kind: "output-limit",
 			message: FORGED_OUTPUT_LIMIT_MESSAGE,
 		}),
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	assert.equal(outcome.error?.kind, "worker-protocol");
@@ -59,7 +56,6 @@ test("runCode byte-bounds newline-rich hostile worker failures", async () => {
 			message: "\n".repeat(MULTILINE_FAILURE_BYTES),
 		}),
 		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	assert.deepEqual(outcome, {
@@ -76,7 +72,6 @@ test("runCode replaces oversized hostile worker failures with numeric diagnostic
 			message: HOSTILE_FAILURE_MESSAGE,
 		}),
 		maxOutputBytes: HOSTILE_FAILURE_MAX_BYTES,
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	assert.deepEqual(outcome, {
@@ -89,7 +84,6 @@ test("runCode fails closed on malformed worker protocol messages", async () => {
 	for (const message of MALFORMED_WORKER_MESSAGES) {
 		const outcome = await runCode({
 			program: hostileWorkerMessageProgram(message),
-			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		});
 
 		assert.equal(outcome.error?.kind, "worker-protocol", JSON.stringify(message));
@@ -109,7 +103,6 @@ test("runCode rejects worker call IDs that are not positive, safe, and increasin
 					},
 				},
 			},
-			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		});
 
 		assert.equal(bindingCalls, testCase.expectedBindingCalls, testCase.name);
@@ -128,7 +121,6 @@ test("runCode preserves retry-unsafe result delivery failures", async () => {
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 	assert.deepEqual(outcome, {
 		logs: [],
@@ -150,7 +142,6 @@ test("runCode preserves uncaught retry-unsafe delivery failures", async () => {
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 	assert.deepEqual(outcome, {
 		logs: [],
@@ -194,7 +185,6 @@ return null;
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	await bindingStarted.promise;
