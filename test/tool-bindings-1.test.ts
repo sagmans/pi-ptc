@@ -66,6 +66,21 @@ test("dispatch formatting sanitizes and bounds arbitrary tool names", () => {
 	assert.equal(oversized.includes(OVERSIZED_TOOL_NAME), false);
 });
 
+test("bindings preserve tool-owned timeout arguments", async () => {
+	let executedArgs: unknown;
+	const bindings = createGenericBindings(
+		[catalogEntry("bash")],
+		toolExecutor(async (request) => {
+			executedArgs = request.args;
+			return dispatchResult(request, { content: [] });
+		}),
+	);
+
+	await bindings.bash?.({ command: "sleep 1", timeout: 300 }, BINDING_SIGNAL);
+
+	assert.deepEqual(executedArgs, { command: "sleep 1", timeout: 300 });
+});
+
 test("generic bindings expose only a fixed exact snapshot through a null prototype", async () => {
 	const snapshot = [catalogEntry(GENERIC_TOOL_NAME), catalogEntry(OTHER_GENERIC_TOOL_NAME)];
 	const called: Array<{ name: string; args: unknown }> = [];

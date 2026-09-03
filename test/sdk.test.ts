@@ -7,13 +7,13 @@ import { renderSdkPrompt } from "../src/sdk.ts";
 import type { ToolCatalogEntry } from "../src/tool-catalog.ts";
 
 const CORE_SIGNATURE_LINES = [
-	"tools.bash arguments: { command: string; timeout?: number }",
-	"tools.edit arguments: { path: string; edits: { oldText: string; newText: string }[] }",
-	"tools.find arguments: { pattern: string; path?: string; limit?: number }",
-	"tools.grep arguments: { pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
-	"tools.ls arguments: { path?: string; limit?: number }",
-	"tools.read arguments: { path: string; offset?: number; limit?: number }",
-	"tools.write arguments: { path: string; content: string }",
+	"tools.bash arguments: { command: string; timeout?: number }; returns: { output: string; exitCode: number; [key: string]: JsonValue }",
+	"tools.edit arguments: { path: string; edits: { oldText: string; newText: string }[] }; returns: { ok: true; [key: string]: JsonValue }",
+	"tools.find arguments: { pattern: string; path?: string; limit?: number }; returns: { text: string; [key: string]: JsonValue }",
+	"tools.grep arguments: { pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }; returns: { text: string; [key: string]: JsonValue }",
+	"tools.ls arguments: { path?: string; limit?: number }; returns: { text: string; [key: string]: JsonValue }",
+	"tools.read arguments: { path: string; offset?: number; limit?: number }; returns: { text: string; [key: string]: JsonValue }",
+	"tools.write arguments: { path: string; content: string }; returns: { ok: true; [key: string]: JsonValue }",
 ] as const;
 const FALLBACK_SIGNATURE = "Record<string, unknown>";
 const OVERSIZED_SCHEMA_TEXT = "x".repeat(5_000);
@@ -82,6 +82,8 @@ test("supplied catalog prose omits inactive core guidance", () => {
 	assert.match(prompt, /Prefer plain JavaScript/);
 	assert.match(prompt, /schemas are reference notation, not copyable calls/i);
 	assert.match(prompt, /undefined fields.*null/i);
+	assert.match(prompt, /type JsonValue =/);
+	assert.match(prompt, /type CanonicalToolResult =/);
 	for (const name of CORE_TOOL_NAMES) {
 		assert.doesNotMatch(prompt, new RegExp(`\\b${name}\\b`), name);
 	}
@@ -100,10 +102,10 @@ test("supplied catalog is authoritative, sorted by exact name, and preserves cor
 	];
 	const reversed = [...catalog].reverse();
 	const expected = [
-		"tools.$alpha_2 arguments: {}",
+		"tools.$alpha_2 arguments: {}; returns: CanonicalToolResult",
 		CORE_SIGNATURE_LINES[5],
 		CORE_SIGNATURE_LINES[6],
-		"tools.zeta arguments: {}",
+		"tools.zeta arguments: {}; returns: CanonicalToolResult",
 	];
 
 	assert.deepEqual(toolLines(renderSdkPrompt(catalog)), expected);
@@ -121,9 +123,9 @@ test("sdk safely renders arbitrary exact tool names", () => {
 	const lines = toolLines(renderSdkPrompt(catalog));
 
 	assert.deepEqual(lines, [
-		"tools.normal_name arguments: {}",
-		`tools[${JSON.stringify(hostileName)}] arguments: {}`,
-		'tools["slash/name"] arguments: {}',
+		"tools.normal_name arguments: {}; returns: CanonicalToolResult",
+		`tools[${JSON.stringify(hostileName)}] arguments: {}; returns: CanonicalToolResult`,
+		'tools["slash/name"] arguments: {}; returns: CanonicalToolResult',
 	]);
 	assert.equal(lines.join("\n").includes("\u001b[2J"), false);
 	assert.equal(lines.length, catalog.length);
@@ -180,7 +182,7 @@ test("schema signatures cover objects, properties, arrays, primitives, and quoti
 	]);
 
 	assert.deepEqual(toolLines(prompt), [
-		'tools.schema arguments: { active: boolean; count: number; integer: number; items: string[]; nothing: null; "quoted-name"?: number; text: string }',
+		'tools.schema arguments: { active: boolean; count: number; integer: number; items: string[]; nothing: null; "quoted-name"?: number; text: string }; returns: CanonicalToolResult',
 	]);
 });
 
@@ -213,9 +215,9 @@ test("schema signatures cover const, enum, unions, and additional properties", (
 	]);
 
 	assert.deepEqual(toolLines(prompt), [
-		'tools.literals arguments: { any: "x" | number; choice: "fast" | "slow" | 2 | null | true; constant: "fixed"; multi: null | number | string; one: boolean | string; unionItems: (null | string)[] }',
-		"tools.schemaExtras arguments: { [key: string]: boolean }",
-		"tools.unknownExtras arguments: { [key: string]: unknown }",
+		'tools.literals arguments: { any: "x" | number; choice: "fast" | "slow" | 2 | null | true; constant: "fixed"; multi: null | number | string; one: boolean | string; unionItems: (null | string)[] }; returns: CanonicalToolResult',
+		"tools.schemaExtras arguments: { [key: string]: boolean }; returns: CanonicalToolResult",
+		"tools.unknownExtras arguments: { [key: string]: unknown }; returns: CanonicalToolResult",
 	]);
 });
 
@@ -260,7 +262,9 @@ test("hostile, cyclic, unsupported, deep, wide, and oversized schemas fail close
 
 	assert.deepEqual(
 		toolLines(renderSdkPrompt(catalog)),
-		catalog.map(({ name }) => `tools.${name} arguments: ${FALLBACK_SIGNATURE}`),
+		catalog.map(
+			({ name }) => `tools.${name} arguments: ${FALLBACK_SIGNATURE}; returns: CanonicalToolResult`,
+		),
 	);
 	assert.equal(getterCalls, 0);
 });

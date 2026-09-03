@@ -8,7 +8,6 @@ import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 import { runCode } from "../src/runtime.ts";
 import {
 	ACTIVE_BINDING_CALL_LIMIT,
-	ACTIVE_BINDING_TIMEOUT_MS,
 	ACTIVE_LIMIT_PROGRAM,
 	deferred,
 	EXCESS_BINDING_CALLS,
@@ -17,66 +16,10 @@ import {
 	NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	NEVER_SETTLING_TEST_TIMEOUT_MS,
 	nextTurn,
-	RUNTIME_TEST_TIMEOUT_MS,
 	settledWithinDrainObservation,
 	WORKER_TERMINATION_DRAIN_TIMEOUT_MS,
 	WORKER_TERMINATION_TEST_TIMEOUT_MS,
 } from "./support/runtime-harness.ts";
-
-test("runCode aborts an active binding signal on timeout", async () => {
-	let bindingStarted = false;
-	let bindingSignal: AbortSignal | undefined;
-	let bindingSettled = false;
-	const outcome = await runCode({
-		program: "await tools.hang(null); return 1;",
-		bindings: {
-			functions: {
-				hang: async (_args, signal) => {
-					bindingStarted = true;
-					bindingSignal = signal;
-					await new Promise<void>((resolve) => {
-						signal?.addEventListener("abort", () => resolve(), { once: true });
-					});
-					bindingSettled = true;
-					return null;
-				},
-			},
-		},
-		timeoutMs: ACTIVE_BINDING_TIMEOUT_MS,
-	});
-	assert.deepEqual(outcome.error, { kind: "timeout" });
-	assert.equal(bindingStarted, true);
-	assert.equal(bindingSignal?.aborted, true);
-	assert.equal(bindingSettled, true);
-});
-
-test("runCode returns after the drain deadline when a timed-out binding never settles", {
-	timeout: NEVER_SETTLING_TEST_TIMEOUT_MS,
-}, async () => {
-	const bindingStarted = deferred();
-	const allowBindingToSettle = deferred();
-	const pending = runCode({
-		program: "await tools.hang(null); return 1;",
-		bindings: {
-			functions: {
-				hang: async () => {
-					bindingStarted.resolve();
-					await allowBindingToSettle.promise;
-					return null;
-				},
-			},
-		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
-		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
-	});
-	await bindingStarted.promise;
-
-	const outcome = await pending;
-	allowBindingToSettle.resolve();
-	await nextTurn();
-
-	assert.deepEqual(outcome.error, { kind: "timeout" });
-});
 
 test("runCode returns after the drain deadline when an aborted binding never settles", {
 	timeout: NEVER_SETTLING_TEST_TIMEOUT_MS,
@@ -96,7 +39,6 @@ test("runCode returns after the drain deadline when an aborted binding never set
 			},
 		},
 		signal: controller.signal,
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	});
 	await bindingStarted.promise;
@@ -136,7 +78,6 @@ return null;
 				},
 			},
 			signal: controller.signal,
-			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 			drainTimeoutMs: WORKER_TERMINATION_DRAIN_TIMEOUT_MS,
 		});
 		await bindingStarted.promise;
@@ -175,7 +116,6 @@ test("runCode waits for an abort-aware binding after outer abort", async () => {
 			},
 		},
 		signal: controller.signal,
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 	await bindingStarted.promise;
 	controller.abort();
@@ -212,7 +152,6 @@ test("runCode reports and drains a dangling fire-and-forget dispatch", async () 
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 	await bindingStarted.promise;
 	await bindingAbortObserved.promise;
@@ -242,7 +181,6 @@ return "unreachable";
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	assert.equal(bindingCalls, SHIPPED_PTC_CONFIG.maxDispatches);
@@ -278,7 +216,6 @@ test("runCode aborts and drains active work when an override limit is exceeded",
 			},
 		},
 		maxBindingCalls: ACTIVE_BINDING_CALL_LIMIT,
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	await firstStarted.promise;
@@ -321,7 +258,6 @@ test("runCode drains a late binding rejection without an unhandled rejection", a
 					},
 				},
 			},
-			timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 		});
 		await bindingStarted.promise;
 		await bindingAbortObserved.promise;

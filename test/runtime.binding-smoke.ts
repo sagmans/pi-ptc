@@ -2,7 +2,6 @@
 
 import { runCode } from "../src/runtime.ts";
 
-const BINDING_SMOKE_TIMEOUT_MS = 1500;
 const NEVER_SETTLING_DRAIN_TIMEOUT_MS = 30;
 const OUTPUT_LIMIT_BYTES = 17;
 const OUTPUT_LIMIT_LINES = 2000;
@@ -39,7 +38,6 @@ const outcome = await runCode({
 			echo: async (args) => args,
 		},
 	},
-	timeoutMs: BINDING_SMOKE_TIMEOUT_MS,
 });
 
 const elapsedMs = Date.now() - started;
@@ -54,7 +52,6 @@ if (JSON.stringify(outcome) !== JSON.stringify({ logs: [], result: { n: 1 } })) 
 
 const environmentOutcome = await runCode({
 	program: "return Object.keys(process.env);",
-	timeoutMs: BINDING_SMOKE_TIMEOUT_MS,
 });
 if (JSON.stringify(environmentOutcome) !== JSON.stringify({ logs: [], result: [] })) {
 	console.error(JSON.stringify({ environmentOutcome }));
@@ -63,7 +60,6 @@ if (JSON.stringify(environmentOutcome) !== JSON.stringify({ logs: [], result: []
 
 const outputLimitOutcome = await runCode({
 	program: 'console.log("12345"); return 1;',
-	timeoutMs: BINDING_SMOKE_TIMEOUT_MS,
 	maxOutputBytes: OUTPUT_LIMIT_BYTES,
 	maxOutputLines: OUTPUT_LIMIT_LINES,
 });
@@ -113,7 +109,6 @@ const pendingAbort = runCode({
 		},
 	},
 	signal: controller.signal,
-	timeoutMs: BINDING_SMOKE_TIMEOUT_MS,
 });
 await bindingStarted;
 controller.abort();
@@ -141,6 +136,7 @@ let markNeverSettlingStarted: (() => void) | undefined;
 const neverSettlingStarted = new Promise<void>((resolve) => {
 	markNeverSettlingStarted = resolve;
 });
+const drainController = new AbortController();
 const pendingDrainDeadline = runCode({
 	program: "return await tools.never(null);",
 	bindings: {
@@ -151,13 +147,14 @@ const pendingDrainDeadline = runCode({
 			},
 		},
 	},
-	timeoutMs: BINDING_SMOKE_TIMEOUT_MS,
+	signal: drainController.signal,
 	drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 });
 await neverSettlingStarted;
+drainController.abort();
 const drainDeadlineOutcome = await pendingDrainDeadline;
 if (
-	JSON.stringify(drainDeadlineOutcome) !== JSON.stringify({ logs: [], error: { kind: "timeout" } })
+	JSON.stringify(drainDeadlineOutcome) !== JSON.stringify({ logs: [], error: { kind: "abort" } })
 ) {
 	console.error(JSON.stringify({ drainDeadlineOutcome }));
 	process.exit(1);

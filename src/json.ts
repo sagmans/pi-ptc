@@ -2,6 +2,8 @@
 // JSON.stringify quietly drops undefined and collapses -0 / NaN, so we reject
 // those before they cross the worker boundary.
 
+import { renderSafeJsonStringLiteral } from "./schema-signature.ts";
+
 export type JsonValue =
 	| null
 	| boolean
@@ -10,11 +12,14 @@ export type JsonValue =
 	| JsonValue[]
 	| { [key: string]: JsonValue };
 
-const LOSSLESS_JSON_ERROR = "value is not lossless JSON";
+const LOSSLESS_JSON_ERROR = "is not lossless JSON";
+const ROOT_JSON_PATH = "$";
+const ASCII_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const LOSSLESS_JSON_REASONS = Object.freeze({
 	cycle: "cyclic references are unsupported",
 	nonFiniteNumber: "numbers must be finite",
 	negativeZero: "negative zero is unsupported",
+	propertyAccess: "property could not be read",
 	sparseArray: "arrays must be dense",
 	undefined: "undefined is unsupported",
 	unsupportedObject: "object must be a plain object or dense array",
@@ -24,50 +29,60 @@ const LOSSLESS_JSON_REASONS = Object.freeze({
 export type LosslessJsonReason = keyof typeof LOSSLESS_JSON_REASONS;
 
 export class LosslessJsonError extends Error {
+	readonly path: string;
 	readonly reason: LosslessJsonReason;
 
-	constructor(reason: LosslessJsonReason) {
-		super(`${LOSSLESS_JSON_ERROR}: ${LOSSLESS_JSON_REASONS[reason]}`);
+	constructor(reason: LosslessJsonReason, path: string) {
+		super(`value at ${path} ${LOSSLESS_JSON_ERROR}: ${LOSSLESS_JSON_REASONS[reason]}`);
 		this.name = "LosslessJsonError";
+		this.path = path;
 		this.reason = reason;
 	}
 }
 
-function fail(reason: LosslessJsonReason): never {
-	throw new LosslessJsonError(reason);
+function fail(reason: LosslessJsonReason, path: string): never {
+	throw new LosslessJsonError(reason, path);
 }
 
-function snapshot(value: unknown, seen: WeakSet<object>): JsonValue {
+function snapshot(value: unknown, seen: WeakSet<object>, path: string): JsonValue {
 	if (value === null) return null;
 	if (typeof value === "boolean" || typeof value === "string") return value;
-	if (typeof value === "number") return snapshotNumber(value);
-	if (typeof value === "object") return snapshotComposite(value, seen);
-	return fail(value === undefined ? "undefined" : "unsupportedType");
+	if (typeof value === "number") return snapshotNumber(value, path);
+	if (typeof value === "object") return snapshotComposite(value, seen, path);
+	return fail(value === undefined ? "undefined" : "unsupportedType", path);
 }
 
-function snapshotNumber(value: number): number {
-	if (!Number.isFinite(value)) fail("nonFiniteNumber");
-	if (Object.is(value, -0)) fail("negativeZero");
+function snapshotNumber(value: number, path: string): number {
+	if (!Number.isFinite(value)) fail("nonFiniteNumber", path);
+	if (Object.is(value, -0)) fail("negativeZero", path);
 	return value;
 }
 
-function snapshotComposite(value: object, ancestors: WeakSet<object>): JsonValue {
-	if (ancestors.has(value)) fail("cycle");
+function snapshotComposite(value: object, ancestors: WeakSet<object>, path: string): JsonValue {
+	if (ancestors.has(value)) fail("cycle", path);
 	ancestors.add(value);
 	try {
-		if (Array.isArray(value)) return snapshotArray(value, ancestors);
-		if (!isPlainRecord(value)) fail("unsupportedObject");
-		return snapshotRecord(value, ancestors);
+		if (Array.isArray(value)) return snapshotArray(value, ancestors, path);
+		if (!isPlainRecord(value)) fail("unsupportedObject", path);
+		return snapshotRecord(value, ancestors, path);
+	} catch (error) {
+		if (error instanceof LosslessJsonError) throw error;
+		return fail("unsupportedObject", path);
 	} finally {
 		ancestors.delete(value);
 	}
 }
 
-function snapshotArray(value: readonly unknown[], ancestors: WeakSet<object>): JsonValue[] {
+function snapshotArray(
+	value: readonly unknown[],
+	ancestors: WeakSet<object>,
+	path: string,
+): JsonValue[] {
 	const array: JsonValue[] = [];
 	for (let index = 0; index < value.length; index += 1) {
-		if (!Object.hasOwn(value, index)) fail("sparseArray");
-		array.push(snapshot(Reflect.get(value, index), ancestors));
+		const itemPath = `${path}[${index}]`;
+		if (!hasOwnJsonProperty(value, index, itemPath)) fail("sparseArray", itemPath);
+		array.push(snapshot(readValue(value, index, itemPath), ancestors, itemPath));
 	}
 	return array;
 }
@@ -75,17 +90,64 @@ function snapshotArray(value: readonly unknown[], ancestors: WeakSet<object>): J
 function snapshotRecord(
 	value: Record<string, unknown>,
 	ancestors: WeakSet<object>,
+	path: string,
 ): { [key: string]: JsonValue } {
 	const record: { [key: string]: JsonValue } = {};
-	for (const key of Object.keys(value)) {
+	for (const key of enumerableOwnStringKeys(value, path)) {
+		const propertyPath = appendPropertyPath(path, key);
 		Object.defineProperty(record, key, {
 			configurable: true,
 			enumerable: true,
-			value: snapshot(Reflect.get(value, key), ancestors),
+			value: snapshot(readValue(value, key, propertyPath), ancestors, propertyPath),
 			writable: true,
 		});
 	}
 	return record;
+}
+
+function enumerableOwnStringKeys(value: object, path: string): string[] {
+	let keys: (string | symbol)[];
+	try {
+		keys = Reflect.ownKeys(value);
+	} catch {
+		return fail("propertyAccess", path);
+	}
+	return keys.filter((key): key is string => {
+		if (typeof key !== "string") return false;
+		return (
+			readOwnPropertyDescriptor(value, key, appendPropertyPath(path, key))?.enumerable === true
+		);
+	});
+}
+
+function hasOwnJsonProperty(value: object, key: string | number, path: string): boolean {
+	return readOwnPropertyDescriptor(value, key, path) !== undefined;
+}
+
+function readOwnPropertyDescriptor(
+	value: object,
+	key: string | number,
+	path: string,
+): PropertyDescriptor | undefined {
+	try {
+		return Reflect.getOwnPropertyDescriptor(value, key);
+	} catch {
+		return fail("propertyAccess", path);
+	}
+}
+
+function readValue(value: object, key: string | number, path: string): unknown {
+	try {
+		return Reflect.get(value, key);
+	} catch {
+		return fail("propertyAccess", path);
+	}
+}
+
+function appendPropertyPath(path: string, key: string): string {
+	return ASCII_IDENTIFIER_PATTERN.test(key)
+		? `${path}.${key}`
+		: `${path}[${renderSafeJsonStringLiteral(key)}]`;
 }
 
 function isPlainRecord(value: object): value is Record<string, unknown> {
@@ -94,5 +156,5 @@ function isPlainRecord(value: object): value is Record<string, unknown> {
 }
 
 export function snapshotJsonValue(value: unknown): JsonValue {
-	return snapshot(value, new WeakSet());
+	return snapshot(value, new WeakSet(), ROOT_JSON_PATH);
 }

@@ -82,12 +82,6 @@ const FAILURE_DEFINITIONS = Object.freeze({
 			"Inspect external state and nested dispatch details; never retry a mutation blindly.",
 		retrySafety: RETRY_UNSAFE,
 	},
-	timeout: {
-		code: "PTC_TIMEOUT",
-		cause: "The program exceeded the configured execution deadline.",
-		resolution: "Reduce or split the work, then inspect prior dispatch effects.",
-		retrySafety: RETRY_VERIFY,
-	},
 	"tool-call": {
 		code: "PTC_TOOL_CALL",
 		resolution: "Correct the arguments or address the reported tool failure before continuing.",

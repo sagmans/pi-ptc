@@ -17,6 +17,16 @@ const BINDING_SIGNATURES = Object.freeze({
 	read: "{ path: string; offset?: number; limit?: number }",
 	write: "{ path: string; content: string }",
 } as const satisfies Record<CoreToolName, string>);
+const BINDING_RETURN_SIGNATURES = Object.freeze({
+	bash: "{ output: string; exitCode: number; [key: string]: JsonValue }",
+	edit: "{ ok: true; [key: string]: JsonValue }",
+	find: "{ text: string; [key: string]: JsonValue }",
+	grep: "{ text: string; [key: string]: JsonValue }",
+	ls: "{ text: string; [key: string]: JsonValue }",
+	read: "{ text: string; [key: string]: JsonValue }",
+	write: "{ ok: true; [key: string]: JsonValue }",
+} as const satisfies Record<CoreToolName, string>);
+const GENERIC_RETURN_SIGNATURE = "CanonicalToolResult";
 
 const ACTIVE_SDK_HEADER = `tools:sdk
 Call active runtime tools only from a ptc program. tools is injected; do not import it.
@@ -27,6 +37,8 @@ Binding arguments and returned results must be lossless JSON: null, booleans, fi
 Omit undefined fields or replace them with null. Convert BigInt, Date, Map, Set, class instances, and other values before crossing a boundary.
 Await every dispatch. Use Promise.all only for independent calls. Project large results before returning them.
 Successful bindings resolve to canonical JSON. Failed tool calls reject ToolCallError(toolName, message).
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+type CanonicalToolResult = { text: string; content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[]; details?: JsonValue; usage?: JsonValue };
 ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true because retry may repeat effects.
 Keep logs and return values concise; intermediate binding values stay model-hidden.
 await artifact({ path, name?, mimeType? }) captures an existing regular file into session-owned storage and returns { kind: "ptc-artifact", id, name, mimeType, bytes, path }; relative paths resolve from the session cwd.
@@ -77,7 +89,7 @@ function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	if (isCoreToolName(entry.name)) {
 		return {
 			name: entry.name,
-			line: `tools.${entry.name} arguments: ${BINDING_SIGNATURES[entry.name]}`,
+			line: `tools.${entry.name} arguments: ${BINDING_SIGNATURES[entry.name]}; returns: ${BINDING_RETURN_SIGNATURES[entry.name]}`,
 		};
 	}
 	let signature = SCHEMA_SIGNATURE_FALLBACK;
@@ -87,7 +99,10 @@ function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	const reference = ASCII_IDENTIFIER_PATTERN.test(entry.name)
 		? `tools.${entry.name}`
 		: `tools[${renderSafeJsonStringLiteral(entry.name)}]`;
-	return { name: entry.name, line: `${reference} arguments: ${signature}` };
+	return {
+		name: entry.name,
+		line: `${reference} arguments: ${signature}; returns: ${GENERIC_RETURN_SIGNATURE}`,
+	};
 }
 
 function compareToolLines(left: SdkToolLine, right: SdkToolLine): number {

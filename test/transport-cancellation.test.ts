@@ -22,8 +22,8 @@ import {
 	waitForUpdates,
 } from "./support/transport-harness.ts";
 
-test("forced timeout, drain, and orphan terminalization preserves raw custom arguments without leaks", async () => {
-	for (const failureKind of ["timeout", "dangling-dispatch", "orphan-limit"] as const) {
+test("forced cancellation and limit terminalization preserves raw custom arguments without leaks", async () => {
+	for (const failureKind of ["abort", "dangling-dispatch", "orphan-limit"] as const) {
 		const secret = `${RAW_CUSTOM_SECRET}:${failureKind}`;
 		const rawArgs = { token: secret, nested: { exact: [1, 2, 3] } };
 		let renderedArgs: unknown;
@@ -113,7 +113,7 @@ test("ptc terminalizes and quarantines dispatches left active at runtime settlem
 				args: { path: "stalled.txt" },
 				status: "start",
 			});
-			return { logs: [], error: { kind: "timeout" } };
+			return { logs: [], error: { kind: "abort" } };
 		},
 	});
 
@@ -126,7 +126,7 @@ test("ptc terminalizes and quarantines dispatches left active at runtime settlem
 				(partial) => updates.push(partial),
 				{ cwd: process.cwd() },
 			),
-		/PTC_TIMEOUT/,
+		/PTC_ABORTED/,
 	);
 
 	assert.equal(updates.at(-1)?.details.dispatches[0]?.status, "err");

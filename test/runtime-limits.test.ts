@@ -21,7 +21,6 @@ import {
 	nextTurn,
 	ORPHAN_RESERVATION_PROGRAM,
 	OVERSIZED_WORKER_FAILURE_MESSAGE,
-	RUNTIME_TEST_TIMEOUT_MS,
 	settledWithinDrainObservation,
 	WORKER_FAILURE_MAX_BYTES,
 	WORKER_FAILURE_MAX_LINES,
@@ -103,7 +102,6 @@ test("runCode reserves orphan capacity before parallel bindings start", async ()
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 
 	await firstStarted.promise;
@@ -119,6 +117,7 @@ test("runCode reserves orphan capacity before parallel bindings start", async ()
 });
 
 test("runCode caps unresolved binding orphans across invocations", async () => {
+	const controller = new AbortController();
 	const reservations = reserveAllButOneOrphanSlot();
 	const firstStarted = deferred();
 	const allowFirstToSettle = deferred();
@@ -133,11 +132,12 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
+		signal: controller.signal,
 		drainTimeoutMs: NEVER_SETTLING_DRAIN_TIMEOUT_MS,
 	});
 	await firstStarted.promise;
-	assert.deepEqual((await first).error, { kind: "timeout" });
+	controller.abort();
+	assert.deepEqual((await first).error, { kind: "abort" });
 
 	let secondBindingCalls = 0;
 	const second = await runCode({
@@ -150,7 +150,6 @@ test("runCode caps unresolved binding orphans across invocations", async () => {
 				},
 			},
 		},
-		timeoutMs: RUNTIME_TEST_TIMEOUT_MS,
 	});
 	allowFirstToSettle.resolve();
 	await nextTurn();

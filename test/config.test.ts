@@ -8,7 +8,7 @@ test("shipped presentation is code", () => {
 });
 
 test("shipped limits come from config.json", () => {
-	assert.equal(SHIPPED_PTC_CONFIG.timeoutMs, 120000);
+	assert.equal(Object.hasOwn(SHIPPED_PTC_CONFIG, "timeoutMs"), false);
 	assert.equal(SHIPPED_PTC_CONFIG.drainTimeoutMs, 5000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxOrphanedBindings, 100);
 	assert.equal(SHIPPED_PTC_CONFIG.maxParallelDispatches, 10);
