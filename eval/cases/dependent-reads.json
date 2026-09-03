@@ -1,0 +1,60 @@
+{
+	"name": "dependent-reads",
+	"description": "Search records, read only included files, and aggregate an exact answer.",
+	"tools": ["read", "grep"],
+	"prompt": "The records/ directory in this workspace holds one .txt record per file. A record is included only when its first line is exactly `include`; its second line holds an integer. Use only the active tools for filesystem access; do not use Node or shell APIs. Find the included records, read exactly those files, and compute the sum of their integers. Finish with exactly one line of the form 'EVAL_RESULT {\"names\":[...],\"sum\":N}' where names is the sorted list of included file names. Any other final line format is a failure.",
+	"files": [
+		{
+			"path": "records/alpha.txt",
+			"content": "include\n7\n"
+		},
+		{
+			"path": "records/bravo.txt",
+			"content": "This file is a decoy record. It is not included.\n0\n"
+		},
+		{
+			"path": "records/charlie.txt",
+			"content": "include\n13\n"
+		},
+		{
+			"path": "records/delta.txt",
+			"content": "This file is a decoy record. It is not included.\n0\n"
+		},
+		{
+			"path": "records/echo.txt",
+			"content": "include\n21\n"
+		},
+		{
+			"path": "records/foxtrot.txt",
+			"content": "This file is a decoy record. It is not included.\n0\n"
+		},
+		{
+			"path": "records/golf.txt",
+			"content": "include\n34\n"
+		},
+		{
+			"path": "records/hotel.txt",
+			"content": "This file is a decoy record. It is not included.\n0\n"
+		},
+		{
+			"path": "records/india.txt",
+			"content": "include\n55\n"
+		},
+		{
+			"path": "records/juliet.txt",
+			"content": "This file is a decoy record. It is not included.\n0\n"
+		},
+		{
+			"path": "records/kilo.txt",
+			"content": "include\n89\n"
+		},
+		{
+			"path": "records/lima.txt",
+			"content": "This file is a decoy record. It is not included.\n0\n"
+		}
+	],
+	"expected": {
+		"names": ["alpha.txt", "charlie.txt", "echo.txt", "golf.txt", "india.txt", "kilo.txt"],
+		"sum": 219
+	}
+}

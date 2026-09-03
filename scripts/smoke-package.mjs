@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { access, mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -15,9 +15,13 @@ const PACKAGE_MANIFEST = "package.json";
 const PACKAGE_ENTRY = "index.ts";
 const PACKED_WORKER_ENTRY = "worker-dist/worker.js";
 const WORKER_PROGRAM =
-	"async function __ptc_main__(tools, ToolCallError, ToolResultDeliveryError, console) { return { ok: true }; }";
+	"async function __ptc_main__(tools, ToolCallError, ToolResultDeliveryError, console, artifact) { return { ok: true }; }";
 const WORKER_LIMIT = 1024;
 const WORKER_RESULT = { type: "done", value: { ok: true } };
+const ARTIFACT_SOURCE_CONTENTS = "packed artifact contents";
+const SPILL_RESULT_LENGTH = 1500;
+const ARTIFACT_KIND = "ptc-artifact";
+const WORKER_ARTIFACT_LIMIT = 4096;
 const TARBALL_EXTENSION = ".tgz";
 const TEMP_PREFIX = "pi-ptc-package-smoke-";
 const INSTALL_DIRECTORY = "install";
@@ -65,22 +69,68 @@ function requireSuccess(result, label) {
 	if (result.code !== 0) throw new Error(`${label} failed: ${result.stderr.trim()}`);
 }
 
-async function exercisePackedWorker(workerPath) {
-	const worker = new Worker(workerPath, {
-		workerData: {
-			program: WORKER_PROGRAM,
-			bindingNames: [],
-			maxOutputBytes: WORKER_LIMIT,
-			maxOutputLines: WORKER_LIMIT,
-		},
-	});
+async function runPackedWorker(workerPath, workerData) {
+	const worker = new Worker(workerPath, { workerData });
 	try {
 		const [message] = await once(worker, "message");
-		if (JSON.stringify(message) !== JSON.stringify(WORKER_RESULT)) {
-			throw new Error("Installed worker returned an unexpected result");
-		}
+		return message;
 	} finally {
 		await worker.terminate();
+	}
+}
+
+function requireArtifactReference(message) {
+	const value = message?.value;
+	if (
+		typeof value !== "object" ||
+		value === null ||
+		value.kind !== ARTIFACT_KIND ||
+		typeof value.path !== "string"
+	) {
+		throw new Error(`Installed worker returned no artifact reference: ${JSON.stringify(message)}`);
+	}
+	return value;
+}
+
+async function exercisePackedWorker(workerPath, rootDirectory) {
+	const basic = await runPackedWorker(workerPath, {
+		program: WORKER_PROGRAM,
+		bindingNames: [],
+		maxOutputBytes: WORKER_LIMIT,
+		maxOutputLines: WORKER_LIMIT,
+	});
+	if (JSON.stringify(basic) !== JSON.stringify(WORKER_RESULT)) {
+		throw new Error("Installed worker returned an unexpected result");
+	}
+
+	const sourcePath = join(rootDirectory, "smoke-source.txt");
+	await writeFile(sourcePath, ARTIFACT_SOURCE_CONTENTS);
+	const artifactsDirectory = join(rootDirectory, "artifacts");
+	const wrapperSuffix = "(tools, ToolCallError, ToolResultDeliveryError, console, artifact) {";
+	const explicit = await runPackedWorker(workerPath, {
+		program: `async function __ptc_main__${wrapperSuffix} return await artifact({ path: ${JSON.stringify(sourcePath)} }); }`,
+		bindingNames: [],
+		maxOutputBytes: WORKER_ARTIFACT_LIMIT,
+		maxOutputLines: WORKER_LIMIT,
+		artifacts: { cwd: rootDirectory, directory: artifactsDirectory },
+	});
+	const captured = requireArtifactReference(explicit);
+	if ((await readFile(captured.path, COMMAND_ENCODING)) !== ARTIFACT_SOURCE_CONTENTS) {
+		throw new Error("Packed worker failed to copy an explicit artifact");
+	}
+
+	const spilled = await runPackedWorker(workerPath, {
+		program: `async function __ptc_main__${wrapperSuffix} return "s".repeat(${SPILL_RESULT_LENGTH}); }`,
+		bindingNames: [],
+		maxOutputBytes: WORKER_LIMIT,
+		maxOutputLines: WORKER_LIMIT,
+		artifacts: { cwd: rootDirectory, directory: artifactsDirectory },
+	});
+	const reference = requireArtifactReference(spilled);
+	if (
+		JSON.parse(await readFile(reference.path, COMMAND_ENCODING)) !== "s".repeat(SPILL_RESULT_LENGTH)
+	) {
+		throw new Error("Packed worker failed to spill an oversized result");
 	}
 }
 
@@ -128,7 +178,7 @@ export async function smokePackage(tarballPath, rootDirectory = process.cwd()) {
 		const workerPath = join(packageRoot, PACKED_WORKER_ENTRY);
 		const piPath = join(nodeModules, ".bin", PI_BINARY);
 		await Promise.all([access(entryPath), access(workerPath), access(piPath)]);
-		await exercisePackedWorker(workerPath);
+		await exercisePackedWorker(workerPath, temporaryRoot);
 
 		const isolatedAgentDirectory = join(temporaryRoot, "agent");
 		await mkdir(isolatedAgentDirectory);

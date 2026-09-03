@@ -35,12 +35,14 @@ export class ToolCallError extends Error {
 	}
 }
 
-type WorkerPayloadSnapshot = { ok: true; value: JsonValue } | { ok: false; bytes: number };
+export type WorkerPayloadSnapshot =
+	| { ok: true; value: JsonValue; bytes: number }
+	| { ok: false; value: JsonValue; bytes: number };
 
 export function snapshotWorkerPayload(value: unknown, maximumBytes: number): WorkerPayloadSnapshot {
 	const snapshot = snapshotJsonValue(value);
 	const bytes = Buffer.byteLength(JSON.stringify(snapshot), UTF8_ENCODING);
-	return bytes <= maximumBytes ? { ok: true, value: snapshot } : { ok: false, bytes };
+	return { ok: bytes <= maximumBytes, value: snapshot, bytes };
 }
 
 export function createWorkerBindings(

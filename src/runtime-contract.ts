@@ -1,3 +1,4 @@
+import type { ArtifactRuntime } from "./artifacts.ts";
 import type { JsonValue } from "./json.ts";
 
 // Bindings should settle after abort, while the deadline prevents a broken binding from pinning Pi.
@@ -32,6 +33,7 @@ export type CodeRunRequest = {
 	maxOutputBytes?: number;
 	maxOutputLines?: number;
 	maxBindingCalls?: number;
+	artifacts?: ArtifactRuntime;
 };
 
 export type CodeRunResult = {

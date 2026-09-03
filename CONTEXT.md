@@ -56,6 +56,28 @@ optional return value.
 A model-hidden session entry emitted for each settled dispatch. Persisted row
 details are stored separately.
 
+**Explicit artifact**  
+A regular file copied into session-owned storage by the program's `artifact`
+helper. The source path may be absolute; relative paths resolve from the
+session working directory.
+
+**Artifact reference**  
+The bounded `{ kind: "ptc-artifact", id, name, mimeType, bytes, path }` value
+returned for a captured file or spilled result. Reading `path` recovers the
+original bytes.
+
+**Result spill**  
+Automatic capture of a successful final result that exceeds output limits into
+a `result.json` artifact. The outer payload then carries only the reference.
+Logs, failures, and nested tool values never spill.
+
+**Persistent sidecar**  
+The `<session-file>.artifacts` directory beside a persistent session file.
+
+**Ephemeral lifetime**  
+Artifact storage under the OS temporary directory for sessions without a
+session file. It lasts for the process lifetime only.
+
 **ToolCallError**  
 The program-visible rejection for a failed tool dispatch. It contains
 `toolName` and `message`.

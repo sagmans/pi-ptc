@@ -1,4 +1,7 @@
 import { strict as assert } from "node:assert";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import type { CodeRunFailure } from "../src/runtime-contract.ts";
@@ -175,6 +178,17 @@ test("outer line overflow reports measured lines", () => {
 	);
 });
 
+test("serializeOuterResult rejects multiline results that JSON escaping hides", () => {
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{ logs: [], result: { body: "one\ntwo\nthree" } },
+				{ maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES, maxOutputLines: 2 },
+			),
+		{ message: "outer result exceeds maxOutputLines: 3 > 2" },
+	);
+});
+
 test("ptc rejects an oversized outer result", async () => {
 	const tool = createPtcTool({
 		timeoutMs: LIMITS.timeoutMs,
@@ -222,6 +236,45 @@ test("ptc bounds worker failure messages before Pi persists them", async () => {
 
 	assert.equal(rejection?.message, TRANSPORT_OUTPUT_LIMIT_MESSAGE);
 	assert.ok(Buffer.byteLength(rejection?.message ?? "", "utf8") <= CUSTOM_MAX_OUTPUT_BYTES);
+});
+
+test("combined outer overflow spills only the result", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-spill-"));
+	const tool = createPtcTool({
+		timeoutMs: LIMITS.timeoutMs,
+		maxDispatches: LIMITS.maxDispatches,
+		maxOutputBytes: 700,
+		maxOutputLines: 2000,
+		createBindings: () => ({}),
+	});
+	try {
+		const result = await tool.execute(
+			"call-spill",
+			{
+				code: 'console.log("0123456789abcdef"); return "q".repeat(690);',
+				description: "spill the result",
+			},
+			undefined,
+			undefined,
+			{
+				cwd: directory,
+				sessionManager: {
+					getSessionFile: () => join(directory, "session.jsonl"),
+					getSessionId: () => "spill-session",
+				},
+			},
+		);
+		const parsed = JSON.parse(result.content[0]?.text ?? "") as {
+			logs: string[];
+			result: { kind: string; name: string; path: string };
+		};
+		assert.deepEqual(parsed.logs, ["0123456789abcdef"]);
+		assert.equal(parsed.result.kind, "ptc-artifact");
+		assert.equal(parsed.result.name, "result.json");
+		assert.equal(readFileSync(parsed.result.path, "utf8"), JSON.stringify("q".repeat(690)));
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("ptc forwards output and dispatch limits into the runtime seam", async () => {

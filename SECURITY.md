@@ -54,6 +54,12 @@ Package bootstrap checks the host version before it imports implementation that
 depends on private runtime APIs. A host-version mismatch or an invalid private
 runtime shape makes PTC inert instead of weakening native behavior.
 
+Artifacts persist model- and tool-produced output on the filesystem: explicit
+captures copy arbitrary readable regular files, and automatic spill writes the
+oversized final result verbatim. Artifact writes inherit the same
+user-equivalent filesystem authority as the PTC program itself. Sessions that
+persist conversations also persist their artifact sidecar directory.
+
 Raw custom-renderer arguments and results are available only through exact
 in-memory details-object identity in one transport instance. Shutdown, reload,
 and inert recovery revoke that instance's raw store, including late settlements.

@@ -14,6 +14,11 @@ model -> ptc program -> active Pi tools -> { logs, result? } -> model
 Intermediate dispatch results stay in the program. Nested rows and bounded
 session details remain visible to the user without entering model context.
 
+The program's `artifact` helper and automatic final-result spill write through
+a model-hidden path in the worker: sources are copied into session-owned
+storage with user-equivalent filesystem authority, and the model-visible outer
+payload carries only the bounded artifact reference.
+
 ## Tool surface
 
 PTC separates Pi's logical active set from the schemas shown to the model.

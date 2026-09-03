@@ -9,13 +9,13 @@ import type { CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
 import { stripProgram } from "./strip.ts";
 import { runWorkerSession } from "./worker-session.ts";
 
+export { logicalTextLineCount as logicalLineCount } from "./output-measure.ts";
 export type {
 	BindingFn,
 	CodeRunFailure,
 	CodeRunRequest,
 	CodeRunResult,
 } from "./runtime-contract.ts";
-export { logicalLineCount } from "./worker-protocol.ts";
 
 const COMPILED_WORKER_PATH = fileURLToPath(new URL("../worker-dist/worker.js", import.meta.url));
 const SOURCE_WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));
@@ -26,7 +26,7 @@ export async function runCode(request: CodeRunRequest): Promise<CodeRunResult> {
 	try {
 		// Strip a function wrapper so top-level return/await stay legal.
 		program = stripProgram(
-			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, ToolResultDeliveryError, console) {
+			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, ToolResultDeliveryError, console, artifact) {
 ${request.program}
 }`,
 		);
@@ -56,6 +56,9 @@ ${request.program}
 			bindingNames: Object.keys(functions),
 			maxOutputBytes,
 			maxOutputLines,
+			artifacts: request.artifacts
+				? { cwd: request.artifacts.cwd, directory: request.artifacts.directory }
+				: undefined,
 		},
 	});
 
