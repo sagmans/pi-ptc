@@ -20,6 +20,7 @@ All notable changes are documented here. The format follows
 - Explicit `artifact` capture of regular files into session-owned storage with bounded references.
 - Automatic spill of oversized successful final results to `result.json` artifacts.
 - Real-Pi regression proving third-party tool_call/tool_result observers see nested `tools.read` calls.
+- Reproducible RPC evaluation harness measuring PTC against native tool calling with a 32-run matrix and best-effort cost cap.
 
 ### Fixed
 

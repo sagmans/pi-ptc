@@ -294,6 +294,9 @@ npm run verify
 npm run test:bun
 ```
 
+The PTC evaluation harness and its methodology live in
+[`docs/evaluation.md`](docs/evaluation.md).
+
 `npm run verify` runs formatting, type checks, and Node tests.
 `npm run test:bun` covers the shipped Pi/Bun worker and renderer bindings.
 

@@ -50,6 +50,8 @@
 		"prepack": "tsc -p tsconfig.worker.json",
 		"pretest": "tsc -p tsconfig.worker.json",
 		"smoke": "node scripts/smoke-package.mjs",
+		"eval:ptc": "node eval/run.mjs --config eval/config.json --run",
+		"eval:ptc:dry": "node eval/run.mjs --config eval/config.json --dry-run",
 		"verify": "npm run check && npm run typecheck && npm test",
 		"verify:ci": "npm run audit && npm run verify"
 	},

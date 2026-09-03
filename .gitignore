@@ -63,6 +63,9 @@ web_modules/
 *.tgz
 worker-dist/
 
+# Local evaluation sessions and reports
+.ptc-eval/
+
 # Yarn Integrity file
 .yarn-integrity
 
