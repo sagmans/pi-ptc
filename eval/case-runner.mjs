@@ -120,6 +120,7 @@ export async function executeRun({
 	}
 	const client = PiRpcClient.spawn(args, {
 		cwd: workspaceDirectory,
+		settleTimeoutMs: definition.settleTimeoutMs,
 		env: {
 			...process.env,
 			PI_PTC_EVAL_DECOYS: String(config.catalogDecoyCount),
