@@ -1,14 +1,34 @@
+import type { LargeScaleTextEditingResult } from "./large-scale-text-editing.d.mts";
 import type { EvalCondition, EvalRun } from "./metrics.d.mts";
 
-export type CaseDefinition = {
+type CaseBase = {
 	name: string;
 	description: string;
 	tools: string[];
 	prompt: string;
-	files: Array<{ path: string; content: string }>;
-	expected: Record<string, unknown>;
 	path?: string;
 };
+
+export type ExactResultCaseDefinition = CaseBase & {
+	judge?: "exact-result";
+	files: Array<{ path: string; content: string }>;
+	expected: Record<string, unknown>;
+};
+
+export type LargeScaleTextEditingCaseDefinition = CaseBase & {
+	judge: "large-scale-text-editing";
+	rowCount: number;
+	files: [];
+	provenance: {
+		suite: string;
+		task: string;
+		source: string;
+		digest: string;
+		license: "Apache-2.0";
+	};
+};
+
+export type CaseDefinition = ExactResultCaseDefinition | LargeScaleTextEditingCaseDefinition;
 
 export function loadCaseDefinition(
 	name: string,
@@ -22,7 +42,8 @@ export function materializeCase(
 export function judgeCaseResult(
 	definition: CaseDefinition,
 	finalText: string | undefined,
-): { correct: boolean; reason: string };
+	workspaceDirectory?: string,
+): Promise<LargeScaleTextEditingResult>;
 export function buildDecoyToolList(count: number): string[];
 export function executeRun(options: {
 	run: EvalRun;

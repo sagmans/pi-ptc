@@ -3,6 +3,10 @@
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	judgeLargeScaleTextEditing,
+	materializeLargeScaleTextEditing,
+} from "./large-scale-text-editing.mjs";
 import { extractJudgeResult, extractMetricsFromSession } from "./metrics.mjs";
 import { PiRpcClient } from "./rpc-client.mjs";
 
@@ -10,6 +14,8 @@ const PROJECT_PRESENTATION_DIRECTORY = [".pi"];
 const PRESENTATION_FILE_NAME = "ptc.json";
 const PTC_ENTRY_PATH = fileURLToPath(new URL("../index.ts", import.meta.url));
 const OBSERVER_PATH = fileURLToPath(new URL("./observer.ts", import.meta.url));
+const EXACT_RESULT_JUDGE = "exact-result";
+const LARGE_SCALE_TEXT_EDITING_JUDGE = "large-scale-text-editing";
 
 export async function loadCaseDefinition(name, casesDirectory) {
 	const path = join(
@@ -20,10 +26,19 @@ export async function loadCaseDefinition(name, casesDirectory) {
 }
 
 export async function materializeCase(definition, directory, condition) {
-	for (const file of definition.files) {
-		const target = join(directory, file.path);
-		await mkdir(dirname(target), { recursive: true });
-		await writeFile(target, file.content, "utf8");
+	switch (definition.judge ?? EXACT_RESULT_JUDGE) {
+		case EXACT_RESULT_JUDGE:
+			for (const file of definition.files) {
+				const target = join(directory, file.path);
+				await mkdir(dirname(target), { recursive: true });
+				await writeFile(target, file.content, "utf8");
+			}
+			break;
+		case LARGE_SCALE_TEXT_EDITING_JUDGE:
+			await materializeLargeScaleTextEditing(directory, definition.rowCount);
+			break;
+		default:
+			throw new Error(`unsupported case judge: ${definition.judge}`);
 	}
 	if (condition !== "absent") {
 		const presentationFile = join(
@@ -42,17 +57,23 @@ export async function materializeCase(definition, directory, condition) {
 	}
 }
 
-export function judgeCaseResult(definition, finalText) {
-	const judged = extractJudgeResult(finalText ?? "");
-	if (!judged.ok) {
-		return { correct: false, reason: judged.reason };
+export async function judgeCaseResult(definition, finalText, workspaceDirectory) {
+	switch (definition.judge ?? EXACT_RESULT_JUDGE) {
+		case EXACT_RESULT_JUDGE: {
+			const judged = extractJudgeResult(finalText ?? "");
+			if (!judged.ok) return { correct: false, reason: judged.reason };
+			const expected = JSON.stringify(definition.expected);
+			const actual = JSON.stringify(judged.value);
+			if (expected !== actual) {
+				return { correct: false, reason: `expected ${expected} but got ${actual}` };
+			}
+			return { correct: true, reason: "exact match" };
+		}
+		case LARGE_SCALE_TEXT_EDITING_JUDGE:
+			return judgeLargeScaleTextEditing(workspaceDirectory, definition.rowCount);
+		default:
+			throw new Error(`unsupported case judge: ${definition.judge}`);
 	}
-	const expected = JSON.stringify(definition.expected);
-	const actual = JSON.stringify(judged.value);
-	if (expected !== actual) {
-		return { correct: false, reason: `expected ${expected} but got ${actual}` };
-	}
-	return { correct: true, reason: "exact match" };
 }
 
 export function buildDecoyToolList(count) {
@@ -136,7 +157,7 @@ export async function executeRun({
 		entries: entriesResponse.entries,
 		stats,
 	});
-	const judged = judgeCaseResult(definition, lastText?.text);
+	const judged = await judgeCaseResult(definition, lastText?.text, workspaceDirectory);
 	await writeFile(
 		rpcLogPath,
 		`${client.events.map((event) => JSON.stringify(event)).join("\n")}\n`,

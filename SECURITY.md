@@ -86,3 +86,10 @@ Security reports are in scope when they demonstrate:
 
 Expected user-equivalent code execution by an accepted PTC call is not, by
 itself, a vulnerability.
+
+## Evaluation harness
+
+The evaluation harness starts approved agents with filesystem and command tools.
+It does not isolate agents from the host. Run it only in a disposable,
+non-production workspace. Raw session files can contain model and tool output.
+Never commit the `.ptc-eval/` directory.

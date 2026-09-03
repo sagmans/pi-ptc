@@ -1,9 +1,11 @@
 import { strict as assert } from "node:assert";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { judgeCaseResult, loadCaseDefinition, materializeCase } from "../eval/case-runner.mjs";
+import { validateLargeScaleTextEditingScript } from "../eval/large-scale-text-editing.mjs";
 import {
 	buildRunMatrix,
 	extractMetricsFromSession,
@@ -15,6 +17,7 @@ import {
 import { buildDryRun } from "../eval/run.mjs";
 
 const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
+const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -28,8 +31,8 @@ type TestConfig = {
 	cases: string[];
 };
 
-function loadConfig(): TestConfig {
-	return JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as TestConfig;
+function loadConfig(path = CONFIG_PATH): TestConfig {
+	return JSON.parse(readFileSync(path, "utf8")) as TestConfig;
 }
 
 test("evaluation configuration validates the exact approved matrix", () => {
@@ -46,6 +49,17 @@ test("evaluation configuration validates the exact approved matrix", () => {
 		).size,
 		32,
 	);
+});
+
+test("Terminal-Bench pilot configuration isolates one case in a 16-run matrix", async () => {
+	const config = validateEvalConfig(loadConfig(PILOT_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.equal(buildRunMatrix(config.value).length, 16);
+	assert.deepEqual(config.value.cases, ["large-scale-text-editing"]);
+	const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
+	assert.equal(definition.judge, "large-scale-text-editing");
+	if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
+	assert.equal(definition.rowCount, 1_000_000);
 });
 
 test("configuration rejects duplicates, negative limits, and forbidden providers", () => {
@@ -88,6 +102,7 @@ test("cases materialize deterministic workspaces and judge exact results", async
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-case-"));
 	try {
 		const definition = await loadCaseDefinition("dependent-reads", CASES_DIRECTORY);
+		assert.ok("expected" in definition);
 		await materializeCase(definition, directory, "code");
 		const names = readdirSync(join(directory, "records")).sort();
 		assert.equal(
@@ -100,7 +115,7 @@ test("cases materialize deterministic workspaces and judge exact results", async
 			"code",
 		);
 
-		const accepted = judgeCaseResult(
+		const accepted = await judgeCaseResult(
 			definition,
 			`noise
 EVAL_RESULT ${JSON.stringify(definition.expected)}
@@ -108,13 +123,13 @@ trailing prose`,
 		);
 		assert.equal(accepted.correct, true);
 
-		const wrongSum = judgeCaseResult(
+		const wrongSum = await judgeCaseResult(
 			definition,
 			`EVAL_RESULT ${JSON.stringify({ ...definition.expected, sum: 1 })}`,
 		);
 		assert.equal(wrongSum.correct, false);
 
-		const malformed = judgeCaseResult(definition, "no marker at all");
+		const malformed = await judgeCaseResult(definition, "no marker at all");
 		assert.equal(malformed.correct, false);
 		assert.match(malformed.reason, /EVAL_RESULT/);
 	} finally {
@@ -133,6 +148,56 @@ test("paged-read exposes only read and requires pagination", async () => {
 			.find((line) => line.startsWith("TARGET-PAYLOAD:"));
 		assert.ok(payloadLine);
 		assert.match(payloadLine, /TARGET-PAYLOAD:/);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("large-scale text editing materializes deterministic input without the answer", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-large-edit-"));
+	try {
+		const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
+		if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
+		await materializeCase({ ...definition, rowCount: 3 }, directory, "code");
+		const input = readFileSync(join(directory, "input.csv"), "utf8");
+		assert.equal(input.split("\n").length - 1, 3);
+		assert.equal(input.split("\n")[0], "  alpha1  ,    BeTa1   ,  GaMmA1  ");
+		assert.equal(existsSync(join(directory, "expected.csv")), false);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("large-scale text editing rejects commands outside the upstream constraints", () => {
+	const result = validateLargeScaleTextEditingScript(":!cp expected.csv input.csv\n:wq\n");
+	assert.equal(result.ok, false);
+	assert.match(result.reason, /invalid command/i);
+});
+
+test("large-scale text editing verifies a valid macro transformation against fresh input", {
+	skip: spawnSync("vim", ["--version"]).status !== 0,
+}, async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-large-edit-"));
+	try {
+		const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
+		if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
+		const smallDefinition = { ...definition, rowCount: 20 } as const;
+		await materializeCase(smallDefinition, directory, "native");
+		writeFileSync(
+			join(directory, "apply_macros.vim"),
+			String.raw`call setreg('a', ":s/\\s*,\\s*/,/g\<CR>:s/^\\s*\\(.*\\S\\)\\s*$/\\1/\<CR>j")
+call setreg('b', ":s/^\\([^,]*\\),\\([^,]*\\),\\([^,]*\\)$/\\3,\\2,\\1/\<CR>j")
+call setreg('c', ":s/^\\([^,]*\\),\\([^,]*\\),\\([^,]*\\)$/\\U\\1\\E,\\U\\2\\E,\\U\\3\\E/\<CR>:s/,/;/g\<CR>:s/$/;OK/\<CR>j")
+:%normal! @a
+:%normal! @b
+:%normal! @c
+:wq`,
+			"utf8",
+		);
+		const result = await judgeCaseResult(smallDefinition, undefined, directory);
+		assert.equal(result.correct, true, result.reason);
+		assert.equal(typeof result.keystrokes, "number");
+		assert.ok((result.keystrokes ?? Number.POSITIVE_INFINITY) < 200);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

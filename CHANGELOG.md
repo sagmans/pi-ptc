@@ -21,6 +21,7 @@ All notable changes are documented here. The format follows
 - Automatic spill of oversized successful final results to `result.json` artifacts.
 - Real-Pi regression proving third-party tool_call/tool_result observers see nested `tools.read` calls.
 - Reproducible RPC evaluation harness measuring PTC against native tool calling with a 32-run matrix and best-effort cost cap.
+- Adapted Terminal-Bench 2.1 pilot for a deterministic, one-million-row Vim transformation with workspace judging.
 
 ### Fixed
 

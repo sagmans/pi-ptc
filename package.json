@@ -52,6 +52,8 @@
 		"smoke": "node scripts/smoke-package.mjs",
 		"eval:ptc": "node eval/run.mjs --config eval/config.json --run",
 		"eval:ptc:dry": "node eval/run.mjs --config eval/config.json --dry-run",
+		"eval:ptc:terminal-bench": "node eval/run.mjs --config eval/config.terminal-bench-pilot.json --run",
+		"eval:ptc:terminal-bench:dry": "node eval/run.mjs --config eval/config.terminal-bench-pilot.json --dry-run",
 		"verify": "npm run check && npm run typecheck && npm test",
 		"verify:ci": "npm run audit && npm run verify"
 	},
