@@ -1,18 +1,12 @@
 // Hostile peer: this file runs model-authored code. Trust only rebuilt host messages.
 
 import { parentPort, workerData } from "node:worker_threads";
-
+import { createArtifactFunction } from "./artifacts.ts";
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
-import * as outputLimit from "./output-limit.ts";
-import { logicalJsonLineCount } from "./output-measure.ts";
-import {
-	createWorkerBindings,
-	snapshotWorkerPayload,
-	ToolCallError,
-	ToolResultDeliveryError,
-} from "./worker-bindings.ts";
-import { postWorkerFailure, postWorkerOutputLimit } from "./worker-failure.ts";
+import { createWorkerBindings, ToolCallError, ToolResultDeliveryError } from "./worker-bindings.ts";
+import { postWorkerFailure } from "./worker-failure.ts";
 import { WORKER_BINDING_NAME, type WorkerBootData } from "./worker-protocol.ts";
+import { completeWorkerResult } from "./worker-result.ts";
 
 const port = parentPort;
 if (port === null) throw new Error("ptc worker must run as a worker thread");
@@ -36,6 +30,7 @@ void (async () => {
 		toolCallError: unknown,
 		toolResultDeliveryError: unknown,
 		console: unknown,
+		artifact: unknown,
 	) => Promise<unknown>;
 	try {
 		const create = new Function(
@@ -54,42 +49,13 @@ void (async () => {
 			ToolCallError,
 			ToolResultDeliveryError,
 			consoleShim,
+			createArtifactFunction(boot.artifacts),
 		);
 		if (value === undefined) {
 			port.postMessage({ type: "done" });
 			return;
 		}
-		let snapshot: ReturnType<typeof snapshotWorkerPayload>;
-		try {
-			snapshot = snapshotWorkerPayload(value, boot.maxOutputBytes);
-		} catch (error) {
-			postWorkerFailure(port, boot, error, "program-result-json");
-			return;
-		}
-		if (snapshot.ok) {
-			// Semantic lines are counted before posting so JSON escaping inside
-			// string leaves cannot bypass the configured line bound.
-			const resultLines = logicalJsonLineCount(snapshot.value);
-			if (resultLines > boot.maxOutputLines) {
-				postWorkerOutputLimit(
-					port,
-					outputLimit.PROGRAM_RESULT_SUBJECT,
-					outputLimit.MAX_OUTPUT_LINES_NAME,
-					resultLines,
-					boot.maxOutputLines,
-				);
-				return;
-			}
-			port.postMessage({ type: "done", value: snapshot.value });
-			return;
-		}
-		postWorkerOutputLimit(
-			port,
-			outputLimit.PROGRAM_RESULT_SUBJECT,
-			outputLimit.MAX_OUTPUT_BYTES_NAME,
-			snapshot.bytes,
-			boot.maxOutputBytes,
-		);
+		await completeWorkerResult(port, boot, value);
 	} catch (error) {
 		postWorkerFailure(port, boot, error);
 	}

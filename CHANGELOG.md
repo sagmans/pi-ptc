@@ -17,6 +17,13 @@ All notable changes are documented here. The format follows
 - Mixed-copy Pi patch/adapter coexistence and persisted-details reader compatibility through versioned fixtures.
 - Pinned CI checks for Node, Bun, dependency audit, and package contents.
 - CLI-only npm bootstrap, GitHub release controls, trusted-publisher hardening, exact-artifact smoke, and post-release verification.
+- Explicit `artifact` capture of regular files into session-owned storage with bounded references.
+- Automatic spill of oversized successful final results to `result.json` artifacts.
+- Real-Pi regression proving third-party tool_call/tool_result observers see nested `tools.read` calls.
+
+### Fixed
+
+- `maxOutputLines` now counts CRLF, CR, and LF sequences inside result string values before JSON escaping, so multiline results cannot bypass the limit.
 
 ### Changed
 

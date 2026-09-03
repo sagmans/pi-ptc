@@ -26,7 +26,7 @@ export async function runCode(request: CodeRunRequest): Promise<CodeRunResult> {
 	try {
 		// Strip a function wrapper so top-level return/await stay legal.
 		program = stripProgram(
-			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, ToolResultDeliveryError, console) {
+			`async function ${PROGRAM_WRAPPER_NAME}(tools, ToolCallError, ToolResultDeliveryError, console, artifact) {
 ${request.program}
 }`,
 		);
@@ -56,6 +56,9 @@ ${request.program}
 			bindingNames: Object.keys(functions),
 			maxOutputBytes,
 			maxOutputLines,
+			artifacts: request.artifacts
+				? { cwd: request.artifacts.cwd, directory: request.artifacts.directory }
+				: undefined,
 		},
 	});
 

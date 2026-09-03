@@ -29,6 +29,8 @@ Await every dispatch. Use Promise.all only for independent calls. Project large 
 Successful bindings resolve to canonical JSON. Failed tool calls reject ToolCallError(toolName, message).
 ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true because retry may repeat effects.
 Keep logs and return values concise; intermediate binding values stay model-hidden.
+await artifact({ path, name?, mimeType? }) captures an existing regular file into session-owned storage and returns { kind: "ptc-artifact", id, name, mimeType, bytes, path }; relative paths resolve from the session cwd.
+Oversized final results spill automatically to a result.json artifact reference; logs and nested tool values never spill.
 Tool calls follow active runtime scheduling modes.
 `;
 const READ_USAGE_EXAMPLES = `Examples (replace placeholder paths):

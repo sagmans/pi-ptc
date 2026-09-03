@@ -1,3 +1,4 @@
+import type { ArtifactSessionManager } from "./artifacts.ts";
 import type { DispatchProgress } from "./dispatch-contract.ts";
 import type { PtcDispatchDetails } from "./dispatch-details.ts";
 import type { ExtensionContext } from "./host.ts";
@@ -22,6 +23,7 @@ export type PtcParams = {
 export type PtcExecuteContext = {
 	cwd: string;
 	signal?: AbortSignal;
+	sessionManager?: ArtifactSessionManager;
 };
 
 export type PtcBindingContext = PtcExecuteContext & {

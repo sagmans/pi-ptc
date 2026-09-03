@@ -1,3 +1,4 @@
+import type { ArtifactRuntime } from "./artifacts.ts";
 import type { JsonValue } from "./json.ts";
 import type { OutputLimitName, OutputLimitSubject } from "./output-limit.ts";
 import { parseWorkerMessageValue } from "./worker-protocol-parser.ts";
@@ -9,6 +10,7 @@ export type WorkerBootData = {
 	bindingNames: string[];
 	maxOutputBytes: number;
 	maxOutputLines: number;
+	artifacts?: ArtifactRuntime;
 };
 
 export const INVALID_WORKER_CALL_ID_MESSAGE =

@@ -71,7 +71,7 @@ The model calls `ptc` with two required arguments:
 ```
 
 `code` is the body of an async function. PTC injects `tools`,
-`ToolCallError`, `ToolResultDeliveryError`, and `console` into that
+`ToolCallError`, `ToolResultDeliveryError`, `console`, and `artifact` into that
 function. The program does not import them.
 
 Before each model response, PTC adds a compact SDK section to the system prompt.
@@ -158,6 +158,33 @@ Adapter authorization remains adapter-owned when a program uses an adapter
 binding. Direct Node.js operations do not use adapter policy. PTC does not
 perform OAuth on the program's behalf.
 
+## Artifacts
+
+`artifact` captures an existing regular file into session-owned storage and
+returns a small bounded reference instead of file content:
+
+```ts
+await tools.write({ path: "report.html", content: "<h1>Report</h1>" });
+return {
+  report: await artifact({ path: "report.html", mimeType: "text/html" }),
+};
+```
+
+The reference is `{ kind: "ptc-artifact", id, name, mimeType, bytes, path }`.
+Relative paths resolve from the session working directory. The default MIME
+type is `application/octet-stream`; `name` defaults to the source file name.
+Copies survive worker termination and source deletion; read `path` to recover
+the bytes. Captures accept regular files only.
+
+Successful final results that exceed the byte or line limit spill automatically
+to a `result.json` artifact with `application/json`; the outer payload then
+carries only the reference and parsing the artifact file reconstructs the exact
+lossless JSON value. Logs, failures, and nested tool values never spill.
+
+Persistent sessions store artifacts beside the session file in a
+`<session-file>.artifacts` sidecar directory. Ephemeral sessions use a
+temporary process-scoped directory.
+
 ## Presentation
 
 | Setting | Model-visible tools |
@@ -225,6 +252,7 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 - 10 parallel dispatches;
 - 128 MiB worker old-generation heap;
 - 256,000-byte or 10,000-line outer output, checked in the worker before delivery;
+  lines count CRLF, CR, and LF sequences inside string values, not JSON escapes;
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
 Output-limit failures report the measured byte or line count without echoing the

@@ -86,6 +86,9 @@ test("supplied catalog prose omits inactive core guidance", () => {
 		assert.doesNotMatch(prompt, new RegExp(`\\b${name}\\b`), name);
 	}
 	assert.match(prompt, /\/skill:/);
+	assert.match(prompt, /await artifact\(\{ path[^}]*\}\)/);
+	assert.match(prompt, /ptc-artifact/);
+	assert.match(prompt, /result\.json/);
 });
 
 test("supplied catalog is authoritative, sorted by exact name, and preserves core lines", () => {

@@ -1,6 +1,7 @@
 // One model-visible tool. Intermediate binding values stay off the transcript.
 
 import { Type } from "typebox";
+import { resolveArtifactRuntime } from "./artifacts.ts";
 import {
 	EMPTY_DESCRIPTION_MESSAGE,
 	SHIPPED_PTC_CONFIG,
@@ -17,7 +18,7 @@ import { formatDispatchLine } from "./dispatch-format.ts";
 import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
 import { createDispatchRetentionLedger } from "./dispatch-retention.ts";
 import { formatCodeRunFailure } from "./failure-guidance.ts";
-import { assertOuterResultWithinLimits, serializeOuterResult } from "./outer-result.ts";
+import { serializeOuterResultWithSpill } from "./outer-result.ts";
 import type {
 	FailureDetailsStore,
 	PtcBindingContext,
@@ -155,6 +156,7 @@ export function createPtcTool(options: PtcToolOptions) {
 			if (params.description.trim().length === 0) {
 				throw new Error(EMPTY_DESCRIPTION_MESSAGE);
 			}
+			const artifactsRuntime = resolveArtifactRuntime(ctx);
 			const rawRenderToken = rawRenderStore.begin();
 			const rendererToken = rendererTokens.begin(toolCallId);
 			const abortSignal = signal ?? ctx.signal;
@@ -231,6 +233,7 @@ export function createPtcTool(options: PtcToolOptions) {
 					maxBindingCalls: options.maxDispatches,
 					maxOutputBytes: options.maxOutputBytes,
 					maxOutputLines: options.maxOutputLines,
+					artifacts: artifactsRuntime,
 				});
 				if (outcome.error) terminalizeActiveDispatches(describeRunFailure(outcome.error));
 				acceptingDispatchReports = false;
@@ -250,7 +253,12 @@ export function createPtcTool(options: PtcToolOptions) {
 					rawRenderToken,
 				);
 				return {
-					content: [{ type: "text", text: serializeOuterResult(outcome, options) }],
+					content: [
+						{
+							type: "text",
+							text: await serializeOuterResultWithSpill(outcome, options, artifactsRuntime),
+						},
+					],
 					details,
 				};
 			} catch (error) {
