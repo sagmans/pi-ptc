@@ -109,6 +109,12 @@ test("artifact rejects missing files, directories, and unsafe names", {
 			artifacts: dir.artifacts,
 		});
 		assert.match(failureMessage(unsafeName.error), /artifact name/);
+
+		const controlCharacterName = await runCode({
+			program: 'return await artifact({ path: "missing.txt", name: "line\\nbreak.txt" });',
+			artifacts: dir.artifacts,
+		});
+		assert.match(failureMessage(controlCharacterName.error), /artifact name/);
 		assert.equal(existsSync(dir.artifacts.directory), false);
 	} finally {
 		dir.cleanup();

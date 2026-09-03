@@ -15,6 +15,7 @@ export const RESULT_ARTIFACT_NAME = "result.json";
 export const RESULT_ARTIFACT_MIME_TYPE = "application/json";
 const ARTIFACT_DIRECTORY_SUFFIX = ".artifacts";
 const NUL = "\0";
+const UNSAFE_NAME_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
 
 export type ArtifactInput = {
 	path: string;
@@ -80,7 +81,10 @@ function assertSafeArtifactName(name: string): void {
 		name === ".." ||
 		name.includes("/") ||
 		name.includes("\\") ||
-		name.includes(NUL)
+		name.includes(NUL) ||
+		// Control characters would corrupt reference JSON line counts and
+		// artifact filenames; reject rather than encode them.
+		UNSAFE_NAME_CONTROL_PATTERN.test(name)
 	) {
 		throw new Error(
 			`artifact name must be a non-empty file name without separators: ${JSON.stringify(name)}`,
