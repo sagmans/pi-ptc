@@ -21,18 +21,19 @@ const SUMMARY_MD = "summary.md";
 
 export function parseArguments(argv) {
 	const options = { config: undefined, dryRun: false, run: false, resumeDirectory: undefined };
-	for (let index = 0; index < argv.length; index += 2) {
+	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index];
-		const value = argv[index + 1];
-		if (flag === "--config") options.config = value;
-		else if (flag === "--dry-run" && value === undefined) {
-			options.dryRun = true;
-			index -= 1;
-		} else if (flag === "--run" && value === undefined) {
-			options.run = true;
-			index -= 1;
-		} else if (flag === "--resume") options.resumeDirectory = value;
-		else throw new Error(`unknown or incomplete argument: ${flag}`);
+		if (flag === "--dry-run") options.dryRun = true;
+		else if (flag === "--run") options.run = true;
+		else if (flag === "--config" || flag === "--resume") {
+			const value = argv[index + 1];
+			if (typeof value !== "string" || value.startsWith("--")) {
+				throw new Error(`${flag} requires a value`);
+			}
+			if (flag === "--config") options.config = value;
+			else options.resumeDirectory = value;
+			index += 1;
+		} else throw new Error(`unknown argument: ${flag}`);
 	}
 	if (!options.config) throw new Error("--config is required");
 	if (options.dryRun === options.run) {

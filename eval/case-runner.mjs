@@ -1,7 +1,7 @@
 // Case materialization, Pi argument assembly, and deterministic judging.
 
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractJudgeResult, extractMetricsFromSession } from "./metrics.mjs";
 import { PiRpcClient } from "./rpc-client.mjs";
@@ -143,7 +143,12 @@ export async function executeRun({
 		"utf8",
 	);
 	if (typeof stats?.sessionFile === "string") {
-		await copyFile(stats.sessionFile, join(dirname(rpcLogPath), "session.jsonl"));
+		// Pi reports the session path relative to its own cwd; resolve against
+		// the per-run workspace and store the copy beside the RPC log.
+		const sessionSource = isAbsolute(stats.sessionFile)
+			? stats.sessionFile
+			: join(workspaceDirectory, stats.sessionFile);
+		await copyFile(sessionSource, `${rpcLogPath.replace(/\\.rpc\\.jsonl$/, "")}.session.jsonl`);
 	}
 	await client.close();
 	return {
