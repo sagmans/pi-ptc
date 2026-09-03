@@ -7,6 +7,7 @@ type CaseBase = {
 	tools: string[];
 	prompt: string;
 	path?: string;
+	settleTimeoutMs?: number;
 };
 
 export type ExactResultCaseDefinition = CaseBase & {

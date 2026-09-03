@@ -70,8 +70,8 @@ It does not use the upstream container or Harbor runner. Thus, its results are
 not official Terminal-Bench leaderboard results. See the
 [attribution and task digest](../eval/terminal-bench/NOTICE.md).
 
-The pilot requires Vim on `PATH`. The judge gives Vim 10 minutes to transform
-the file.
+The pilot requires Vim on `PATH`. The agent gets 20 minutes to finish the task.
+The judge gives Vim 10 minutes to transform the file.
 
 ## Metrics
 

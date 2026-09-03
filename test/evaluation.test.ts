@@ -60,6 +60,7 @@ test("Terminal-Bench pilot configuration isolates one case in a 16-run matrix", 
 	assert.equal(definition.judge, "large-scale-text-editing");
 	if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
 	assert.equal(definition.rowCount, 1_000_000);
+	assert.equal(definition.settleTimeoutMs, 1_200_000);
 });
 
 test("configuration rejects duplicates, negative limits, and forbidden providers", () => {
