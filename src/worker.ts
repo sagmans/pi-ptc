@@ -4,6 +4,7 @@ import { parentPort, workerData } from "node:worker_threads";
 
 import { PROGRAM_WRAPPER_NAME } from "./config.ts";
 import * as outputLimit from "./output-limit.ts";
+import { logicalJsonLineCount } from "./output-measure.ts";
 import {
 	createWorkerBindings,
 	snapshotWorkerPayload,
@@ -66,6 +67,19 @@ void (async () => {
 			return;
 		}
 		if (snapshot.ok) {
+			// Semantic lines are counted before posting so JSON escaping inside
+			// string leaves cannot bypass the configured line bound.
+			const resultLines = logicalJsonLineCount(snapshot.value);
+			if (resultLines > boot.maxOutputLines) {
+				postWorkerOutputLimit(
+					port,
+					outputLimit.PROGRAM_RESULT_SUBJECT,
+					outputLimit.MAX_OUTPUT_LINES_NAME,
+					resultLines,
+					boot.maxOutputLines,
+				);
+				return;
+			}
 			port.postMessage({ type: "done", value: snapshot.value });
 			return;
 		}

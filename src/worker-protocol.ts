@@ -65,7 +65,3 @@ export type HostToWorker =
 export function parseWorkerMessage(value: unknown): WorkerToHost {
 	return parseWorkerMessageValue(value) as WorkerToHost;
 }
-
-export function logicalLineCount(text: string): number {
-	return text.split(/\r\n|\r|\n/).length;
-}

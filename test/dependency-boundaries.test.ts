@@ -42,7 +42,6 @@ const RAW_STORE_FORBIDDEN_PATTERN =
 const PROTOCOL_DECLARATION_PATTERN =
 	/^(?:export\s+)?(?:type\s+(?:HostToWorker|WorkerToHost|WorkerBootData)\s*=|interface\s+(?:HostToWorker|WorkerToHost|WorkerBootData)\b)/m;
 const PROTOCOL_CONSUMERS = new Set([
-	"runtime.ts",
 	"worker-bindings.ts",
 	"worker-failure.ts",
 	"worker-session.ts",

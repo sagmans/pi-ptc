@@ -175,6 +175,17 @@ test("outer line overflow reports measured lines", () => {
 	);
 });
 
+test("serializeOuterResult rejects multiline results that JSON escaping hides", () => {
+	assert.throws(
+		() =>
+			serializeOuterResult(
+				{ logs: [], result: { body: "one\ntwo\nthree" } },
+				{ maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES, maxOutputLines: 2 },
+			),
+		{ message: "outer result exceeds maxOutputLines: 3 > 2" },
+	);
+});
+
 test("ptc rejects an oversized outer result", async () => {
 	const tool = createPtcTool({
 		timeoutMs: LIMITS.timeoutMs,

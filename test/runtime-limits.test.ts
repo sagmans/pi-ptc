@@ -8,6 +8,11 @@ import {
 	processOrphanBindingGovernor,
 	resolveProcessOrphanBindingGovernor,
 } from "../src/orphan-binding-governor.ts";
+import {
+	logicalJsonLineCount,
+	logicalTextLineCount,
+	outerLogicalLineCount,
+} from "../src/output-measure.ts";
 import { runCode } from "../src/runtime.ts";
 import {
 	CR_ONLY_WORKER_FAILURE_MESSAGE,
@@ -252,6 +257,28 @@ test("runCode counts carriage-return worker failures as logical lines", async ()
 		logs: [],
 		error: { kind: "output-limit", message: WORKER_ERROR_LINE_LIMIT_MESSAGE },
 	});
+});
+
+test("runCode counts logical result lines before JSON escaping", async () => {
+	const outcome = await runCode({
+		program: 'return "one\\ntwo\\nthree";',
+		maxOutputBytes: 1024,
+		maxOutputLines: 2,
+	});
+	assert.deepEqual(outcome, {
+		logs: [],
+		error: { kind: "output-limit", message: "program result exceeds maxOutputLines: 3 > 2" },
+	});
+});
+
+test("semantic line measurement ignores JSON punctuation and escaping", () => {
+	assert.equal(logicalTextLineCount("one\r\ntwo\rthree\n"), 4);
+	assert.equal(logicalJsonLineCount("one\ntwo\nthree"), 3);
+	assert.equal(logicalJsonLineCount("a\r\nb\nc"), 3);
+	assert.equal(logicalJsonLineCount("one\rtwo"), 2);
+	assert.equal(logicalJsonLineCount({ alpha: "x", beta: "y" }), 1);
+	assert.equal(logicalJsonLineCount({ nested: { rows: ["l1\nl2", "l3"] } }), 2);
+	assert.equal(outerLogicalLineCount({ logs: ["a", "b"], result: "c" }), 3);
 });
 
 test("runCode starts workers with an empty environment", async () => {

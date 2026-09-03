@@ -9,13 +9,13 @@ import type { CodeRunRequest, CodeRunResult } from "./runtime-contract.ts";
 import { stripProgram } from "./strip.ts";
 import { runWorkerSession } from "./worker-session.ts";
 
+export { logicalTextLineCount as logicalLineCount } from "./output-measure.ts";
 export type {
 	BindingFn,
 	CodeRunFailure,
 	CodeRunRequest,
 	CodeRunResult,
 } from "./runtime-contract.ts";
-export { logicalLineCount } from "./worker-protocol.ts";
 
 const COMPILED_WORKER_PATH = fileURLToPath(new URL("../worker-dist/worker.js", import.meta.url));
 const SOURCE_WORKER_PATH = fileURLToPath(new URL("./worker.ts", import.meta.url));

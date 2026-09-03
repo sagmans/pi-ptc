@@ -4,6 +4,7 @@ import { ToolResultDeliveryError } from "./canonical.ts";
 import { LosslessJsonError, snapshotJsonValue } from "./json.ts";
 import { processOrphanBindingGovernor } from "./orphan-binding-governor.ts";
 import * as outputLimit from "./output-limit.ts";
+import { logicalTextLineCount } from "./output-measure.ts";
 import type {
 	BindingFn,
 	CodeRunFailure,
@@ -13,7 +14,6 @@ import type {
 import {
 	type HostToWorker,
 	INVALID_WORKER_CALL_ID_MESSAGE,
-	logicalLineCount,
 	parseWorkerMessage,
 	type WorkerToHost,
 } from "./worker-protocol.ts";
@@ -113,7 +113,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_BYTES_NAME, messageBytes, maxOutputBytes);
 				return;
 			}
-			const messageLines = logicalLineCount(failure.message);
+			const messageLines = logicalTextLineCount(failure.message);
 			if (messageLines > maxOutputLines) {
 				finishOutputLimit(subject, outputLimit.MAX_OUTPUT_LINES_NAME, messageLines, maxOutputLines);
 				return;
@@ -154,7 +154,7 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 				);
 				return;
 			}
-			const nextLines = logOutputLines + logicalLineCount(message.text);
+			const nextLines = logOutputLines + logicalTextLineCount(message.text);
 			if (nextLines > maxOutputLines) {
 				finishOutputLimit(
 					outputLimit.LOG_OUTPUT_SUBJECT,

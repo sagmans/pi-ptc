@@ -1,8 +1,9 @@
 import type { MessagePort } from "node:worker_threads";
 
 import * as outputLimit from "./output-limit.ts";
+import { logicalTextLineCount } from "./output-measure.ts";
 import { ToolCallError, ToolResultDeliveryError } from "./worker-bindings.ts";
-import { logicalLineCount, type WorkerBootData } from "./worker-protocol.ts";
+import type { WorkerBootData } from "./worker-protocol.ts";
 
 const UTF8_ENCODING = "utf8";
 type ProgramFailureKind = "program-compile" | "program-result-json";
@@ -35,7 +36,7 @@ export function postWorkerFailure(
 		);
 		return;
 	}
-	const messageLines = logicalLineCount(message);
+	const messageLines = logicalTextLineCount(message);
 	if (messageLines > boot.maxOutputLines) {
 		postWorkerOutputLimit(
 			port,

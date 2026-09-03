@@ -17,8 +17,7 @@ import { formatDispatchLine } from "./dispatch-format.ts";
 import { attachLiveDispatchResult, transferLiveDispatchAttachments } from "./dispatch-live.ts";
 import { createDispatchRetentionLedger } from "./dispatch-retention.ts";
 import { formatCodeRunFailure } from "./failure-guidance.ts";
-import type { JsonValue } from "./json.ts";
-import * as outputLimit from "./output-limit.ts";
+import { assertOuterResultWithinLimits, serializeOuterResult } from "./outer-result.ts";
 import type {
 	FailureDetailsStore,
 	PtcBindingContext,
@@ -40,7 +39,7 @@ import {
 	type RawRenderStore,
 	type RawRenderToken,
 } from "./renderer-raw-store.ts";
-import { type BindingFn, type CodeRunResult, logicalLineCount, runCode } from "./runtime.ts";
+import { type BindingFn, type CodeRunResult, runCode } from "./runtime.ts";
 
 export type {
 	FailureDetailsStore,
@@ -58,6 +57,7 @@ export {
 } from "./renderer-definition-store.ts";
 
 export const RENDER_BUDGET_OMISSION = "budget";
+export { assertOuterResultWithinLimits, serializeOuterResult } from "./outer-result.ts";
 
 export function createFailureDetailsStore(): FailureDetailsStore {
 	const entries = new Map<string, PtcDispatchDetails>();
@@ -296,60 +296,4 @@ export function attachExecutionRenderData(
 
 function describeRunFailure(error: NonNullable<CodeRunResult["error"]>): string {
 	return formatCodeRunFailure(error);
-}
-
-export function serializeOuterResult(
-	outcome: CodeRunResult,
-	limits: { maxOutputBytes: number; maxOutputLines: number },
-): string {
-	if (outcome.error) throw new Error(describeBoundedRunFailure(outcome.error, limits));
-	const outer: { logs: string[]; result?: JsonValue } =
-		"result" in outcome ? { logs: outcome.logs, result: outcome.result } : { logs: outcome.logs };
-	const text = JSON.stringify(outer);
-	assertOuterResultWithinLimits(text, limits);
-	return text;
-}
-
-function describeBoundedRunFailure(
-	error: NonNullable<CodeRunResult["error"]>,
-	limits: { maxOutputBytes: number; maxOutputLines: number },
-): string {
-	const failure = describeRunFailure(error);
-	try {
-		assertOuterResultWithinLimits(failure, limits);
-		return failure;
-	} catch (limitError) {
-		const message = limitError instanceof Error ? limitError.message : String(limitError);
-		const fallback = formatCodeRunFailure({ kind: "output-limit", message });
-		assertOuterResultWithinLimits(fallback, limits);
-		return fallback;
-	}
-}
-
-export function assertOuterResultWithinLimits(
-	text: string,
-	limits: { maxOutputBytes: number; maxOutputLines: number },
-): void {
-	const bytes = Buffer.byteLength(text, "utf8");
-	if (bytes > limits.maxOutputBytes) {
-		throw new Error(
-			outputLimit.describe(
-				outputLimit.OUTER_RESULT_SUBJECT,
-				outputLimit.MAX_OUTPUT_BYTES_NAME,
-				bytes,
-				limits.maxOutputBytes,
-			),
-		);
-	}
-	const lines = logicalLineCount(text);
-	if (lines > limits.maxOutputLines) {
-		throw new Error(
-			outputLimit.describe(
-				outputLimit.OUTER_RESULT_SUBJECT,
-				outputLimit.MAX_OUTPUT_LINES_NAME,
-				lines,
-				limits.maxOutputLines,
-			),
-		);
-	}
 }
