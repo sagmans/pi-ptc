@@ -1,5 +1,5 @@
+import { renderSafeJsonStringLiteral } from "./json.ts";
 import type { CodeRunFailure } from "./runtime-contract.ts";
-import { renderSafeJsonStringLiteral } from "./schema-signature.ts";
 
 type FailureKind = CodeRunFailure["kind"];
 type FailureDefinition = {

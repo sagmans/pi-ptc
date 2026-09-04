@@ -1,3 +1,5 @@
+import { renderSafeJsonStringLiteral } from "./json.ts";
+
 export const SCHEMA_SIGNATURE_MAX_DEPTH = 8;
 export const SCHEMA_SIGNATURE_MAX_PROPERTIES = 64;
 export const SCHEMA_SIGNATURE_MAX_UNION_MEMBERS = 16;
@@ -6,8 +8,6 @@ export const SCHEMA_SIGNATURE_MAX_OUTPUT_BYTES = 4096;
 export const SCHEMA_SIGNATURE_FALLBACK = "Record<string, unknown>";
 
 const ASCII_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const UNSAFE_JSON_LITERAL_CODE_UNIT_PATTERN =
-	/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u206f]/gu;
 const UTF8_ENCODING = "utf8";
 const UNSUPPORTED_SCHEMA_KEYS = Object.freeze([
 	"$ref",
@@ -44,13 +44,6 @@ type ConversionState = {
 };
 
 type OwnValue = { present: false } | { present: true; value: unknown };
-
-export function renderSafeJsonStringLiteral(value: string): string {
-	return JSON.stringify(value).replace(UNSAFE_JSON_LITERAL_CODE_UNIT_PATTERN, (character) => {
-		const codeUnit = character.charCodeAt(0).toString(16).padStart(4, "0");
-		return `\\u${codeUnit}`;
-	});
-}
 
 export function schemaToTypeScriptSignature(schema: unknown): string {
 	try {
