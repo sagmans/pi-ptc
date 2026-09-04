@@ -1,5 +1,7 @@
 // Evaluation entrypoint. --dry-run validates and prints the matrix;
 // --run executes or resumes a run directory under .ptc-eval/.
+// --jobs N runs up to N cells concurrently; each cell keeps an isolated
+// workspace, session directory, RPC log, and atomically written result file.
 
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -28,7 +30,10 @@ type RunOptions = {
 	dryRun: boolean;
 	run: boolean;
 	resumeDirectory?: string;
+	jobs: number;
 };
+
+const ERROR_RECORD_SUFFIX = ".error.json";
 
 export type DryRun = {
 	configPath: string;
@@ -38,23 +43,31 @@ export type DryRun = {
 };
 
 export function parseArguments(argv: string[]): RunOptions {
-	const options: { config?: string; dryRun: boolean; run: boolean; resumeDirectory?: string } = {
+	const options: {
+		config?: string;
+		dryRun: boolean;
+		run: boolean;
+		resumeDirectory?: string;
+		jobs?: number;
+	} = {
 		config: undefined,
 		dryRun: false,
 		run: false,
 		resumeDirectory: undefined,
+		jobs: undefined,
 	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index];
 		if (flag === "--dry-run") options.dryRun = true;
 		else if (flag === "--run") options.run = true;
-		else if (flag === "--config" || flag === "--resume") {
+		else if (flag === "--config" || flag === "--resume" || flag === "--jobs") {
 			const value = argv[index + 1];
 			if (typeof value !== "string" || value.startsWith("--")) {
 				throw new Error(`${flag} requires a value`);
 			}
 			if (flag === "--config") options.config = value;
-			else options.resumeDirectory = value;
+			else if (flag === "--resume") options.resumeDirectory = value;
+			else options.jobs = Number(value);
 			index += 1;
 		} else throw new Error(`unknown argument: ${flag}`);
 	}
@@ -62,11 +75,16 @@ export function parseArguments(argv: string[]): RunOptions {
 	if (options.dryRun === options.run) {
 		throw new Error("choose exactly one of --dry-run or --run");
 	}
+	const jobs = options.jobs ?? 1;
+	if (!Number.isSafeInteger(jobs) || jobs < 1) {
+		throw new Error("--jobs must be a positive integer");
+	}
 	return {
 		config: options.config,
 		dryRun: options.dryRun,
 		run: options.run,
 		resumeDirectory: options.resumeDirectory,
+		jobs,
 	};
 }
 
@@ -77,11 +95,20 @@ export async function buildDryRun(configValue: unknown, configPath: string | URL
 	return { configPath: String(configPath), runs, providerCalls: 0, costUsd: 0 };
 }
 
-async function loadCompletedRuns(runDirectory: string): Promise<Map<string, EvaluatedRun>> {
+export function selectPendingRuns(
+	matrix: readonly EvalRun[],
+	completed: ReadonlyMap<string, unknown> | ReadonlySet<string>,
+): EvalRun[] {
+	return matrix.filter((run) => !completed.has(runKey(run)));
+}
+
+export async function loadCompletedRuns(runDirectory: string): Promise<Map<string, EvaluatedRun>> {
 	const completed = new Map<string, EvaluatedRun>();
 	const directory = join(runDirectory, RUNS_DIRECTORY);
 	try {
 		for (const name of await readdir(directory)) {
+			// Error records mark crashed cells for resume; they are not results.
+			if (name.endsWith(ERROR_RECORD_SUFFIX)) continue;
 			if (!name.endsWith(".json") || name.startsWith(".")) continue;
 			const record = JSON.parse(await readFile(join(directory, name), "utf8")) as EvaluatedRun;
 			if (record?.key) completed.set(record.key, record);
@@ -136,42 +163,78 @@ async function executeMatrix(options: RunOptions): Promise<void> {
 		);
 	}
 	const completed = await loadCompletedRuns(runDirectory);
-	const matrix = buildRunMatrix(config.value);
+	const pending = selectPendingRuns(buildRunMatrix(config.value), completed);
 	const results: EvaluatedRun[] = [...completed.values()];
 	let observedCost = results.reduce((total, record) => total + (record.costUsd ?? 0), 0);
-	for (const run of matrix) {
+	let budgetStopped = false;
+	// Cells mutate only their own workspace, session directory, RPC log, and
+	// result file, so the pool shares nothing but the cost accumulator and the
+	// results list. A crashed cell writes an error record and never kills siblings.
+	const runCell = async (run: EvalRun): Promise<void> => {
 		const key = runKey(run);
-		if (completed.has(key)) continue;
-		if (!startGateAllowsRun(observedCost, config.value.maxCostUsd)) {
-			console.log(`budget reached (${observedCost.toFixed(2)} USD); stopping before ${key}`);
-			break;
-		}
-		const workspaceDirectory = join(runDirectory, "workspace", key.replaceAll("/", "_"));
+		const fileBase = key.replaceAll("/", "_");
+		const workspaceDirectory = join(runDirectory, "workspace", fileBase);
 		await mkdir(workspaceDirectory, { recursive: true });
 		const sessionDirectory = join(workspaceDirectory, "sessions");
 		console.log(`running ${key}`);
 		let budgetAbortRequested = false;
-		const record = await executeRun({
-			run,
-			config: config.value,
-			definition: definitions.get(run.case),
-			workspaceDirectory,
-			sessionDirectory,
-			rpcLogPath: join(runDirectory, RUNS_DIRECTORY, `${key.replaceAll("/", "_")}.rpc.jsonl`),
-			budgetCheck: (currentCostUsd: number) => {
-				if (budgetAbortRequested) return false;
-				const abort = shouldAbortInflight(observedCost, currentCostUsd, config.value.maxCostUsd);
-				if (abort) budgetAbortRequested = true;
-				return abort;
-			},
-		});
-		await writeAtomic(
-			join(runDirectory, RUNS_DIRECTORY, `${key.replaceAll("/", "_")}.json`),
-			JSON.stringify(record, null, "\t"),
+		try {
+			const record = await executeRun({
+				run,
+				config: config.value,
+				definition: definitions.get(run.case),
+				workspaceDirectory,
+				sessionDirectory,
+				rpcLogPath: join(runDirectory, RUNS_DIRECTORY, `${fileBase}.rpc.jsonl`),
+				budgetCheck: (currentCostUsd: number) => {
+					if (budgetAbortRequested) return false;
+					const abort = shouldAbortInflight(observedCost, currentCostUsd, config.value.maxCostUsd);
+					if (abort) budgetAbortRequested = true;
+					return abort;
+				},
+			});
+			await writeAtomic(
+				join(runDirectory, RUNS_DIRECTORY, `${fileBase}.json`),
+				JSON.stringify(record, null, "\t"),
+			);
+			results.push(record);
+			observedCost += record.costUsd ?? 0;
+			console.log(
+				`finished ${key} (correct: ${record.correct}, cost: ${(record.costUsd ?? 0).toFixed(4)} USD)`,
+			);
+		} catch (error) {
+			await writeAtomic(
+				join(runDirectory, RUNS_DIRECTORY, `${fileBase}${ERROR_RECORD_SUFFIX}`),
+				JSON.stringify({ key, error: String(error) }, null, "\t"),
+			);
+			console.error(`failed ${key}: ${error}`);
+		}
+	};
+	const claimed = new Set<string>();
+	const workers: Array<Promise<void>> = [];
+	for (let worker = 0; worker < Math.min(options.jobs, pending.length); worker += 1) {
+		workers.push(
+			(async () => {
+				for (const run of pending) {
+					if (budgetStopped) return;
+					// The start gate is best-effort under concurrency: cells already
+					// running can push observed spend past the cap before the next
+					// dispatch notices, exactly like provider cost-reporting lag.
+					if (!startGateAllowsRun(observedCost, config.value.maxCostUsd)) {
+						budgetStopped = true;
+						console.log(
+							`budget reached (${observedCost.toFixed(2)} USD); stopping before ${runKey(run)}`,
+						);
+						return;
+					}
+					if (claimed.has(runKey(run))) continue;
+					claimed.add(runKey(run));
+					await runCell(run);
+				}
+			})(),
 		);
-		results.push(record);
-		observedCost += record.costUsd ?? 0;
 	}
+	await Promise.all(workers);
 	const summary = summarizeRuns(results);
 	await writeAtomic(join(runDirectory, SUMMARY_JSON), JSON.stringify(summary, null, "\t"));
 	await writeAtomic(join(runDirectory, SUMMARY_MD), renderSummaryMarkdown(summary));
