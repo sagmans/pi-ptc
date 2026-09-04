@@ -22,6 +22,7 @@ All notable changes are documented here. The format follows
 - Real-Pi regression proving third-party tool_call/tool_result observers see nested `tools.read` calls.
 - Reproducible RPC evaluation harness measuring PTC against native tool calling with a 32-run matrix and best-effort cost cap.
 - Adapted Terminal-Bench 2.1 pilot for a deterministic, one-million-row Vim transformation with workspace judging.
+- Added a 160-account transitive-ledger case with a 16-run heavy tool-use matrix for with/without-PTC comparison of tokens, wall time, turns, and tool calls.
 
 ### Fixed
 

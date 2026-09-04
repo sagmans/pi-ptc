@@ -16,6 +16,7 @@ import { buildDryRun } from "../eval/run.ts";
 
 const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
 const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
+const HEAVY_CONFIG_PATH = new URL("../eval/config.heavy-tools.json", import.meta.url);
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -289,6 +290,34 @@ test("summary reports per-condition medians and deltas without significance clai
 	assert.equal(summary.conditions.code.deltaAssistantTurnsVsAbsent, -3);
 	const codeRepetitions = summary.conditions.code?.repetitions as unknown[];
 	assert.equal(codeRepetitions.length, 2);
+});
+
+test("heavy tool-use configuration validates a 16-run single-case matrix", () => {
+	const config = validateEvalConfig(loadConfig(HEAVY_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.deepEqual(config.value.cases, ["transitive-ledger"]);
+	assert.equal(buildRunMatrix(config.value).length, 16);
+});
+
+test("transitive-ledger materializes 160 accounts and judges the exact closure", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-ledger-"));
+	try {
+		const definition = await loadCaseDefinition("transitive-ledger", CASES_DIRECTORY);
+		assert.ok("expected" in definition);
+		const expected = definition.expected as { names: string[]; sum: number };
+		await materializeCase(definition, directory, "code");
+		assert.equal(readdirSync(join(directory, "ledger")).length, 160);
+		assert.equal(expected.names.length, 65);
+		const accepted = await judgeCaseResult(definition, `EVAL_RESULT ${JSON.stringify(expected)}`);
+		assert.equal(accepted.correct, true);
+		const wrongSum = await judgeCaseResult(
+			definition,
+			`EVAL_RESULT ${JSON.stringify({ ...expected, sum: 0 })}`,
+		);
+		assert.equal(wrongSum.correct, false);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("dry run emits 32 unique descriptors with zero cost and no provider calls", async () => {
