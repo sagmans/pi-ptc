@@ -144,6 +144,31 @@ npm run eval:proof:dry   # validate the 120-run matrix
 npm run eval:proof       # run the matrix
 ```
 
+## Counter-proof matrix
+
+A 120-run binary matrix built to attack PTC's structural weaknesses: the same
+10 model configurations × three counter-cases × `absent`/`code` × 2
+repetitions.
+
+```bash
+npm run eval:counter:dry   # validate the 120-run matrix
+npm run eval:counter       # run the matrix
+```
+
+- **single-lookup** finds one receipt code in 12 memos. One native grep
+  suffices, so PTC pays its full program-writing tax for nothing. Predict:
+  absent wins efficiency at correctness parity.
+- **semantic-trail** follows 7 prose clues across 24 titled pages. No clue
+  shares a content word with its target title, so literal matching cannot
+  walk the trail; each hop needs comprehension. Predict: code needs at
+  least native round trips plus program tax, or fails on literal matching.
+- **broken-trail** follows 10 exact cursors with 2 links pointing at missing
+  pages, repairable through intact `prev` lines. Predict: native adapts on
+  the error in one turn; code needs defensive recovery encoded upfront.
+
+All three are machine-generated with a fixed seed (`20260905`) and judged by
+exact `EVAL_RESULT` match like the proof cases.
+
 CAUTION: Run an evaluation only in a disposable, non-production workspace.
 The agent has user-equivalent host authority, and provider calls cost money.
 

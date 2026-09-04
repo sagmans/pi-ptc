@@ -1,0 +1,143 @@
+{
+	"name": "broken-trail",
+	"description": "Follow 10 exact cursors with 2 broken links repaired via prev lines. Seed 20260905.",
+	"tools": ["read", "grep"],
+	"prompt": "The fix directory holds 30 pages (f-01.txt through f-30.txt). Each page holds exact id, prev, and next lines naming page ids. Start at the page whose prev line says START and follow next links to the page whose next line says END, collecting visited page ids in order. Near-miss lines (Next with a capital N, a space before the colon, or the word previous) are decoys and must be ignored. Two next lines name pages that do not exist: when a next page is missing, find the page whose exact prev line names your current page and continue from there. The walk never revisits a page. Use only the active tools for filesystem access. Finish with exactly one line with the exact form EVAL_RESULT {\"pages\":[...],\"count\":N} with N an integer. Any other final line format is a failure.",
+	"files": [
+		{
+			"path": "fix/f-01.txt",
+			"content": "id: f-01\nprev: f-06\nnext: f-04\nNext: f-08\nnext :f-12\nprevious: f-08\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-02.txt",
+			"content": "id: f-02\nprev: f-11\nnext: f-07\nNext: f-15\nnext :f-23\nprevious: f-15\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-03.txt",
+			"content": "id: f-03\nprev: f-16\nnext: f-10\nNext: f-22\nnext :f-04\nprevious: f-22\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-04.txt",
+			"content": "id: f-04\nprev: f-25\nnext: END\nNext: f-29\nnext :f-15\nprevious: f-29\nThe ledger binding was repaired with linen thread.\n"
+		},
+		{
+			"path": "fix/f-05.txt",
+			"content": "id: f-05\nprev: f-22\nnext: f-25\nNext: f-06\nnext :f-26\nprevious: f-06\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-06.txt",
+			"content": "id: f-06\nprev: f-01\nnext: f-19\nNext: f-13\nnext :f-07\nprevious: f-13\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-07.txt",
+			"content": "id: f-07\nprev: f-06\nnext: f-22\nNext: f-20\nnext :f-18\nprevious: f-20\nThe ferry ran twice before the fog closed in.\n"
+		},
+		{
+			"path": "fix/f-08.txt",
+			"content": "id: f-08\nprev: f-11\nnext: f-25\nNext: f-27\nnext :f-29\nprevious: f-27\nFrost cracked two slates on the north slope.\n"
+		},
+		{
+			"path": "fix/f-09.txt",
+			"content": "id: f-09\nprev: f-19\nnext: f-17\nNext: f-04\nnext :f-10\nprevious: f-04\nNew hinges for the chapel door arrived late.\n"
+		},
+		{
+			"path": "fix/f-10.txt",
+			"content": "id: f-10\nprev: f-21\nnext: f-01\nNext: f-11\nnext :f-21\nprevious: f-11\nNew hinges for the chapel door arrived late.\n"
+		},
+		{
+			"path": "fix/f-11.txt",
+			"content": "id: f-11\nprev: f-26\nnext: f-04\nNext: f-18\nnext :f-02\nprevious: f-18\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-12.txt",
+			"content": "id: f-12\nprev: f-01\nnext: f-07\nNext: f-25\nnext :f-13\nprevious: f-25\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-13.txt",
+			"content": "id: f-13\nprev: f-06\nnext: f-10\nNext: f-02\nnext :f-24\nprevious: f-02\nFrost cracked two slates on the north slope.\n"
+		},
+		{
+			"path": "fix/f-14.txt",
+			"content": "id: f-14\nprev: f-28\nnext: f-18\nNext: f-09\nnext :f-05\nprevious: f-09\nThe ferry ran twice before the fog closed in.\n"
+		},
+		{
+			"path": "fix/f-15.txt",
+			"content": "id: f-15\nprev: f-16\nnext: f-16\nNext: f-16\nnext :f-16\nprevious: f-16\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-16.txt",
+			"content": "id: f-16\nprev: f-21\nnext: f-19\nNext: f-23\nnext :f-27\nprevious: f-23\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-17.txt",
+			"content": "id: f-17\nprev: f-09\nnext: f-22\nNext: f-30\nnext :f-08\nprevious: f-30\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-18.txt",
+			"content": "id: f-18\nprev: f-14\nnext: f-99\nNext: f-07\nnext :f-19\nprevious: f-07\nThe ferry ran twice before the fog closed in.\n"
+		},
+		{
+			"path": "fix/f-19.txt",
+			"content": "id: f-19\nprev: f-18\nnext: f-09\nNext: f-14\nnext :f-30\nprevious: f-14\nThe cellar flooded ankle-deep in March.\n"
+		},
+		{
+			"path": "fix/f-20.txt",
+			"content": "id: f-20\nprev: f-11\nnext: f-01\nNext: f-21\nnext :f-11\nprevious: f-21\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-21.txt",
+			"content": "id: f-21\nprev: f-16\nnext: f-04\nNext: f-28\nnext :f-22\nprevious: f-28\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-22.txt",
+			"content": "id: f-22\nprev: f-17\nnext: f-99\nNext: f-05\nnext :f-03\nprevious: f-05\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-23.txt",
+			"content": "id: f-23\nprev: f-26\nnext: f-10\nNext: f-12\nnext :f-14\nprevious: f-12\nThe ledger binding was repaired with linen thread.\n"
+		},
+		{
+			"path": "fix/f-24.txt",
+			"content": "id: f-24\nprev: f-01\nnext: f-13\nNext: f-19\nnext :f-25\nprevious: f-19\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-25.txt",
+			"content": "id: f-25\nprev: f-05\nnext: f-04\nNext: f-26\nnext :f-06\nprevious: f-26\nThe ledger binding was repaired with linen thread.\n"
+		},
+		{
+			"path": "fix/f-26.txt",
+			"content": "id: f-26\nprev: f-11\nnext: f-19\nNext: f-03\nnext :f-17\nprevious: f-03\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-27.txt",
+			"content": "id: f-27\nprev: f-16\nnext: f-22\nNext: f-10\nnext :f-28\nprevious: f-10\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-28.txt",
+			"content": "id: f-28\nprev: START\nnext: f-14\nNext: f-17\nnext :f-09\nprevious: f-17\nFrost cracked two slates on the north slope.\n"
+		},
+		{
+			"path": "fix/f-29.txt",
+			"content": "id: f-29\nprev: f-26\nnext: f-28\nNext: f-24\nnext :f-20\nprevious: f-24\nA sparrow nested in the letter box.\n"
+		},
+		{
+			"path": "fix/f-30.txt",
+			"content": "id: f-30\nprev: f-01\nnext: f-01\nNext: f-01\nnext :f-01\nprevious: f-01\nThe ledger binding was repaired with linen thread.\n"
+		}
+	],
+	"expected": {
+		"pages": [
+			"f-28.txt",
+			"f-14.txt",
+			"f-18.txt",
+			"f-19.txt",
+			"f-09.txt",
+			"f-17.txt",
+			"f-22.txt",
+			"f-05.txt",
+			"f-25.txt",
+			"f-04.txt"
+		],
+		"count": 10
+	}
+}
