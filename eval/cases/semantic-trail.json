@@ -1,0 +1,121 @@
+{
+	"name": "semantic-trail",
+	"description": "Follow 7 paraphrased prose clues across 24 titled pages. Seed 20260905.",
+	"tools": ["read", "grep"],
+	"prompt": "The trail directory holds 24 pages (t-*.txt) plus start.txt naming the first page. Each page has a Title line and a Clue line. Each clue describes the NEXT page's title in different words: no clue shares a content word with its target title, so literal string matching cannot follow the trail. Read each page, understand what its clue means, find the page whose title it describes, and continue. Decoy pages carry dead-end clues and must be ignored. The walk never revisits a page and ends at the page whose clue says the trail ends. Use only the active tools for filesystem access. Finish with exactly one line with the exact form EVAL_RESULT {\"pages\":[...],\"count\":N} listing visited file names in order including the start page, with N an integer. Any other final line format is a failure.",
+	"files": [
+		{
+			"path": "trail/t-gate.txt",
+			"content": "Title: Gatehouse Log\nA cat slept through the council meeting.\nClue: Begin where the dockmaster balanced the port's accounts.\nRain drummed on the slate roof all afternoon.\n"
+		},
+		{
+			"path": "trail/t-harbor.txt",
+			"content": "Title: Harbor Ledger\nA cat slept through the council meeting.\nClue: Go on to the fruit growers' tenth-part tribute to the abbey.\nThe clock in the tower runs slow.\n"
+		},
+		{
+			"path": "trail/t-orchard.txt",
+			"content": "Title: Orchard Tithe\nThe clerk mended a quill and sneezed.\nClue: Next, the invoice for casting the chapel's great bronze voice.\nTurnips fetched a fair price this year.\n"
+		},
+		{
+			"path": "trail/t-bell.txt",
+			"content": "Title: Bellfounder's Bill\nSomeone left muddy boots by the door.\nClue: Seek the sworn pledge of the wheelwright before the guild.\nRain drummed on the slate roof all afternoon.\n"
+		},
+		{
+			"path": "trail/t-cart.txt",
+			"content": "Title: Cartwright's Oath\nA cat slept through the council meeting.\nClue: Continue to the merchant's itemized list of brined cargo.\nThe clerk mended a quill and sneezed.\n"
+		},
+		{
+			"path": "trail/t-salt.txt",
+			"content": "Title: Salt Manifest\nSomeone left muddy boots by the door.\nClue: Then the headcount of souls taken while the town slept.\nThe clerk mended a quill and sneezed.\n"
+		},
+		{
+			"path": "trail/t-mid.txt",
+			"content": "Title: Midnight Census\nTurnips fetched a fair price this year.\nClue: End where the heirs signed their pact beside the dying fire.\nA cat slept through the council meeting.\n"
+		},
+		{
+			"path": "trail/t-ember.txt",
+			"content": "Title: Ember Charter\nA cat slept through the council meeting.\nClue: The trail ends here.\nThe well rope was replaced in spring.\n"
+		},
+		{
+			"path": "trail/t-d01.txt",
+			"content": "Title: Mill Repair Log\nGeese crossed the marsh at dusk.\nClue: This lead goes cold. Turn back.\nSomeone left muddy boots by the door.\n"
+		},
+		{
+			"path": "trail/t-d02.txt",
+			"content": "Title: Tannery Receipts\nThe clerk mended a quill and sneezed.\nClue: This lead goes cold. Turn back.\nSomeone left muddy boots by the door.\n"
+		},
+		{
+			"path": "trail/t-d03.txt",
+			"content": "Title: Apiary Notes\nThe well rope was replaced in spring.\nClue: This lead goes cold. Turn back.\nGeese crossed the marsh at dusk.\n"
+		},
+		{
+			"path": "trail/t-d04.txt",
+			"content": "Title: Ferry Schedule\nTurnips fetched a fair price this year.\nClue: This lead goes cold. Turn back.\nA cat slept through the council meeting.\n"
+		},
+		{
+			"path": "trail/t-d05.txt",
+			"content": "Title: Chimney Sweep Bill\nSomeone left muddy boots by the door.\nClue: This lead goes cold. Turn back.\nThe clock in the tower runs slow.\n"
+		},
+		{
+			"path": "trail/t-d06.txt",
+			"content": "Title: Cobbler's Ledger\nThe clock in the tower runs slow.\nClue: This lead goes cold. Turn back.\nGeese crossed the marsh at dusk.\n"
+		},
+		{
+			"path": "trail/t-d07.txt",
+			"content": "Title: Mason's Estimate\nTurnips fetched a fair price this year.\nClue: This lead goes cold. Turn back.\nGeese crossed the marsh at dusk.\n"
+		},
+		{
+			"path": "trail/t-d08.txt",
+			"content": "Title: Brewer's Inventory\nThe well rope was replaced in spring.\nClue: This lead goes cold. Turn back.\nA cat slept through the council meeting.\n"
+		},
+		{
+			"path": "trail/t-d09.txt",
+			"content": "Title: Tailor's Account\nGeese crossed the marsh at dusk.\nClue: This lead goes cold. Turn back.\nThe well rope was replaced in spring.\n"
+		},
+		{
+			"path": "trail/t-d10.txt",
+			"content": "Title: Glazier's Daybook\nThe well rope was replaced in spring.\nClue: This lead goes cold. Turn back.\nThe clock in the tower runs slow.\n"
+		},
+		{
+			"path": "trail/t-d11.txt",
+			"content": "Title: Roper's Tally\nA cat slept through the council meeting.\nClue: This lead goes cold. Turn back.\nThe clerk mended a quill and sneezed.\n"
+		},
+		{
+			"path": "trail/t-d12.txt",
+			"content": "Title: Cooper's Invoice\nSomeone left muddy boots by the door.\nClue: This lead goes cold. Turn back.\nRain drummed on the slate roof all afternoon.\n"
+		},
+		{
+			"path": "trail/t-d13.txt",
+			"content": "Title: Thatcher's Bill\nSomeone left muddy boots by the door.\nClue: This lead goes cold. Turn back.\nA cat slept through the council meeting.\n"
+		},
+		{
+			"path": "trail/t-d14.txt",
+			"content": "Title: Miller's Reckoning\nGeese crossed the marsh at dusk.\nClue: This lead goes cold. Turn back.\nThe well rope was replaced in spring.\n"
+		},
+		{
+			"path": "trail/t-d15.txt",
+			"content": "Title: Smithy's Ledger\nThe clock in the tower runs slow.\nClue: This lead goes cold. Turn back.\nRain drummed on the slate roof all afternoon.\n"
+		},
+		{
+			"path": "trail/t-d16.txt",
+			"content": "Title: Weaver's Notebook\nSomeone left muddy boots by the door.\nClue: This lead goes cold. Turn back.\nThe clerk mended a quill and sneezed.\n"
+		},
+		{
+			"path": "trail/start.txt",
+			"content": "t-gate.txt\n"
+		}
+	],
+	"expected": {
+		"pages": [
+			"t-gate.txt",
+			"t-harbor.txt",
+			"t-orchard.txt",
+			"t-bell.txt",
+			"t-cart.txt",
+			"t-salt.txt",
+			"t-mid.txt",
+			"t-ember.txt"
+		],
+		"count": 8
+	}
+}

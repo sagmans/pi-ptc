@@ -19,6 +19,7 @@ const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
 const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
 const HEAVY_CONFIG_PATH = new URL("../eval/config.heavy-tools.json", import.meta.url);
 const CODE_VS_ABSENT_CONFIG_PATH = new URL("../eval/config.code-vs-absent.json", import.meta.url);
+const COUNTER_PROOF_CONFIG_PATH = new URL("../eval/config.counter-proof.json", import.meta.url);
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -338,6 +339,9 @@ test("proof cases materialize their files and judge exact results", async () => 
 		{ name: "scatter-gather", prefix: "pi-ptc-eval-scatter-", directory: "shards", files: 40 },
 		{ name: "cursor-walk", prefix: "pi-ptc-eval-cursor-", directory: "pages", files: 61 },
 		{ name: "noisy-ledger", prefix: "pi-ptc-eval-noisy-", directory: "ledger", files: 100 },
+		{ name: "single-lookup", prefix: "pi-ptc-eval-lookup-", directory: "docs", files: 12 },
+		{ name: "semantic-trail", prefix: "pi-ptc-eval-semtrail-", directory: "trail", files: 25 },
+		{ name: "broken-trail", prefix: "pi-ptc-eval-broken-", directory: "fix", files: 30 },
 	];
 	for (const proofCase of cases) {
 		const directory = mkdtempSync(join(tmpdir(), proofCase.prefix));
@@ -366,6 +370,15 @@ test("code-proof configuration validates a 120-run matrix", () => {
 		assert.equal(buildRunMatrix(config.value).length, 120);
 		assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 120);
 	}
+});
+
+test("counter-proof configuration validates a 120-run matrix", () => {
+	const config = validateEvalConfig(loadConfig(COUNTER_PROOF_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.deepEqual(config.value.cases, ["single-lookup", "semantic-trail", "broken-trail"]);
+	assert.deepEqual(config.value.conditions, ["absent", "code"]);
+	assert.equal(buildRunMatrix(config.value).length, 120);
+	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 120);
 });
 
 test("argument parsing defaults to one job and validates the jobs flag", () => {

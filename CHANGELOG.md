@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Counter-proof evaluation matrix attacking PTC's weak axes: atomic-task overhead (single-lookup), comprehension-per-hop navigation (semantic-trail), and error-driven recovery (broken-trail).
+
 ### Removed
 
 - `native` and `both` presentations, the `/ptc` presentation command, project/user presentation files, and evaluation decoy tools. pi-ptc is code-only: when loaded the model sees exactly `ptc`. Evaluation conditions are `absent` and `code`.

@@ -60,6 +60,8 @@
 		"eval:code-vs-absent:dry": "node eval/run.ts --config eval/config.code-vs-absent.json --dry-run",
 		"eval:proof": "node eval/run.ts --config eval/config.code-proof.json --run",
 		"eval:proof:dry": "node eval/run.ts --config eval/config.code-proof.json --dry-run",
+		"eval:counter": "node eval/run.ts --config eval/config.counter-proof.json --run",
+		"eval:counter:dry": "node eval/run.ts --config eval/config.counter-proof.json --dry-run",
 		"verify": "npm run check && npm run typecheck && npm test",
 		"verify:ci": "npm run audit && npm run verify"
 	},

@@ -1,0 +1,60 @@
+{
+	"name": "single-lookup",
+	"description": "Find one receipt code hidden in 12 memos. Seed 20260905.",
+	"tools": ["read", "grep"],
+	"prompt": "The docs directory holds 12 memos (n-01.txt through n-12.txt). Exactly one memo holds the issued receipt code on a line of the exact form Receipt code: QC-NNNN. The others say pending review and must be ignored. Use only the active tools for filesystem access. Finish with exactly one line with the exact form EVAL_RESULT {\"file\":F,\"code\":C} where F is the file's name (for example n-04.txt) and C is the code. Any other final line format is a failure.",
+	"files": [
+		{
+			"path": "docs/n-01.txt",
+			"content": "The quarterly review was moved to Thursday morning.\nMinutes from the last meeting are filed upstairs.\nTea and sugar are running low in the break room.\nThe roof survey found nothing urgent.\nThe supplier invoice arrived with no purchase order.\nReminder: lock the side gate after six.\nThe paint order was short by two tins.\nThe courier arrives before noon on weekdays.\nReceipt code: pending review\nThe new roster is pinned beside the kitchen door.\nPlease restock ink cartridges for the front office.\nSomeone borrowed the archive key again.\n"
+		},
+		{
+			"path": "docs/n-02.txt",
+			"content": "Minutes from the last meeting are filed upstairs.\nThe quarterly review was moved to Thursday morning.\nThe paint order was short by two tins.\nTea and sugar are running low in the break room.\nPlease restock ink cartridges for the front office.\nReminder: lock the side gate after six.\nThe roof survey found nothing urgent.\nThe courier arrives before noon on weekdays.\nSomeone borrowed the archive key again.\nThe supplier invoice arrived with no purchase order.\nReceipt code: pending review\nThe new roster is pinned beside the kitchen door.\n"
+		},
+		{
+			"path": "docs/n-03.txt",
+			"content": "The courier arrives before noon on weekdays.\nReceipt code: pending review\nThe paint order was short by two tins.\nThe quarterly review was moved to Thursday morning.\nSomeone borrowed the archive key again.\nTea and sugar are running low in the break room.\nThe roof survey found nothing urgent.\nThe new roster is pinned beside the kitchen door.\nMinutes from the last meeting are filed upstairs.\nReminder: lock the side gate after six.\nPlease restock ink cartridges for the front office.\nThe supplier invoice arrived with no purchase order.\n"
+		},
+		{
+			"path": "docs/n-04.txt",
+			"content": "Minutes from the last meeting are filed upstairs.\nSomeone borrowed the archive key again.\nThe new roster is pinned beside the kitchen door.\nThe roof survey found nothing urgent.\nReceipt code: pending review\nThe paint order was short by two tins.\nReminder: lock the side gate after six.\nThe supplier invoice arrived with no purchase order.\nPlease restock ink cartridges for the front office.\nThe quarterly review was moved to Thursday morning.\nTea and sugar are running low in the break room.\nThe courier arrives before noon on weekdays.\n"
+		},
+		{
+			"path": "docs/n-05.txt",
+			"content": "Tea and sugar are running low in the break room.\nThe courier arrives before noon on weekdays.\nThe roof survey found nothing urgent.\nThe paint order was short by two tins.\nReminder: lock the side gate after six.\nThe quarterly review was moved to Thursday morning.\nThe supplier invoice arrived with no purchase order.\nPlease restock ink cartridges for the front office.\nMinutes from the last meeting are filed upstairs.\nSomeone borrowed the archive key again.\nThe new roster is pinned beside the kitchen door.\nReceipt code: pending review\n"
+		},
+		{
+			"path": "docs/n-06.txt",
+			"content": "Reminder: lock the side gate after six.\nThe roof survey found nothing urgent.\nThe new roster is pinned beside the kitchen door.\nSomeone borrowed the archive key again.\nThe paint order was short by two tins.\nThe courier arrives before noon on weekdays.\nThe supplier invoice arrived with no purchase order.\nPlease restock ink cartridges for the front office.\nReceipt code: pending review\nTea and sugar are running low in the break room.\nThe quarterly review was moved to Thursday morning.\nMinutes from the last meeting are filed upstairs.\n"
+		},
+		{
+			"path": "docs/n-07.txt",
+			"content": "The supplier invoice arrived with no purchase order.\nSomeone borrowed the archive key again.\nReceipt code: pending review\nThe new roster is pinned beside the kitchen door.\nThe courier arrives before noon on weekdays.\nReminder: lock the side gate after six.\nMinutes from the last meeting are filed upstairs.\nThe paint order was short by two tins.\nPlease restock ink cartridges for the front office.\nThe roof survey found nothing urgent.\nTea and sugar are running low in the break room.\nThe quarterly review was moved to Thursday morning.\n"
+		},
+		{
+			"path": "docs/n-08.txt",
+			"content": "Reminder: lock the side gate after six.\nPlease restock ink cartridges for the front office.\nThe quarterly review was moved to Thursday morning.\nThe courier arrives before noon on weekdays.\nThe new roster is pinned beside the kitchen door.\nTea and sugar are running low in the break room.\nThe supplier invoice arrived with no purchase order.\nSomeone borrowed the archive key again.\nMinutes from the last meeting are filed upstairs.\nReceipt code: pending review\nThe roof survey found nothing urgent.\nThe paint order was short by two tins.\n"
+		},
+		{
+			"path": "docs/n-09.txt",
+			"content": "Receipt code: pending review\nThe courier arrives before noon on weekdays.\nThe quarterly review was moved to Thursday morning.\nThe paint order was short by two tins.\nPlease restock ink cartridges for the front office.\nTea and sugar are running low in the break room.\nReminder: lock the side gate after six.\nThe new roster is pinned beside the kitchen door.\nThe roof survey found nothing urgent.\nMinutes from the last meeting are filed upstairs.\nSomeone borrowed the archive key again.\nThe supplier invoice arrived with no purchase order.\n"
+		},
+		{
+			"path": "docs/n-10.txt",
+			"content": "The new roster is pinned beside the kitchen door.\nPlease restock ink cartridges for the front office.\nThe roof survey found nothing urgent.\nSomeone borrowed the archive key again.\nMinutes from the last meeting are filed upstairs.\nThe paint order was short by two tins.\nThe supplier invoice arrived with no purchase order.\nReceipt code: pending review\nThe courier arrives before noon on weekdays.\nTea and sugar are running low in the break room.\nThe quarterly review was moved to Thursday morning.\nReminder: lock the side gate after six.\n"
+		},
+		{
+			"path": "docs/n-11.txt",
+			"content": "The new roster is pinned beside the kitchen door.\nThe courier arrives before noon on weekdays.\nThe roof survey found nothing urgent.\nThe supplier invoice arrived with no purchase order.\nReminder: lock the side gate after six.\nThe paint order was short by two tins.\nPlease restock ink cartridges for the front office.\nReceipt code: QC-4471\nMinutes from the last meeting are filed upstairs.\nThe quarterly review was moved to Thursday morning.\nSomeone borrowed the archive key again.\nTea and sugar are running low in the break room.\n"
+		},
+		{
+			"path": "docs/n-12.txt",
+			"content": "Tea and sugar are running low in the break room.\nMinutes from the last meeting are filed upstairs.\nThe supplier invoice arrived with no purchase order.\nReminder: lock the side gate after six.\nThe new roster is pinned beside the kitchen door.\nSomeone borrowed the archive key again.\nThe courier arrives before noon on weekdays.\nThe paint order was short by two tins.\nThe quarterly review was moved to Thursday morning.\nReceipt code: pending review\nThe roof survey found nothing urgent.\nPlease restock ink cartridges for the front office.\n"
+		}
+	],
+	"expected": {
+		"file": "n-11.txt",
+		"code": "QC-4471"
+	}
+}
