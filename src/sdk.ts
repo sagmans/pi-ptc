@@ -1,11 +1,8 @@
 // Prompt SDK is the model-facing contract. Keep it lexicographic and byte-stable.
 
 import { type CoreToolName, isCoreToolName } from "./config.ts";
-import {
-	renderSafeJsonStringLiteral,
-	SCHEMA_SIGNATURE_FALLBACK,
-	schemaToTypeScriptSignature,
-} from "./schema-signature.ts";
+import { renderSafeJsonStringLiteral } from "./json.ts";
+import { SCHEMA_SIGNATURE_FALLBACK, schemaToTypeScriptSignature } from "./schema-signature.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 
 const BINDING_SIGNATURES = Object.freeze({
