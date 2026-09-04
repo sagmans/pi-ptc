@@ -127,6 +127,18 @@ session JSONL, per-run JSON (written atomically after each run for resume),
 sessions or reports. To resume, pass `--resume <run-directory>` to
 `eval/run.ts`.
 
+## Parallel execution
+
+Pass `--jobs N` to run up to N cells concurrently (default 1). Each cell keeps
+an isolated workspace, session directory, RPC log, and result file, so cells
+share nothing but the cost accumulator and the results list. A crashed cell
+writes `<key>.error.json` and never kills its siblings; error records are
+skipped on resume, so the next run retries exactly the crashed cells. The
+budget start gate stays best-effort under concurrency: cells already running can
+push observed spend past the cap before the next dispatch notices, exactly like
+provider cost-reporting lag. Keep host sleep disabled during parallel runs
+(`caffeinate -is` on macOS); a suspended RPC wait still times out on wake.
+
 ## Interpretation limits
 
 Two repetitions per cell cannot support statistical significance claims.

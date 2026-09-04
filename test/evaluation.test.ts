@@ -1,5 +1,13 @@
 import { strict as assert } from "node:assert";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -7,12 +15,13 @@ import { judgeCaseResult, loadCaseDefinition, materializeCase } from "../eval/ca
 import {
 	buildRunMatrix,
 	extractMetricsFromSession,
+	runKey,
 	shouldAbortInflight,
 	startGateAllowsRun,
 	summarizeRuns,
 	validateEvalConfig,
 } from "../eval/metrics.ts";
-import { buildDryRun } from "../eval/run.ts";
+import { buildDryRun, loadCompletedRuns, parseArguments, selectPendingRuns } from "../eval/run.ts";
 
 const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
 const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
@@ -315,6 +324,42 @@ test("transitive-ledger materializes 160 accounts and judges the exact closure",
 			`EVAL_RESULT ${JSON.stringify({ ...expected, sum: 0 })}`,
 		);
 		assert.equal(wrongSum.correct, false);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("argument parsing defaults to one job and validates the jobs flag", () => {
+	assert.equal(parseArguments(["--config", "c", "--dry-run"]).jobs, 1);
+	assert.equal(parseArguments(["--config", "c", "--run", "--jobs", "4"]).jobs, 4);
+	for (const bad of ["0", "-2", "1.5", "many"]) {
+		assert.throws(() => parseArguments(["--config", "c", "--run", "--jobs", bad]), /--jobs/);
+	}
+});
+
+test("pending selection skips completed cells and error records resume", async () => {
+	const matrix = buildRunMatrix(validateEvalConfig(loadConfig()).value);
+	const pending = selectPendingRuns(matrix, new Set([runKey(matrix[0])]));
+	assert.equal(pending.length, matrix.length - 1);
+	assert.equal(
+		pending.some((run) => runKey(run) === runKey(matrix[0])),
+		false,
+	);
+
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-resume-"));
+	try {
+		mkdirSync(join(directory, "runs"));
+		writeFileSync(
+			join(directory, "runs", "done.json"),
+			JSON.stringify({ key: "done", correct: true }),
+		);
+		writeFileSync(
+			join(directory, "runs", "crashed.error.json"),
+			JSON.stringify({ key: "crashed" }),
+		);
+		writeFileSync(join(directory, "runs", "trace.rpc.jsonl"), "{}\n");
+		const loaded = await loadCompletedRuns(directory);
+		assert.deepEqual([...loaded.keys()], ["done"]);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
