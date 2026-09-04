@@ -6,10 +6,10 @@ package.
 
 ## Matrix
 
-Exactly 32 runs:
+Exactly 16 runs:
 
 ```text
-2 models × 2 cases × 4 conditions × 2 repetitions
+2 models × 2 cases × 2 conditions × 2 repetitions
 ```
 
 - `openai-codex:gpt-5.6-sol:medium`
@@ -21,17 +21,16 @@ sequentially.
 
 ## Conditions
 
-| Condition | pi-ptc loaded | Presentation |
+| Condition | pi-ptc loaded | Model-visible tools |
 |---|---|---|
-| `absent` | no | — |
-| `native` | yes | `native` |
-| `both` | yes | `both` |
-| `code` | yes | `code` |
+| `absent` | no | logical active set |
+| `code` | yes | `ptc` only |
 
-Every condition loads `eval/observer.ts`, which registers 24 deterministic
-decoy tools (catalog pressure) and records only the serialized byte size of
-each provider request in a model-hidden session entry. Payload contents,
-headers, credentials, and environment values are never persisted.
+pi-ptc is code-only: when loaded, the model sees exactly `ptc`. There are no
+other presentations. Every condition loads `eval/observer.ts`, which records
+only the serialized byte size of each provider request in a model-hidden
+session entry. Payload contents, headers, credentials, and environment values
+are never persisted.
 
 ## Cases
 
@@ -78,8 +77,7 @@ The judge gives Vim 10 minutes to transform the file.
 Per run: correctness, assistant turns, visible tool calls, ptc calls, native
 tool calls, nested dispatches (`ptc-dispatch` session entries, never counted
 as model-visible calls), provider request bytes, visible tool-result bytes,
-input/output/cache tokens, cost, wall time, tool errors, and the strategy used
-under `both`.
+input/output/cache tokens, cost, wall time, and tool errors.
 
 ## Cost cap
 
@@ -91,9 +89,9 @@ reporting can lag, so overshoot is possible and recorded.
 ## Commands
 
 ```bash
-npm run eval:ptc:dry                  # validate the 32-run core matrix
+npm run eval:ptc:dry                  # validate the 16-run core matrix
 npm run eval:ptc                      # run the core matrix
-npm run eval:ptc:terminal-bench:dry   # validate the 16-run pilot matrix
+npm run eval:ptc:terminal-bench:dry   # validate the 8-run pilot matrix
 npm run eval:ptc:terminal-bench       # run the pilot matrix
 ```
 
@@ -101,11 +99,11 @@ The dry-run commands make zero provider calls.
 
 ## Heavy tool-use matrix
 
-A separate 16-run matrix measures total tokens, wall time, assistant turns, and
+A separate 8-run matrix measures total tokens, wall time, assistant turns, and
 visible tool calls with and without PTC on one tool-heavy task:
 
 ```bash
-npm run eval:heavy:dry   # validate the 16-run heavy matrix
+npm run eval:heavy:dry   # validate the 8-run heavy matrix
 npm run eval:heavy        # run the heavy matrix
 ```
 
@@ -120,17 +118,17 @@ ptc/native split, so the comparison needs no extra instrumentation.
 
 ## Code-vs-absent matrix
 
-A 72-run matrix compares all four tool conditions across 9 model
-configurations: 9 models × `transitive-ledger` ×
-`absent`/`native`/`both`/`code` × 2 repetitions.
+A 36-run binary matrix compares code against absent across 9 model
+configurations: 9 models × `transitive-ledger` × `absent`/`code` × 2
+repetitions.
 
 ```bash
-npm run eval:code-vs-absent:dry   # validate the 72-run matrix
+npm run eval:code-vs-absent:dry   # validate the 36-run matrix
 npm run eval:code-vs-absent       # run the matrix
 ```
 
-Conditions may be any non-empty unique subset of the four canonical
-conditions, so focused matrices need no placeholder arms. Model IDs must match
+Conditions may be any non-empty unique subset of the two canonical
+conditions. Model IDs must match
 `pi --list-models` exactly (for example `qwen3.8-max`, not `qwen-3.8`).
 
 ## Code-proof matrix

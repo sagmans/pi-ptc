@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { type CaseDefinition, judgeCaseResult, materializeCase } from "./case-definition.ts";
 import {
 	type EvalCondition,
-	type EvalConfig,
 	type EvalRun,
 	extractMetricsFromSession,
 	runKey,
@@ -33,15 +32,8 @@ export type EvalRunResult = {
 		stderr: string;
 	};
 
-export function buildDecoyToolList(count: number): string[] {
-	const names: string[] = [];
-	for (let index = 0; index < count; index += 1) names.push(`eval_decoy_${index}`);
-	return names;
-}
-
 export async function executeRun({
 	run,
-	config,
 	definition,
 	workspaceDirectory,
 	sessionDirectory,
@@ -50,7 +42,6 @@ export async function executeRun({
 	budgetCheck,
 }: {
 	run: EvalRun;
-	config: EvalConfig & Record<string, unknown>;
 	definition: CaseDefinition;
 	workspaceDirectory: string;
 	sessionDirectory: string;
@@ -59,7 +50,7 @@ export async function executeRun({
 	budgetCheck?: (currentCostUsd: number) => boolean;
 }): Promise<EvalRunResult> {
 	await materializeCase(definition, workspaceDirectory, run.condition);
-	const toolNames = [...definition.tools, ...buildDecoyToolList(config.catalogDecoyCount)];
+	const toolNames = [...definition.tools];
 	if (run.condition !== "absent") toolNames.push("ptc");
 	const args = [
 		"--no-extensions",
@@ -87,10 +78,6 @@ export async function executeRun({
 	const client = PiRpcClient.spawn(args, {
 		cwd: workspaceDirectory,
 		settleTimeoutMs: definition.settleTimeoutMs,
-		env: {
-			...process.env,
-			PI_PTC_EVAL_DECOYS: String(config.catalogDecoyCount),
-		},
 	});
 	const startedAtMs = Date.now();
 	let budgetAborted = false;

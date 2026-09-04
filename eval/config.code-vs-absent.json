@@ -10,11 +10,10 @@
 		{ "provider": "opencode-go", "model": "deepseek-v4-flash", "thinking": "max" },
 		{ "provider": "opencode-go", "model": "deepseek-v4-pro", "thinking": "max" }
 	],
-	"conditions": ["absent", "native", "both", "code"],
+	"conditions": ["absent", "code"],
 	"repetitions": 2,
-	"expectedRuns": 72,
+	"expectedRuns": 36,
 	"maxCostUsd": 50,
 	"forbiddenProviders": ["anthropic"],
-	"catalogDecoyCount": 24,
 	"cases": ["transitive-ledger"]
 }

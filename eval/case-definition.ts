@@ -10,8 +10,6 @@ import {
 	materializeLargeScaleTextEditing,
 } from "./terminal-bench/large-scale-text-editing.ts";
 
-const PROJECT_PRESENTATION_DIRECTORY = [".pi"];
-const PRESENTATION_FILE_NAME = "ptc.json";
 const EXACT_RESULT_JUDGE = "exact-result";
 const LARGE_SCALE_TEXT_EDITING_JUDGE = "large-scale-text-editing";
 const EVAL_RESULT_PATTERN = /(?:^|\n)EVAL_RESULT (\{.*\})(?=$|\n)/g;
@@ -78,7 +76,7 @@ export async function loadCaseDefinition(
 export async function materializeCase(
 	definition: CaseDefinition,
 	directory: string,
-	condition: EvalCondition,
+	_condition: EvalCondition,
 ): Promise<void> {
 	if (definition.judge === LARGE_SCALE_TEXT_EDITING_JUDGE) {
 		await materializeLargeScaleTextEditing(directory, definition.rowCount);
@@ -90,21 +88,6 @@ export async function materializeCase(
 		}
 	} else {
 		throw new Error(`unsupported case judge: ${definition.judge}`);
-	}
-	if (condition !== "absent") {
-		const presentationFile = join(
-			directory,
-			...PROJECT_PRESENTATION_DIRECTORY,
-			PRESENTATION_FILE_NAME,
-		);
-		await mkdir(dirname(presentationFile), { recursive: true });
-		// Condition "native" keeps pi-ptc loaded with native presentation so the
-		// extension cost itself is measured; "absent" does not load pi-ptc.
-		await writeFile(
-			presentationFile,
-			JSON.stringify({ presentation: condition === "both" ? "both" : condition }, null, "\t"),
-			"utf8",
-		);
 	}
 }
 

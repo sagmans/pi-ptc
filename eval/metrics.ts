@@ -6,7 +6,7 @@ export type EvalModelConfig = {
 	thinking: string;
 };
 
-export type EvalCondition = "absent" | "native" | "both" | "code";
+export type EvalCondition = "absent" | "code";
 
 export type EvalRun = {
 	model: EvalModelConfig;
@@ -22,7 +22,6 @@ export type EvalConfig = {
 	expectedRuns: number;
 	maxCostUsd: number;
 	forbiddenProviders: string[];
-	catalogDecoyCount: number;
 	cases: string[];
 };
 
@@ -103,7 +102,7 @@ export type EvaluatedRun = {
 	wallTimeMs: number;
 } & Record<string, unknown>;
 
-export const CONDITIONS: readonly EvalCondition[] = ["absent", "native", "both", "code"];
+export const CONDITIONS: readonly EvalCondition[] = ["absent", "code"];
 const PTC_TOOL_NAME = "ptc";
 const DISPATCH_ENTRY_TYPE = "ptc-dispatch";
 const PROVIDER_BYTES_ENTRY_TYPE = "eval-provider-request-bytes";
@@ -124,8 +123,6 @@ export function validateEvalConfig(config: unknown): ValidatedConfig {
 			errors.push(`forbidden provider: ${model?.provider}`);
 		}
 	}
-	// Any non-empty unique subset is allowed so focused matrices (for example
-	// code-vs-absent) need no placeholder conditions.
 	const conditions = Array.isArray(input.conditions) ? input.conditions : [];
 	if (
 		conditions.length === 0 ||
@@ -139,9 +136,6 @@ export function validateEvalConfig(config: unknown): ValidatedConfig {
 	}
 	if (!Number.isFinite(input.maxCostUsd) || (input.maxCostUsd ?? 0) <= 0) {
 		errors.push("maxCostUsd must be a positive number");
-	}
-	if (!Number.isFinite(input.catalogDecoyCount) || (input.catalogDecoyCount ?? 0) < 1) {
-		errors.push("catalogDecoyCount must be a positive number");
 	}
 	if (!Array.isArray(input.cases) || input.cases.length === 0) {
 		errors.push("cases must be a non-empty array");

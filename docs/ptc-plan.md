@@ -23,11 +23,7 @@ payload carries only the bounded artifact reference.
 
 PTC separates Pi's logical active set from the schemas shown to the model.
 
-| Presentation | Model-visible set |
-|---|---|
-| `code` | `ptc` |
-| `both` | logical active tools plus `ptc` |
-| `native` | logical active tools |
+The model-visible set is always exactly `ptc`.
 
 The logical set can contain built-in, SDK, extension, and adapter-provided tools.
 PTC never activates a registered tool merely because it exists.

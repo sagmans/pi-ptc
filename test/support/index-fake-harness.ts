@@ -17,7 +17,6 @@ import {
 	type EventHandler,
 	INERT_RUNTIME_DIAGNOSTIC,
 	type RegisteredTool,
-	tempPaths,
 } from "./index-harness-shared.ts";
 
 export type FakePiHarness = {
@@ -241,7 +240,6 @@ export function createFakePi(
 		events: { emit() {} },
 	};
 	const installOptions: InstallPtcOptions = {
-		resolvePaths: tempPaths,
 		installRuntimeCapture(installer) {
 			captureInstaller = installer;
 			return { compatible: true, teardown() {} };

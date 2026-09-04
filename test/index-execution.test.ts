@@ -108,7 +108,7 @@ test("production install binds the active captured catalog with native hooks and
 	});
 });
 
-test("custom direct calls are blocked only under code presentation", async () => {
+test("custom direct calls are always blocked under code-only", async () => {
 	const harness = createFakePi([CUSTOM_RUNTIME_TOOL_NAME]);
 	installHarness(harness);
 	startAndCapture(harness);
@@ -117,8 +117,4 @@ test("custom direct calls are blocked only under code presentation", async () =>
 		block: true,
 		reason: LEAK_BLOCK_REASON,
 	});
-	await harness.commands.get("ptc")?.handler("both", harness.ctx);
-	assert.equal(await harness.emitToolCall({ toolName: CUSTOM_RUNTIME_TOOL_NAME }), undefined);
-	await harness.commands.get("ptc")?.handler("off", harness.ctx);
-	assert.equal(await harness.emitToolCall({ toolName: CUSTOM_RUNTIME_TOOL_NAME }), undefined);
 });

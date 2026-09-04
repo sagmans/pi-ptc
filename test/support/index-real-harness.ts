@@ -6,7 +6,7 @@ import {
 	type PiRuntimeTool,
 	SUPPORTED_PI_VERSION,
 } from "../../src/pi-runtime.ts";
-import { type EventHandler, type RegisteredTool, tempPaths } from "./index-harness-shared.ts";
+import type { EventHandler, RegisteredTool } from "./index-harness-shared.ts";
 
 export type RealAdapterHarness = {
 	tools: Map<string, RegisteredTool>;
@@ -125,7 +125,6 @@ export function createRealAdapterHarness(
 		events: { emit() {} },
 	};
 	installPtc(pi, {
-		resolvePaths: tempPaths,
 		installRuntimeCapture() {
 			installation = installPiRuntimeCapturePatch({
 				agentSession: AdapterSession,

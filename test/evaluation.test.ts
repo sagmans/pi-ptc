@@ -1,13 +1,5 @@
 import { strict as assert } from "node:assert";
-import {
-	existsSync,
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -36,7 +28,6 @@ type TestConfig = {
 	expectedRuns: number;
 	maxCostUsd: number;
 	forbiddenProviders: string[];
-	catalogDecoyCount: number;
 	cases: string[];
 };
 
@@ -48,7 +39,7 @@ test("evaluation configuration validates the exact approved matrix", () => {
 	const config = validateEvalConfig(loadConfig());
 	assert.deepEqual(config.errors, []);
 	const runs = buildRunMatrix(config.value);
-	assert.equal(runs.length, 32);
+	assert.equal(runs.length, 16);
 	assert.equal(
 		new Set(
 			runs.map(
@@ -56,14 +47,14 @@ test("evaluation configuration validates the exact approved matrix", () => {
 					`${run.model.provider}/${run.model.model}/${run.case}/${run.condition}/${run.repetition}`,
 			),
 		).size,
-		32,
+		16,
 	);
 });
 
-test("Terminal-Bench pilot configuration isolates one case in a 16-run matrix", async () => {
+test("Terminal-Bench pilot configuration isolates one case in an 8-run matrix", async () => {
 	const config = validateEvalConfig(loadConfig(PILOT_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
-	assert.equal(buildRunMatrix(config.value).length, 16);
+	assert.equal(buildRunMatrix(config.value).length, 8);
 	assert.deepEqual(config.value.cases, ["large-scale-text-editing"]);
 	const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
 	assert.equal(definition.judge, "large-scale-text-editing");
@@ -103,9 +94,9 @@ test("repetition two reverses condition order to reduce ordering bias", () => {
 	const runs = buildRunMatrix(validateEvalConfig(loadConfig()).value);
 	const first = runs.filter((run) => run.repetition === 1).map((run) => run.condition);
 	const second = runs.filter((run) => run.repetition === 2).map((run) => run.condition);
-	assert.deepEqual(first.slice(0, 4), ["absent", "native", "both", "code"]);
-	assert.deepEqual(second.slice(0, 4), ["code", "both", "native", "absent"]);
-	assert.notDeepEqual(first.slice(0, 4), second.slice(0, 4));
+	assert.deepEqual(first.slice(0, 2), ["absent", "code"]);
+	assert.deepEqual(second.slice(0, 2), ["code", "absent"]);
+	assert.notDeepEqual(first.slice(0, 2), second.slice(0, 2));
 });
 
 test("cases materialize deterministic workspaces and judge exact results", async () => {
@@ -118,11 +109,6 @@ test("cases materialize deterministic workspaces and judge exact results", async
 		assert.equal(
 			names.length,
 			definition.files.filter((f) => f.path.startsWith("records/")).length,
-		);
-		assert.equal(existsSync(join(directory, ".pi", "ptc.json")), true);
-		assert.equal(
-			JSON.parse(readFileSync(join(directory, ".pi", "ptc.json"), "utf8")).presentation,
-			"code",
 		);
 
 		const accepted = await judgeCaseResult(
@@ -151,7 +137,7 @@ test("paged-read exposes only read and requires pagination", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-paged-"));
 	try {
 		const definition = await loadCaseDefinition("paged-read", CASES_DIRECTORY);
-		await materializeCase(definition, directory, "native");
+		await materializeCase(definition, directory, "code");
 		assert.deepEqual(definition.tools, ["read"]);
 		const payloadLine = definition.files[0].content
 			.split("\n")
@@ -302,24 +288,26 @@ test("summary reports per-condition medians and deltas without significance clai
 	assert.equal(codeRepetitions.length, 2);
 });
 
-test("heavy tool-use configuration validates a 16-run single-case matrix", () => {
+test("heavy tool-use configuration validates an 8-run single-case matrix", () => {
 	const config = validateEvalConfig(loadConfig(HEAVY_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.cases, ["transitive-ledger"]);
-	assert.equal(buildRunMatrix(config.value).length, 16);
+	assert.equal(buildRunMatrix(config.value).length, 8);
 });
 
-test("code-vs-absent configuration validates a 72-run full matrix", () => {
+test("code-vs-absent configuration validates a 36-run binary matrix", () => {
 	const config = validateEvalConfig(loadConfig(CODE_VS_ABSENT_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
-	assert.deepEqual(config.value.conditions, ["absent", "native", "both", "code"]);
-	assert.equal(buildRunMatrix(config.value).length, 72);
-	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 72);
+	assert.deepEqual(config.value.conditions, ["absent", "code"]);
+	assert.equal(buildRunMatrix(config.value).length, 36);
+	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 36);
 });
 
-test("configuration rejects unknown, empty, and duplicated conditions", () => {
+test("configuration rejects unknown, removed, empty, and duplicated conditions", () => {
 	const base = loadConfig();
 	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "nope"] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "native"] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "both"] }).ok, false);
 	assert.equal(validateEvalConfig({ ...base, conditions: [] }).ok, false);
 	assert.equal(validateEvalConfig({ ...base, conditions: ["code", "code"] }).ok, false);
 });
@@ -416,10 +404,10 @@ test("pending selection skips completed cells and error records resume", async (
 	}
 });
 
-test("dry run emits 32 unique descriptors with zero cost and no provider calls", async () => {
+test("dry run emits 16 unique descriptors with zero cost and no provider calls", async () => {
 	const dry = await buildDryRun(loadConfig(), CONFIG_PATH);
-	assert.equal(dry.runs.length, 32);
-	assert.equal(new Set(dry.runs.map((run) => run.key)).size, 32);
+	assert.equal(dry.runs.length, 16);
+	assert.equal(new Set(dry.runs.map((run) => run.key)).size, 16);
 	assert.equal(dry.providerCalls, 0);
 	assert.equal(dry.costUsd, 0);
 });

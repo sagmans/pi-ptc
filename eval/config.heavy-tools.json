@@ -3,11 +3,10 @@
 		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "medium" },
 		{ "provider": "zai", "model": "glm-5.3", "thinking": "max" }
 	],
-	"conditions": ["absent", "native", "both", "code"],
+	"conditions": ["absent", "code"],
 	"repetitions": 2,
-	"expectedRuns": 16,
+	"expectedRuns": 8,
 	"maxCostUsd": 50,
 	"forbiddenProviders": ["anthropic"],
-	"catalogDecoyCount": 24,
 	"cases": ["transitive-ledger"]
 }

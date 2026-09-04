@@ -1,16 +1,15 @@
 // Shipped defaults live in config.json so tunables are not hardcoded in source.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const SHIPPED_CONFIG_PATH = fileURLToPath(new URL("../config.json", import.meta.url));
 
+export const SETTINGS_FILE_NAME = "ptc.json";
 export const TRANSPORT_NAME = "ptc";
 export const PROGRAM_WRAPPER_NAME = "__ptc_main__";
 export const DISPATCH_EVENT = "pi-ptc:dispatch";
 export const DISPATCH_LOG_TYPE = "ptc-dispatch";
-export const PRESENTATION_FILE_NAME = "ptc.json";
 export const STATUS_KEY = "ptc";
 export const LEAK_BLOCK_REASON =
 	"only `ptc` may call active runtime tools — use tools.<name>(args) inside a ptc program";
@@ -37,10 +36,7 @@ export const CORE_TOOL_NAMES = Object.freeze([
 export const EXCLUSIVE_TOOL_NAMES = Object.freeze(["bash", "edit", "write"] as const);
 
 export type CoreToolName = (typeof CORE_TOOL_NAMES)[number];
-export type Presentation = "code" | "both" | "native";
-
 export type PtcConfig = {
-	readonly presentation: Presentation;
 	readonly drainTimeoutMs: number;
 	readonly maxOrphanedBindings: number;
 	readonly maxParallelDispatches: number;
@@ -52,8 +48,6 @@ export type PtcConfig = {
 	readonly maxOutputLines: number;
 	readonly workerMaxOldGenerationSizeMb: number;
 };
-
-const PRESENTATIONS = new Set<Presentation>(["code", "both", "native"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -68,14 +62,7 @@ function requiredPositiveInteger(value: unknown, field: string): number {
 
 function parseShippedConfig(value: unknown): PtcConfig {
 	if (!isRecord(value)) throw new Error("invalid pi-ptc config: shipped root must be an object");
-	if (
-		typeof value.presentation !== "string" ||
-		!PRESENTATIONS.has(value.presentation as Presentation)
-	) {
-		throw new Error("invalid pi-ptc config: presentation must be code, both, or native");
-	}
 	return {
-		presentation: value.presentation as Presentation,
 		drainTimeoutMs: requiredPositiveInteger(value.drainTimeoutMs, "drainTimeoutMs"),
 		maxOrphanedBindings: requiredPositiveInteger(value.maxOrphanedBindings, "maxOrphanedBindings"),
 		maxParallelDispatches: requiredPositiveInteger(
@@ -116,24 +103,7 @@ export function isExclusiveToolName(name: string): boolean {
 	return (EXCLUSIVE_TOOL_NAMES as readonly string[]).includes(name);
 }
 
-const PRESENTATION_CYCLE: readonly Presentation[] = ["code", "both", "native"];
-
-export function cyclePresentation(current: Presentation): Presentation {
-	const index = PRESENTATION_CYCLE.indexOf(current);
-	return PRESENTATION_CYCLE[(index + 1) % PRESENTATION_CYCLE.length];
-}
-
-export function parsePresentationArg(arg: string): Presentation | "cycle" | undefined {
-	const trimmed = arg.trim().toLowerCase();
-	if (trimmed.length === 0) return "cycle";
-	if (trimmed === "on" || trimmed === "code") return "code";
-	if (trimmed === "both") return "both";
-	if (trimmed === "off" || trimmed === "native") return "native";
-	return undefined;
-}
-
 type PersistedPtcSettings = {
-	presentation?: Presentation;
 	maxDispatches?: number;
 };
 
@@ -143,12 +113,6 @@ function readSettingsFile(file: string | undefined): PersistedPtcSettings {
 		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
 		if (!isRecord(parsed)) return {};
 		const settings: PersistedPtcSettings = {};
-		if (
-			typeof parsed.presentation === "string" &&
-			PRESENTATIONS.has(parsed.presentation as Presentation)
-		) {
-			settings.presentation = parsed.presentation as Presentation;
-		}
 		if (
 			typeof parsed.maxDispatches === "number" &&
 			Number.isInteger(parsed.maxDispatches) &&
@@ -162,18 +126,6 @@ function readSettingsFile(file: string | undefined): PersistedPtcSettings {
 	}
 }
 
-export function loadPresentation(input: {
-	projectFile?: string;
-	userFile?: string;
-	fallback: Presentation;
-}): Presentation {
-	return (
-		readSettingsFile(input.projectFile).presentation ??
-		readSettingsFile(input.userFile).presentation ??
-		input.fallback
-	);
-}
-
 export function loadMaxDispatches(input: {
 	projectFile?: string;
 	userFile?: string;
@@ -184,16 +136,4 @@ export function loadMaxDispatches(input: {
 		readSettingsFile(input.userFile).maxDispatches ??
 		input.fallback
 	);
-}
-
-export function savePresentation(file: string, presentation: Presentation): void {
-	mkdirSync(dirname(file), { recursive: true });
-	let current: Record<string, unknown> = {};
-	try {
-		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-		if (isRecord(parsed)) current = parsed;
-	} catch {
-		// Keep a presentation-only file when the existing document is unreadable.
-	}
-	writeFileSync(file, `${JSON.stringify({ ...current, presentation }, null, "\t")}\n`);
 }

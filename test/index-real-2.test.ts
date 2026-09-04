@@ -70,10 +70,6 @@ test("real Pi PTC-first finalizers defer competing-owner decisions until later h
 							},
 						});
 						installPtc(interceptedApi, {
-							resolvePaths: () => ({
-								projectFile: join(cwd, ".pi", "ptc.json"),
-								userFile: join(agentDir, "ptc.json"),
-							}),
 							installRuntimeCapture(_installer) {
 								const installation = installPiRuntimeCapturePatch();
 								installations.push(installation);
@@ -244,10 +240,6 @@ test("real Pi reload retains actions through earlier shutdown and captures after
 				name: "pi-ptc",
 				factory(realPi) {
 					installPtc(realPi as unknown as ExtensionAPI, {
-						resolvePaths: () => ({
-							projectFile: join(cwd, ".pi", "ptc.json"),
-							userFile: join(agentDir, "ptc.json"),
-						}),
 						installRuntimeCapture(installer) {
 							const capturePiRuntime = installer.capturePiRuntime.bind(installer);
 							installer.capturePiRuntime = (capture) => {

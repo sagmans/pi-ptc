@@ -181,7 +181,6 @@ async function executeMatrix(options: RunOptions): Promise<void> {
 		try {
 			const record = await executeRun({
 				run,
-				config: config.value,
 				definition: definitions.get(run.case),
 				workspaceDirectory,
 				sessionDirectory,

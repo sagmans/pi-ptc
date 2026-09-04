@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import { LEAK_BLOCK_REASON, loadPresentation, TRANSPORT_NAME } from "../src/config.ts";
+import { LEAK_BLOCK_REASON, TRANSPORT_NAME } from "../src/config.ts";
 import installPtc from "../src/index.ts";
 import {
 	COMPETING_TOOL_NAME,
@@ -10,7 +10,6 @@ import {
 	INERT_RUNTIME_DIAGNOSTIC,
 	installHarness,
 	startAndCapture,
-	tempPaths,
 } from "./support/index-harness.ts";
 
 test("competing owner is inert and restores native logical tools when detected later", async () => {
@@ -27,10 +26,6 @@ test("competing owner is inert and restores native logical tools when detected l
 		{
 			name: "turn_start",
 			invoke: (harness) => harness.handlers.get("turn_start")?.({}, harness.ctx),
-		},
-		{
-			name: "/ptc",
-			invoke: (harness) => harness.commands.get("ptc")?.handler("off", harness.ctx),
 		},
 		{
 			name: "tool_call",
@@ -98,7 +93,6 @@ test("post-aggregation finalizers detect owners registered after PTC marker hand
 test("compatibility mismatch stays inert, preserves actions, and reports once with context", () => {
 	const harness = createFakePi(["read", "bash"]);
 	installPtc(harness.pi, {
-		resolvePaths: tempPaths,
 		installRuntimeCapture() {
 			return { compatible: false, diagnostic: INERT_RUNTIME_DIAGNOSTIC };
 		},
@@ -164,7 +158,6 @@ test("same-name untagged ptc shadow becomes inert at first post-bind readiness e
 		harness.handlers.get("before_agent_start")?.({ systemPrompt: "native" }, harness.ctx),
 		undefined,
 	);
-	await harness.commands.get("ptc")?.handler("off", harness.ctx);
 	harness.handlers.get("turn_start")?.({}, harness.ctx);
 	assert.deepEqual(harness.physicalActive(), ["read", TRANSPORT_NAME]);
 	assert.equal(harness.physicalWriteCount(), writesBefore);
@@ -180,10 +173,6 @@ test("every post-bind readiness entry point resolves pending capture without blo
 		{
 			name: "turn_start",
 			invoke: (harness) => harness.handlers.get("turn_start")?.({}, harness.ctx),
-		},
-		{
-			name: "/ptc",
-			invoke: (harness) => harness.commands.get("ptc")?.handler("off", harness.ctx),
 		},
 		{
 			name: "tool_call",
@@ -296,17 +285,6 @@ test("post-aggregation finalizers preserve foreign blocks and aggregate messages
 	assert.deepEqual(beforeResult.messages, [foreignMessage]);
 	assert.match(beforeResult.systemPrompt, /^foreign prompt/);
 	assert.match(beforeResult.systemPrompt, /await tools\.read\(/);
-});
-
-test("/ptc off restores native logical tools and persists", async () => {
-	const paths = tempPaths();
-	const harness = createFakePi(["read", "bash", "mcp"]);
-	installHarness(harness, { resolvePaths: () => paths });
-	startAndCapture(harness);
-	await harness.commands.get("ptc")?.handler("off", harness.ctx);
-	assert.deepEqual(harness.physicalActive(), ["read", "bash", "mcp"]);
-	assert.deepEqual(harness.pi.getActiveTools(), ["read", "bash", "mcp"]);
-	assert.equal(loadPresentation({ projectFile: paths.projectFile, fallback: "code" }), "native");
 });
 
 test("reload shutdown restores before pending session_start and fresh post-bind capture", () => {

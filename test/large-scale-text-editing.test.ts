@@ -38,7 +38,7 @@ test("large-scale text editing verifies a valid macro transformation against fre
 		const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
 		if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
 		const smallDefinition = { ...definition, rowCount: 20 } as const;
-		await materializeCase(smallDefinition, directory, "native");
+		await materializeCase(smallDefinition, directory, "code");
 		writeFileSync(
 			join(directory, "apply_macros.vim"),
 			String.raw`call setreg('a', ":s/\\s*,\\s*/,/g\<CR>:s/^\\s*\\(.*\\S\\)\\s*$/\\1/\<CR>j")
