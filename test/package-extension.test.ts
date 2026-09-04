@@ -8,8 +8,8 @@ import type { ExtensionAPI } from "../src/host.ts";
 import { bootstrapPtcPackage } from "../src/package-bootstrap.ts";
 import { SUPPORTED_PI_VERSION } from "../src/pi-runtime.ts";
 
-const SUPPORTED_PI_VERSIONS = Object.freeze(["0.84.3", "0.84.4"]);
-const UNSUPPORTED_PI_VERSIONS = Object.freeze(["0.84.2", "0.84.5"]);
+const SUPPORTED_PI_VERSIONS = Object.freeze(["0.84.3", "0.84.4", "0.85.0"]);
+const UNSUPPORTED_PI_VERSIONS = Object.freeze(["0.84.2", "0.85.1"]);
 const NATIVE_TOOL_NAME = "read";
 const PTC_TOOL_NAME = "ptc";
 const PACKAGE_LOADER_TIMEOUT_MS = 30_000;
