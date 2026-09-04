@@ -49,7 +49,7 @@
 		"audit": "npm audit --audit-level=moderate",
 		"prepack": "tsc -p tsconfig.worker.json",
 		"pretest": "tsc -p tsconfig.worker.json",
-		"smoke": "node scripts/smoke-package.mjs",
+		"smoke": "node scripts/smoke-package.ts",
 		"eval:ptc": "node eval/run.ts --config eval/config.json --run",
 		"eval:ptc:dry": "node eval/run.ts --config eval/config.json --dry-run",
 		"eval:ptc:terminal-bench": "node eval/run.ts --config eval/config.terminal-bench-pilot.json --run",
