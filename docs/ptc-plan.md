@@ -1,7 +1,7 @@
 # PTC architecture
 
 This document records the implemented architecture of `pi-ptc` for verified Pi
-versions `0.84.3` and `0.84.4`.
+versions `0.84.3`, `0.84.4`, and `0.85.0`.
 
 ## Goal
 
@@ -37,7 +37,8 @@ PTC never activates a registered tool merely because it exists.
 `src/package-bootstrap.ts` checks Pi's explicit verified-version allowlist before
 importing private-runtime, TUI, or TypeBox-dependent implementation. Host peer
 ranges stay open for Pi package resolution, while the adapter accepts only Pi
-`0.84.3` and `0.84.4`. Future versions remain fail-closed until verified.
+`0.84.3`, `0.84.4`, and `0.85.0`. Future versions remain fail-closed until
+verified.
 
 `src/pi-runtime.ts` is the façade for the exact-version adapter. Internal
 modules own shape checks, global registries and patch leases, session

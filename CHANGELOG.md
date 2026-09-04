@@ -9,7 +9,7 @@ All notable changes are documented here. The format follows
 ### Added
 
 - Programmatic Tool Call presentations for all active Pi runtime tools.
-- Verified Pi `0.84.3` and `0.84.4` runtime capture with logical and model-visible tool virtualization.
+- Verified Pi `0.84.3`, `0.84.4`, and `0.85.0` runtime capture with logical and model-visible tool virtualization.
 - Dynamic, schema-derived TypeScript bindings for built-in, SDK, extension, and adapter tools.
 - Nested Pi policy hooks, execution events, scheduling, and additive tool activation.
 - Pi-native nested rows with captured custom renderers and deterministic session restoration.

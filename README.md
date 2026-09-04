@@ -31,7 +31,7 @@ signatures remain in the `ptc` description so the model can write valid calls.
 ## Requirements
 
 - Node `>=24.20.0`
-- Pi `0.84.3` or `0.84.4`
+- Pi `0.84.3`, `0.84.4`, or `0.85.0`
 
 PTC uses an explicit verified-version allowlist and fail-closed adapter for Pi
 runtime state. Package bootstrap checks the host before loading Pi-private, TUI,

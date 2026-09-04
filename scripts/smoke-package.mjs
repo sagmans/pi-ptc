@@ -26,7 +26,7 @@ const TARBALL_EXTENSION = ".tgz";
 const TEMP_PREFIX = "pi-ptc-package-smoke-";
 const INSTALL_DIRECTORY = "install";
 const ARTIFACT_DIRECTORY = "artifact";
-const PI_PACKAGE = "@earendil-works/pi-coding-agent@0.84.4";
+const PI_PACKAGE = "@earendil-works/pi-coding-agent@0.85.0";
 const PI_BINARY = process.platform === "win32" ? "pi.cmd" : "pi";
 const NPM_BINARY = process.platform === "win32" ? "npm.cmd" : "npm";
 const EXTENSION_ERROR = /(?:failed to load extension|extension error)/iu;

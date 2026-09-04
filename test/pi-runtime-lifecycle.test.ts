@@ -64,13 +64,14 @@ test("version diagnostics accept each verified Pi version and reject mismatched 
 	assert.equal(typeof getVersionDiagnostic, "function");
 	if (typeof getVersionDiagnostic !== "function") return;
 
-	for (const version of ["0.84.3", "0.84.4"]) {
+	for (const version of ["0.84.3", "0.84.4", "0.85.0"]) {
 		assert.equal(getVersionDiagnostic(version, version), undefined, version);
 	}
 	const result = getVersionDiagnostic(UNSUPPORTED_PI_VERSION, SUPPORTED_PI_VERSION);
 	assert.match(result ?? "", /0\.84\.2/);
 	assert.match(result ?? "", /0\.84\.3/);
 	assert.match(result ?? "", /0\.84\.4/);
+	assert.match(result ?? "", /0\.85\.0/);
 });
 
 test("unsupported version reports incompatibility and leaves prototype untouched", () => {
