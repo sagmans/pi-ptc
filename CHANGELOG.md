@@ -24,6 +24,7 @@ All notable changes are documented here. The format follows
 - Adapted Terminal-Bench 2.1 pilot for a deterministic, one-million-row Vim transformation with workspace judging.
 - Added a 160-account transitive-ledger case with a 16-run heavy tool-use matrix for with/without-PTC comparison of tokens, wall time, turns, and tool calls.
 - Run evaluation cells concurrently with `--jobs N`; crashed cells record errors without killing siblings and resume retries exactly those cells.
+- Accept any non-empty unique condition subset in evaluation configs and add a 36-run code-vs-absent matrix across nine model configurations.
 
 ### Fixed
 

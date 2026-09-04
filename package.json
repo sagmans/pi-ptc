@@ -56,6 +56,8 @@
 		"eval:ptc:terminal-bench:dry": "node eval/run.ts --config eval/config.terminal-bench-pilot.json --dry-run",
 		"eval:heavy": "node eval/run.ts --config eval/config.heavy-tools.json --run",
 		"eval:heavy:dry": "node eval/run.ts --config eval/config.heavy-tools.json --dry-run",
+		"eval:code-vs-absent": "node eval/run.ts --config eval/config.code-vs-absent.json --run",
+		"eval:code-vs-absent:dry": "node eval/run.ts --config eval/config.code-vs-absent.json --dry-run",
 		"verify": "npm run check && npm run typecheck && npm test",
 		"verify:ci": "npm run audit && npm run verify"
 	},

@@ -26,6 +26,7 @@ import { buildDryRun, loadCompletedRuns, parseArguments, selectPendingRuns } fro
 const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
 const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
 const HEAVY_CONFIG_PATH = new URL("../eval/config.heavy-tools.json", import.meta.url);
+const CODE_VS_ABSENT_CONFIG_PATH = new URL("../eval/config.code-vs-absent.json", import.meta.url);
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -306,6 +307,21 @@ test("heavy tool-use configuration validates a 16-run single-case matrix", () =>
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.cases, ["transitive-ledger"]);
 	assert.equal(buildRunMatrix(config.value).length, 16);
+});
+
+test("code-vs-absent configuration validates a 36-run focused matrix", () => {
+	const config = validateEvalConfig(loadConfig(CODE_VS_ABSENT_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.deepEqual(config.value.conditions, ["absent", "code"]);
+	assert.equal(buildRunMatrix(config.value).length, 36);
+	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 36);
+});
+
+test("configuration rejects unknown, empty, and duplicated conditions", () => {
+	const base = loadConfig();
+	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "nope"] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: [] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: ["code", "code"] }).ok, false);
 });
 
 test("transitive-ledger materializes 160 accounts and judges the exact closure", async () => {
