@@ -58,6 +58,8 @@
 		"eval:heavy:dry": "node eval/run.ts --config eval/config.heavy-tools.json --dry-run",
 		"eval:code-vs-absent": "node eval/run.ts --config eval/config.code-vs-absent.json --run",
 		"eval:code-vs-absent:dry": "node eval/run.ts --config eval/config.code-vs-absent.json --dry-run",
+		"eval:proof": "node eval/run.ts --config eval/config.code-proof.json --run",
+		"eval:proof:dry": "node eval/run.ts --config eval/config.code-proof.json --dry-run",
 		"verify": "npm run check && npm run typecheck && npm test",
 		"verify:ci": "npm run audit && npm run verify"
 	},

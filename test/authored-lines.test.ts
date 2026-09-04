@@ -24,7 +24,15 @@ const AUTHORED_EXTENSIONS = new Set([
 	".yml",
 	".yaml",
 ]);
-const EXCLUDED_DIRECTORIES = new Set([".git", ".npm", "coverage", "dist", "node_modules", "out"]);
+const EXCLUDED_DIRECTORIES = new Set([
+	".git",
+	".npm",
+	".ptc-eval",
+	"coverage",
+	"dist",
+	"node_modules",
+	"out",
+]);
 const EXCLUDED_PATHS = new Set(["package-lock.json"]);
 const EXCLUDED_DATA_PREFIXES = ["test/fixtures/"];
 const TARGET_FILE_MAXIMUM_LINES = new Map<string, number>([
