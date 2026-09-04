@@ -118,6 +118,20 @@ fixed seed (`20260904`); per-run JSON already records `totalTokens`,
 `wallTimeMs`, `assistantTurns`, and `visibleToolCalls` with the
 ptc/native split, so the comparison needs no extra instrumentation.
 
+## Code-vs-absent matrix
+
+A focused 36-run matrix answers with/without-PTC directly: 9 model
+configurations × `transitive-ledger` × `absent`/`code` × 2 repetitions.
+
+```bash
+npm run eval:code-vs-absent:dry   # validate the 36-run matrix
+npm run eval:code-vs-absent       # run the matrix
+```
+
+Conditions may be any non-empty unique subset of the four canonical
+conditions, so focused matrices need no placeholder arms. Model IDs must match
+`pi --list-models` exactly (for example `qwen3.8-max`, not `qwen-3.8`).
+
 CAUTION: Run an evaluation only in a disposable, non-production workspace.
 The agent has user-equivalent host authority, and provider calls cost money.
 

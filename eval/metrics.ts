@@ -117,18 +117,22 @@ export function validateEvalConfig(config: unknown): ValidatedConfig {
 	}
 	const forbidden = Array.isArray(input.forbiddenProviders) ? input.forbiddenProviders : [];
 	for (const model of Array.isArray(input.models) ? input.models : []) {
-		const key = `${model?.provider}/${model?.model}`;
+		const key = `${model?.provider}/${model?.model}/${model?.thinking ?? ""}`;
 		if (seenModels.has(key)) errors.push(`duplicate model: ${key}`);
 		seenModels.add(key);
 		if (forbidden.includes(model?.provider)) {
 			errors.push(`forbidden provider: ${model?.provider}`);
 		}
 	}
+	// Any non-empty unique subset is allowed so focused matrices (for example
+	// code-vs-absent) need no placeholder conditions.
+	const conditions = Array.isArray(input.conditions) ? input.conditions : [];
 	if (
-		!Array.isArray(input.conditions) ||
-		JSON.stringify(input.conditions) !== JSON.stringify(CONDITIONS)
+		conditions.length === 0 ||
+		!conditions.every((condition) => (CONDITIONS as readonly string[]).includes(condition)) ||
+		new Set(conditions).size !== conditions.length
 	) {
-		errors.push(`conditions must be exactly ${JSON.stringify(CONDITIONS)}`);
+		errors.push(`conditions must be a non-empty unique subset of ${JSON.stringify(CONDITIONS)}`);
 	}
 	if (!Number.isFinite(input.repetitions) || (input.repetitions ?? 0) < 1) {
 		errors.push("repetitions must be a positive number");
@@ -156,7 +160,7 @@ export function validateEvalConfig(config: unknown): ValidatedConfig {
 }
 
 export function runKey(run: EvalRun): string {
-	return `${run.model.provider}/${run.model.model}/${run.case}/${run.condition}/${run.repetition}`;
+	return `${run.model.provider}/${run.model.model}/${run.model.thinking}/${run.case}/${run.condition}/${run.repetition}`;
 }
 
 export function buildRunMatrix(config: EvalConfig): EvalRun[] {

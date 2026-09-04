@@ -9,6 +9,7 @@ import {
 	type EvalConfig,
 	type EvalRun,
 	extractMetricsFromSession,
+	runKey,
 	type SessionMetrics,
 	type SessionStats,
 } from "./metrics.ts";
@@ -140,7 +141,7 @@ export async function executeRun({
 	}
 	await client.close();
 	return {
-		key: `${run.model.provider}/${run.model.model}/${run.case}/${run.condition}/${run.repetition}`,
+		key: runKey(run),
 		model: `${run.model.provider}/${run.model.model}`,
 		case: run.case,
 		condition: run.condition,

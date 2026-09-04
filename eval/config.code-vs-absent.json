@@ -1,0 +1,20 @@
+{
+	"models": [
+		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "xhigh" },
+		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "high" },
+		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "medium" },
+		{ "provider": "zai", "model": "glm-5.3", "thinking": "max" },
+		{ "provider": "zai", "model": "glm-5.3-flash", "thinking": "max" },
+		{ "provider": "qwen-token-plan", "model": "qwen3.8-max", "thinking": "xhigh" },
+		{ "provider": "qwen-token-plan", "model": "qwen3.8-flash", "thinking": "xhigh" },
+		{ "provider": "opencode-go", "model": "deepseek-v4-flash", "thinking": "max" },
+		{ "provider": "opencode-go", "model": "deepseek-v4-pro", "thinking": "max" }
+	],
+	"conditions": ["absent", "code"],
+	"repetitions": 2,
+	"expectedRuns": 36,
+	"maxCostUsd": 50,
+	"forbiddenProviders": ["anthropic"],
+	"catalogDecoyCount": 24,
+	"cases": ["transitive-ledger"]
+}
