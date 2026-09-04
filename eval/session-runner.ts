@@ -1,62 +1,39 @@
-// Case materialization, Pi argument assembly, and deterministic judging.
+// Pi RPC session execution for one evaluation run.
 
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { copyFile, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { extractJudgeResult, extractMetricsFromSession } from "./metrics.mjs";
-import { PiRpcClient } from "./rpc-client.mjs";
+import { type CaseDefinition, judgeCaseResult, materializeCase } from "./case-definition.ts";
+import {
+	type EvalCondition,
+	type EvalConfig,
+	type EvalRun,
+	extractMetricsFromSession,
+	type SessionMetrics,
+	type SessionStats,
+} from "./metrics.ts";
+import { PiRpcClient } from "./rpc-client.ts";
+import type { LargeScaleTextEditingResult } from "./terminal-bench/large-scale-text-editing.ts";
 
-const PROJECT_PRESENTATION_DIRECTORY = [".pi"];
-const PRESENTATION_FILE_NAME = "ptc.json";
 const PTC_ENTRY_PATH = fileURLToPath(new URL("../index.ts", import.meta.url));
 const OBSERVER_PATH = fileURLToPath(new URL("./observer.ts", import.meta.url));
 
-export async function loadCaseDefinition(name, casesDirectory) {
-	const path = join(
-		typeof casesDirectory === "string" ? casesDirectory : fileURLToPath(casesDirectory),
-		`${name}.json`,
-	);
-	return { ...JSON.parse(await readFile(path, "utf8")), path };
-}
+export type EvalRunResult = {
+	key: string;
+	model: string;
+	case: string;
+	condition: EvalCondition;
+	repetition: number;
+} & LargeScaleTextEditingResult &
+	SessionMetrics & {
+		wallTimeMs: number;
+		budgetAborted: boolean;
+		sessionFile?: string;
+		stderr: string;
+	};
 
-export async function materializeCase(definition, directory, condition) {
-	for (const file of definition.files) {
-		const target = join(directory, file.path);
-		await mkdir(dirname(target), { recursive: true });
-		await writeFile(target, file.content, "utf8");
-	}
-	if (condition !== "absent") {
-		const presentationFile = join(
-			directory,
-			...PROJECT_PRESENTATION_DIRECTORY,
-			PRESENTATION_FILE_NAME,
-		);
-		await mkdir(dirname(presentationFile), { recursive: true });
-		// Condition "native" keeps pi-ptc loaded with native presentation so the
-		// extension cost itself is measured; "absent" does not load pi-ptc.
-		await writeFile(
-			presentationFile,
-			JSON.stringify({ presentation: condition === "both" ? "both" : condition }, null, "\t"),
-			"utf8",
-		);
-	}
-}
-
-export function judgeCaseResult(definition, finalText) {
-	const judged = extractJudgeResult(finalText ?? "");
-	if (!judged.ok) {
-		return { correct: false, reason: judged.reason };
-	}
-	const expected = JSON.stringify(definition.expected);
-	const actual = JSON.stringify(judged.value);
-	if (expected !== actual) {
-		return { correct: false, reason: `expected ${expected} but got ${actual}` };
-	}
-	return { correct: true, reason: "exact match" };
-}
-
-export function buildDecoyToolList(count) {
-	const names = [];
+export function buildDecoyToolList(count: number): string[] {
+	const names: string[] = [];
 	for (let index = 0; index < count; index += 1) names.push(`eval_decoy_${index}`);
 	return names;
 }
@@ -70,7 +47,16 @@ export async function executeRun({
 	rpcLogPath,
 	packageEntryPath,
 	budgetCheck,
-}) {
+}: {
+	run: EvalRun;
+	config: EvalConfig & Record<string, unknown>;
+	definition: CaseDefinition;
+	workspaceDirectory: string;
+	sessionDirectory: string;
+	rpcLogPath: string;
+	packageEntryPath?: string;
+	budgetCheck?: (currentCostUsd: number) => boolean;
+}): Promise<EvalRunResult> {
 	await materializeCase(definition, workspaceDirectory, run.condition);
 	const toolNames = [...definition.tools, ...buildDecoyToolList(config.catalogDecoyCount)];
 	if (run.condition !== "absent") toolNames.push("ptc");
@@ -99,6 +85,7 @@ export async function executeRun({
 	}
 	const client = PiRpcClient.spawn(args, {
 		cwd: workspaceDirectory,
+		settleTimeoutMs: definition.settleTimeoutMs,
 		env: {
 			...process.env,
 			PI_PTC_EVAL_DECOYS: String(config.catalogDecoyCount),
@@ -127,28 +114,29 @@ export async function executeRun({
 		clearInterval(costPoller);
 	}
 	const [stats, entriesResponse, lastText] = await Promise.all([
-		client.request({ type: "get_session_stats" }),
-		client.request({ type: "get_entries" }),
-		client.request({ type: "get_last_assistant_text" }),
+		client.request<SessionStats>({ type: "get_session_stats" }),
+		client.request<{ entries: unknown[] }>({ type: "get_entries" }),
+		client.request<{ text?: string }>({ type: "get_last_assistant_text" }),
 	]);
 	const wallTimeMs = Date.now() - startedAtMs;
 	const metrics = extractMetricsFromSession({
 		entries: entriesResponse.entries,
 		stats,
 	});
-	const judged = judgeCaseResult(definition, lastText?.text);
+	const judged = await judgeCaseResult(definition, lastText?.text, workspaceDirectory);
 	await writeFile(
 		rpcLogPath,
 		`${client.events.map((event) => JSON.stringify(event)).join("\n")}\n`,
 		"utf8",
 	);
-	if (typeof stats?.sessionFile === "string") {
+	const sessionFile = stats?.sessionFile;
+	if (typeof sessionFile === "string") {
 		// Pi reports the session path relative to its own cwd; resolve against
 		// the per-run workspace and store the copy beside the RPC log.
-		const sessionSource = isAbsolute(stats.sessionFile)
-			? stats.sessionFile
-			: join(workspaceDirectory, stats.sessionFile);
-		await copyFile(sessionSource, `${rpcLogPath.replace(/\\.rpc\\.jsonl$/, "")}.session.jsonl`);
+		const sessionSource = isAbsolute(sessionFile)
+			? sessionFile
+			: join(workspaceDirectory, sessionFile);
+		await copyFile(sessionSource, `${rpcLogPath.replace(/\.rpc\.jsonl$/, "")}.session.jsonl`);
 	}
 	await client.close();
 	return {
@@ -161,7 +149,7 @@ export async function executeRun({
 		...metrics,
 		wallTimeMs,
 		budgetAborted,
-		sessionFile: stats?.sessionFile,
+		sessionFile,
 		stderr: client.stderr.join("").slice(0, 2000),
 	};
 }

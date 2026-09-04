@@ -84,7 +84,7 @@ renderer changes apply to the next call, never midway through a running program.
 
 Execution follows this path:
 
-1. `src/sdk.ts` renders stable guidance, reference schemas, and compact examples.
+1. `src/sdk.ts` renders stable guidance, argument and return contracts, and compact examples.
 2. `src/runtime.ts` type-strips the async-function body.
 3. A fresh `worker_threads.Worker` starts with an empty environment and bounded heap.
 4. `src/worker-bindings.ts` injects one async binding per snapshot entry.
@@ -94,7 +94,7 @@ Execution follows this path:
    execution, and finalization capabilities.
 7. `src/canonical.ts` returns canonical JSON or throws `ToolCallError`.
 8. The worker exposes `ToolCallError` and `ToolResultDeliveryError` to the program.
-9. Failure paths preserve stable codes, causes, resolutions, and retry safety.
+9. Failure paths preserve stable codes, causes, resolutions, retry safety, and exact paths for rejected lossless-JSON values.
 10. The worker returns captured logs and an optional JSON result. Output-limit
     failures report only their scope, measured count, configured limit, and limit
     name. Rejected output is never echoed.
@@ -142,8 +142,9 @@ Tools with `executionMode: "sequential"` run exclusively; tools with
 `edit`, and `write` are exclusive and other tools are parallel.
 
 Exclusive work waits for active parallel work to drain. Queue order is stable.
-Abort propagates to queued and active tools, terminates the worker, drains host
-bindings within the configured deadline, and rejects late reports.
+PTC adds no program-wide deadline; each nested tool retains its own timeout
+behavior. Abort propagates to queued and active tools, terminates the worker,
+drains host bindings within the configured drain timeout, and rejects late reports.
 `src/orphan-binding-governor.ts` stores one versioned process-global governor,
 so concurrent workers and separately loaded physical module copies share the
 same conservative unresolved-binding ceiling.

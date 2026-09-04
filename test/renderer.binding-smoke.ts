@@ -34,7 +34,6 @@ initTheme(undefined, false);
 
 function createTool() {
 	return createPtcTool({
-		timeoutMs: SHIPPED_PTC_CONFIG.timeoutMs,
 		maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
 		maxOutputBytes: SHIPPED_PTC_CONFIG.maxOutputBytes,
 		maxOutputLines: SHIPPED_PTC_CONFIG.maxOutputLines,

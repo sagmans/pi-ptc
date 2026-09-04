@@ -69,7 +69,6 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		lifecycle.capture({ compatible: false, diagnostic: patchInstallation.diagnostic });
 	} else {
 		transportTool = createPtcTool({
-			timeoutMs: shipped.timeoutMs,
 			drainTimeoutMs: shipped.drainTimeoutMs,
 			maxDispatches: shipped.maxDispatches,
 			maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,

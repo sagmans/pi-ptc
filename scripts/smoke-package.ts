@@ -30,9 +30,12 @@ const PI_PACKAGE = "@earendil-works/pi-coding-agent@0.84.4";
 const PI_BINARY = process.platform === "win32" ? "pi.cmd" : "pi";
 const NPM_BINARY = process.platform === "win32" ? "npm.cmd" : "npm";
 const EXTENSION_ERROR = /(?:failed to load extension|extension error)/iu;
-const USAGE = "Usage: node scripts/smoke-package.mjs --tarball /absolute/package.tgz";
+const USAGE = "Usage: node scripts/smoke-package.ts --tarball /absolute/package.tgz";
 
-export function validateTarballPath(tarballPath) {
+type CommandResult = { code: number; stdout: string; stderr: string };
+type CommandOptions = { cwd?: string; env?: NodeJS.ProcessEnv };
+
+export function validateTarballPath(tarballPath: string): string {
 	if (!isAbsolute(tarballPath)) throw new Error("Tarball path must be absolute");
 	if (!tarballPath.endsWith(TARBALL_EXTENSION)) {
 		throw new Error(`Tarball path must end with ${TARBALL_EXTENSION}`);
@@ -40,13 +43,17 @@ export function validateTarballPath(tarballPath) {
 	return tarballPath;
 }
 
-export function parseTarballArgument(args) {
+export function parseTarballArgument(args: string[]): string | undefined {
 	if (args.length === 0) return undefined;
 	if (args.length === 2 && args[0] === "--tarball") return validateTarballPath(args[1]);
 	throw new Error(USAGE);
 }
 
-async function run(command, args, options = {}) {
+async function run(
+	command: string,
+	args: string[],
+	options: CommandOptions = {},
+): Promise<CommandResult> {
 	try {
 		const result = await execFileAsync(command, args, {
 			cwd: options.cwd,
@@ -57,19 +64,23 @@ async function run(command, args, options = {}) {
 		});
 		return { code: 0, stdout: result.stdout, stderr: result.stderr };
 	} catch (error) {
+		const failure = error as { code?: unknown; stdout?: unknown; stderr?: unknown };
 		return {
-			code: typeof error.code === "number" ? error.code : 1,
-			stdout: typeof error.stdout === "string" ? error.stdout : "",
-			stderr: typeof error.stderr === "string" ? error.stderr : String(error),
+			code: typeof failure.code === "number" ? failure.code : 1,
+			stdout: typeof failure.stdout === "string" ? failure.stdout : "",
+			stderr: typeof failure.stderr === "string" ? failure.stderr : String(error),
 		};
 	}
 }
 
-function requireSuccess(result, label) {
+function requireSuccess(result: CommandResult, label: string): void {
 	if (result.code !== 0) throw new Error(`${label} failed: ${result.stderr.trim()}`);
 }
 
-async function runPackedWorker(workerPath, workerData) {
+async function runPackedWorker(
+	workerPath: string,
+	workerData: Record<string, unknown>,
+): Promise<unknown> {
 	const worker = new Worker(workerPath, { workerData });
 	try {
 		const [message] = await once(worker, "message");
@@ -79,20 +90,20 @@ async function runPackedWorker(workerPath, workerData) {
 	}
 }
 
-function requireArtifactReference(message) {
-	const value = message?.value;
+function requireArtifactReference(message: unknown): { kind: string; path: string } {
+	const value = (message as { value?: unknown } | null | undefined)?.value;
 	if (
 		typeof value !== "object" ||
 		value === null ||
-		value.kind !== ARTIFACT_KIND ||
-		typeof value.path !== "string"
+		(value as { kind?: unknown }).kind !== ARTIFACT_KIND ||
+		typeof (value as { path?: unknown }).path !== "string"
 	) {
 		throw new Error(`Installed worker returned no artifact reference: ${JSON.stringify(message)}`);
 	}
-	return value;
+	return value as { kind: string; path: string };
 }
 
-async function exercisePackedWorker(workerPath, rootDirectory) {
+async function exercisePackedWorker(workerPath: string, rootDirectory: string): Promise<void> {
 	const basic = await runPackedWorker(workerPath, {
 		program: WORKER_PROGRAM,
 		bindingNames: [],
@@ -134,10 +145,13 @@ async function exercisePackedWorker(workerPath, rootDirectory) {
 	}
 }
 
-export async function smokePackage(tarballPath, rootDirectory = process.cwd()) {
+export async function smokePackage(
+	tarballPath?: string,
+	rootDirectory = process.cwd(),
+): Promise<string> {
 	const temporaryRoot = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
 	try {
-		let tarball;
+		let tarball: string;
 		if (tarballPath === undefined) {
 			const artifactDirectory = join(temporaryRoot, ARTIFACT_DIRECTORY);
 			await mkdir(artifactDirectory);
@@ -168,7 +182,7 @@ export async function smokePackage(tarballPath, rootDirectory = process.cwd()) {
 
 		const manifest = JSON.parse(
 			await readFile(join(rootDirectory, PACKAGE_MANIFEST), COMMAND_ENCODING),
-		);
+		) as { name?: unknown };
 		if (typeof manifest.name !== "string" || manifest.name.length === 0) {
 			throw new Error("Root package manifest must declare a package name");
 		}
@@ -213,7 +227,7 @@ export async function smokePackage(tarballPath, rootDirectory = process.cwd()) {
 	}
 }
 
-async function main() {
+async function main(): Promise<void> {
 	const entryPath = await smokePackage(parseTarballArgument(process.argv.slice(2)));
 	console.log(`Pi loaded package entry: ${entryPath}`);
 }

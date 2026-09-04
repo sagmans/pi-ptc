@@ -60,7 +60,6 @@ test("every runtime failure gives the agent a unique code and correction guidanc
 		{ error: { kind: "dispatch-limit" }, code: "PTC_DISPATCH_LIMIT" },
 		{ error: { kind: "dangling-dispatch" }, code: "PTC_DANGLING_DISPATCH" },
 		{ error: { kind: "orphan-limit" }, code: "PTC_ORPHAN_LIMIT" },
-		{ error: { kind: "timeout" }, code: "PTC_TIMEOUT" },
 		{ error: { kind: "abort" }, code: "PTC_ABORTED" },
 		{ error: { kind: "worker-exit", message: "exit 1" }, code: "PTC_WORKER_EXIT" },
 	];
@@ -191,7 +190,6 @@ test("serializeOuterResult rejects multiline results that JSON escaping hides", 
 
 test("ptc rejects an oversized outer result", async () => {
 	const tool = createPtcTool({
-		timeoutMs: LIMITS.timeoutMs,
 		maxDispatches: LIMITS.maxDispatches,
 		maxOutputBytes: 16,
 		maxOutputLines: 2000,
@@ -241,7 +239,6 @@ test("ptc bounds worker failure messages before Pi persists them", async () => {
 test("combined outer overflow spills only the result", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-spill-"));
 	const tool = createPtcTool({
-		timeoutMs: LIMITS.timeoutMs,
 		maxDispatches: LIMITS.maxDispatches,
 		maxOutputBytes: 700,
 		maxOutputLines: 2000,
@@ -287,7 +284,6 @@ test("ptc forwards output and dispatch limits into the runtime seam", async () =
 		  }
 		| undefined;
 	const tool = createPtcTool({
-		timeoutMs: LIMITS.timeoutMs,
 		drainTimeoutMs: CUSTOM_DRAIN_TIMEOUT_MS,
 		maxDispatches: CUSTOM_MAX_DISPATCHES,
 		maxOutputBytes: CUSTOM_MAX_OUTPUT_BYTES,

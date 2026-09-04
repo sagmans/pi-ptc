@@ -4,23 +4,46 @@
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { executeRun, loadCaseDefinition } from "./case-runner.mjs";
+import { loadCaseDefinition } from "./case-definition.ts";
 import {
 	buildRunMatrix,
+	type EvalRun,
+	type EvaluatedRun,
+	type RunSummary,
 	runKey,
 	shouldAbortInflight,
 	startGateAllowsRun,
 	summarizeRuns,
 	validateEvalConfig,
-} from "./metrics.mjs";
+} from "./metrics.ts";
+import { executeRun } from "./session-runner.ts";
 
 const EVAL_OUTPUT_DIRECTORY = ".ptc-eval";
 const RUNS_DIRECTORY = "runs";
 const SUMMARY_JSON = "summary.json";
 const SUMMARY_MD = "summary.md";
 
-export function parseArguments(argv) {
-	const options = { config: undefined, dryRun: false, run: false, resumeDirectory: undefined };
+type RunOptions = {
+	config: string;
+	dryRun: boolean;
+	run: boolean;
+	resumeDirectory?: string;
+};
+
+export type DryRun = {
+	configPath: string;
+	runs: Array<EvalRun & { key: string }>;
+	providerCalls: number;
+	costUsd: number;
+};
+
+export function parseArguments(argv: string[]): RunOptions {
+	const options: { config?: string; dryRun: boolean; run: boolean; resumeDirectory?: string } = {
+		config: undefined,
+		dryRun: false,
+		run: false,
+		resumeDirectory: undefined,
+	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const flag = argv[index];
 		if (flag === "--dry-run") options.dryRun = true;
@@ -39,23 +62,28 @@ export function parseArguments(argv) {
 	if (options.dryRun === options.run) {
 		throw new Error("choose exactly one of --dry-run or --run");
 	}
-	return options;
+	return {
+		config: options.config,
+		dryRun: options.dryRun,
+		run: options.run,
+		resumeDirectory: options.resumeDirectory,
+	};
 }
 
-export async function buildDryRun(configValue, configPath) {
+export async function buildDryRun(configValue: unknown, configPath: string | URL): Promise<DryRun> {
 	const config = validateEvalConfig(configValue);
 	if (!config.ok) throw new Error(`invalid evaluation config: ${config.errors.join("; ")}`);
 	const runs = buildRunMatrix(config.value).map((run) => ({ ...run, key: runKey(run) }));
 	return { configPath: String(configPath), runs, providerCalls: 0, costUsd: 0 };
 }
 
-async function loadCompletedRuns(runDirectory) {
-	const completed = new Map();
+async function loadCompletedRuns(runDirectory: string): Promise<Map<string, EvaluatedRun>> {
+	const completed = new Map<string, EvaluatedRun>();
 	const directory = join(runDirectory, RUNS_DIRECTORY);
 	try {
 		for (const name of await readdir(directory)) {
 			if (!name.endsWith(".json") || name.startsWith(".")) continue;
-			const record = JSON.parse(await readFile(join(directory, name), "utf8"));
+			const record = JSON.parse(await readFile(join(directory, name), "utf8")) as EvaluatedRun;
 			if (record?.key) completed.set(record.key, record);
 		}
 	} catch {
@@ -64,13 +92,13 @@ async function loadCompletedRuns(runDirectory) {
 	return completed;
 }
 
-async function writeAtomic(path, contents) {
+async function writeAtomic(path: string, contents: string): Promise<void> {
 	const temporary = `${path}.tmp`;
 	await writeFile(temporary, contents, "utf8");
 	await rename(temporary, path);
 }
 
-function renderSummaryMarkdown(summary) {
+function renderSummaryMarkdown(summary: RunSummary): string {
 	const lines = [
 		"# PTC evaluation summary",
 		"",
@@ -92,7 +120,7 @@ function renderSummaryMarkdown(summary) {
 	return `${lines.join("\n")}\n`;
 }
 
-async function executeMatrix(options) {
+async function executeMatrix(options: RunOptions): Promise<void> {
 	const configValue = JSON.parse(await readFile(options.config, "utf8"));
 	const config = validateEvalConfig(configValue);
 	if (!config.ok) throw new Error(`invalid evaluation config: ${config.errors.join("; ")}`);
@@ -109,7 +137,7 @@ async function executeMatrix(options) {
 	}
 	const completed = await loadCompletedRuns(runDirectory);
 	const matrix = buildRunMatrix(config.value);
-	const results = [...completed.values()];
+	const results: EvaluatedRun[] = [...completed.values()];
 	let observedCost = results.reduce((total, record) => total + (record.costUsd ?? 0), 0);
 	for (const run of matrix) {
 		const key = runKey(run);
@@ -130,7 +158,7 @@ async function executeMatrix(options) {
 			workspaceDirectory,
 			sessionDirectory,
 			rpcLogPath: join(runDirectory, RUNS_DIRECTORY, `${key.replaceAll("/", "_")}.rpc.jsonl`),
-			budgetCheck: (currentCostUsd) => {
+			budgetCheck: (currentCostUsd: number) => {
 				if (budgetAbortRequested) return false;
 				const abort = shouldAbortInflight(observedCost, currentCostUsd, config.value.maxCostUsd);
 				if (abort) budgetAbortRequested = true;
@@ -150,7 +178,7 @@ async function executeMatrix(options) {
 	console.log(`run directory: ${runDirectory}`);
 }
 
-async function main() {
+async function main(): Promise<void> {
 	const options = parseArguments(process.argv.slice(2));
 	if (options.dryRun) {
 		const configValue = JSON.parse(await readFile(options.config, "utf8"));

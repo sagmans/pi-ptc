@@ -26,7 +26,6 @@ type WorkerSessionInput = {
 	worker: Worker;
 	request: CodeRunRequest;
 	functions: Record<string, BindingFn>;
-	timeoutMs: number;
 	drainTimeoutMs: number;
 	maxOutputBytes: number;
 	maxOutputLines: number;
@@ -39,7 +38,6 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 			worker,
 			request,
 			functions,
-			timeoutMs,
 			drainTimeoutMs,
 			maxOutputBytes,
 			maxOutputLines,
@@ -53,10 +51,8 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		let acceptedBindingCalls = 0;
 		let lastWorkerCallId = 0;
 		let closing = false;
-		let timer: ReturnType<typeof setTimeout>;
 
 		const cleanupListeners = (): void => {
-			clearTimeout(timer);
 			request.signal?.removeEventListener("abort", onAbort);
 			worker.off("message", onMessage);
 			worker.off("error", onError);
@@ -352,9 +348,6 @@ export function runWorkerSession(input: WorkerSessionInput): Promise<CodeRunResu
 		worker.on("message", onMessage);
 		worker.on("error", onError);
 		worker.on("exit", onExit);
-		timer = setTimeout(() => {
-			finish({ logs: [...logs], error: { kind: "timeout" } }, true);
-		}, timeoutMs);
 		request.signal?.addEventListener("abort", onAbort, { once: true });
 		if (request.signal?.aborted) onAbort();
 	});

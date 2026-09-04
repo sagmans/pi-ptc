@@ -1,26 +1,55 @@
 // Strict LF-only JSONL RPC client for Pi. Node readline is not
 // protocol-compliant because it also splits on U+2028/U+2029.
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 
 const DEFAULT_RESPONSE_TIMEOUT_MS = 120_000;
 const DEFAULT_SETTLE_TIMEOUT_MS = 600_000;
 
+export type PiRpcEvent = {
+	type?: string;
+	id?: string;
+	success?: boolean;
+	error?: string;
+	data?: unknown;
+	usage?: { cost?: { total?: number } };
+} & Record<string, unknown>;
+
+type PiRpcCommand = Record<string, unknown>;
+
+type PiRpcOptions = {
+	piBinary?: string;
+	cwd?: string;
+	env?: NodeJS.ProcessEnv;
+	responseTimeoutMs?: number;
+	settleTimeoutMs?: number;
+};
+
+type PiRpcWaiter = {
+	predicate: (record: PiRpcEvent) => boolean;
+	reject: (error: Error) => void;
+	tryResolve: (events: PiRpcEvent[]) => boolean;
+};
+
 export class PiRpcClient {
-	constructor(childProcess, options = {}) {
+	readonly process: ChildProcess;
+	readonly stderr: string[] = [];
+	readonly events: PiRpcEvent[] = [];
+	private nextRequestId = 1;
+	private lineBuffer = "";
+	private readonly decoder = new StringDecoder("utf8");
+	private waiters: PiRpcWaiter[] = [];
+	private closed = false;
+	private readonly responseTimeoutMs: number;
+	private readonly settleTimeoutMs: number;
+
+	constructor(childProcess: ChildProcess, options: PiRpcOptions = {}) {
 		this.process = childProcess;
-		this.stderr = [];
-		this.events = [];
-		this.nextRequestId = 1;
-		this.lineBuffer = "";
-		this.decoder = new StringDecoder("utf8");
-		this.waiters = [];
-		this.closed = false;
 		this.responseTimeoutMs = options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS;
 		this.settleTimeoutMs = options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
-		childProcess.stdout.on("data", (chunk) => this.onStdoutChunk(chunk));
-		childProcess.stderr.on("data", (chunk) => {
+		childProcess.stdout?.on("data", (chunk) => this.onStdoutChunk(chunk));
+		childProcess.stderr?.on("data", (chunk) => {
 			this.stderr.push(String(chunk));
 		});
 		childProcess.on("exit", () => {
@@ -29,7 +58,7 @@ export class PiRpcClient {
 		});
 	}
 
-	static spawn(args, options = {}) {
+	static spawn(args: string[], options: PiRpcOptions = {}): PiRpcClient {
 		const childProcess = spawn(options.piBinary ?? "pi", ["--mode", "rpc", ...args], {
 			cwd: options.cwd,
 			env: options.env,
@@ -38,9 +67,8 @@ export class PiRpcClient {
 		return new PiRpcClient(childProcess, options);
 	}
 
-	onStdoutChunk(chunk) {
-		this.lineBuffer +=
-			typeof chunk === "string" ? this.decoder.write(chunk) : this.decoder.write(chunk);
+	private onStdoutChunk(chunk: string | Buffer): void {
+		this.lineBuffer += this.decoder.write(chunk);
 		while (true) {
 			const newlineIndex = this.lineBuffer.indexOf("\n");
 			if (newlineIndex === -1) break;
@@ -48,9 +76,9 @@ export class PiRpcClient {
 			this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
 			if (line.endsWith("\r")) line = line.slice(0, -1);
 			if (line.length === 0) continue;
-			let record;
+			let record: PiRpcEvent;
 			try {
-				record = JSON.parse(line);
+				record = JSON.parse(line) as PiRpcEvent;
 			} catch {
 				continue;
 			}
@@ -59,7 +87,7 @@ export class PiRpcClient {
 		}
 	}
 
-	flushWaiters(failure) {
+	private flushWaiters(failure?: Error): void {
 		if (failure) {
 			for (const waiter of this.waiters.splice(0)) waiter.reject(failure);
 			return;
@@ -67,30 +95,33 @@ export class PiRpcClient {
 		this.waiters = this.waiters.filter((waiter) => !waiter.tryResolve(this.events));
 	}
 
-	send(command) {
+	send(command: PiRpcCommand): string {
 		const id = `eval-${this.nextRequestId}`;
 		this.nextRequestId += 1;
-		this.process.stdin.write(`${JSON.stringify({ ...command, id })}\n`);
+		this.process.stdin?.write(`${JSON.stringify({ ...command, id })}\n`);
 		return id;
 	}
 
-	async request(command) {
+	async request<T = unknown>(command: PiRpcCommand): Promise<T> {
 		const id = this.send(command);
 		const response = await this.waitFor((record) => record.type === "response" && record.id === id);
 		if (response.success !== true) {
 			throw new Error(`rpc command failed (${command.type}): ${response.error}`);
 		}
-		return response.data;
+		return response.data as T;
 	}
 
-	waitFor(predicate, timeoutMs = this.responseTimeoutMs) {
+	waitFor(
+		predicate: (record: PiRpcEvent) => boolean,
+		timeoutMs = this.responseTimeoutMs,
+	): Promise<PiRpcEvent> {
 		const existing = this.events.find(predicate);
 		if (existing) return Promise.resolve(existing);
 		return new Promise((resolve, reject) => {
 			const waiter = {
 				predicate,
 				reject,
-				tryResolve: (events) => {
+				tryResolve: (events: PiRpcEvent[]) => {
 					const match = events.find(predicate);
 					if (!match) return false;
 					resolve(match);
@@ -107,26 +138,26 @@ export class PiRpcClient {
 		});
 	}
 
-	async prompt(message) {
+	async prompt(message: string): Promise<void> {
 		await this.request({ type: "prompt", message });
 		await this.waitFor((record) => record.type === "agent_settled", this.settleTimeoutMs);
 	}
 
-	async abort() {
-		this.process.stdin.write(`${JSON.stringify({ type: "abort" })}\n`);
+	async abort(): Promise<void> {
+		this.process.stdin?.write(`${JSON.stringify({ type: "abort" })}\n`);
 	}
 
-	async close() {
+	async close(): Promise<void> {
 		if (this.closed) return;
-		this.process.stdin.end();
-		await new Promise((resolve) => {
+		this.process.stdin?.end();
+		await new Promise<void>((resolve) => {
 			const timer = setTimeout(() => {
 				this.process.kill("SIGKILL");
-				resolve(undefined);
+				resolve();
 			}, 5_000);
 			this.process.on("exit", () => {
 				clearTimeout(timer);
-				resolve(undefined);
+				resolve();
 			});
 			this.process.kill("SIGTERM");
 		});

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { judgeCaseResult, loadCaseDefinition, materializeCase } from "../eval/case-runner.mjs";
+import { judgeCaseResult, loadCaseDefinition, materializeCase } from "../eval/case-definition.ts";
 import {
 	buildRunMatrix,
 	extractMetricsFromSession,
@@ -11,10 +11,11 @@ import {
 	startGateAllowsRun,
 	summarizeRuns,
 	validateEvalConfig,
-} from "../eval/metrics.mjs";
-import { buildDryRun } from "../eval/run.mjs";
+} from "../eval/metrics.ts";
+import { buildDryRun } from "../eval/run.ts";
 
 const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
+const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -28,8 +29,8 @@ type TestConfig = {
 	cases: string[];
 };
 
-function loadConfig(): TestConfig {
-	return JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as TestConfig;
+function loadConfig(path = CONFIG_PATH): TestConfig {
+	return JSON.parse(readFileSync(path, "utf8")) as TestConfig;
 }
 
 test("evaluation configuration validates the exact approved matrix", () => {
@@ -46,6 +47,18 @@ test("evaluation configuration validates the exact approved matrix", () => {
 		).size,
 		32,
 	);
+});
+
+test("Terminal-Bench pilot configuration isolates one case in a 16-run matrix", async () => {
+	const config = validateEvalConfig(loadConfig(PILOT_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.equal(buildRunMatrix(config.value).length, 16);
+	assert.deepEqual(config.value.cases, ["large-scale-text-editing"]);
+	const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
+	assert.equal(definition.judge, "large-scale-text-editing");
+	if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
+	assert.equal(definition.rowCount, 1_000_000);
+	assert.equal(definition.settleTimeoutMs, 1_200_000);
 });
 
 test("configuration rejects duplicates, negative limits, and forbidden providers", () => {
@@ -88,6 +101,7 @@ test("cases materialize deterministic workspaces and judge exact results", async
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-case-"));
 	try {
 		const definition = await loadCaseDefinition("dependent-reads", CASES_DIRECTORY);
+		assert.ok("expected" in definition);
 		await materializeCase(definition, directory, "code");
 		const names = readdirSync(join(directory, "records")).sort();
 		assert.equal(
@@ -100,7 +114,7 @@ test("cases materialize deterministic workspaces and judge exact results", async
 			"code",
 		);
 
-		const accepted = judgeCaseResult(
+		const accepted = await judgeCaseResult(
 			definition,
 			`noise
 EVAL_RESULT ${JSON.stringify(definition.expected)}
@@ -108,13 +122,13 @@ trailing prose`,
 		);
 		assert.equal(accepted.correct, true);
 
-		const wrongSum = judgeCaseResult(
+		const wrongSum = await judgeCaseResult(
 			definition,
 			`EVAL_RESULT ${JSON.stringify({ ...definition.expected, sum: 1 })}`,
 		);
 		assert.equal(wrongSum.correct, false);
 
-		const malformed = judgeCaseResult(definition, "no marker at all");
+		const malformed = await judgeCaseResult(definition, "no marker at all");
 		assert.equal(malformed.correct, false);
 		assert.match(malformed.reason, /EVAL_RESULT/);
 	} finally {
@@ -214,7 +228,9 @@ test("summary reports per-condition medians and deltas without significance clai
 			case: "c",
 			condition: "absent",
 			repetition: 1,
+			key: "absent-1",
 			correct: true,
+			reason: "exact match",
 			assistantTurns: 4,
 			providerRequestBytes: [100],
 			visibleToolResultBytes: 50,
@@ -227,7 +243,9 @@ test("summary reports per-condition medians and deltas without significance clai
 			case: "c",
 			condition: "absent",
 			repetition: 2,
+			key: "absent-2",
 			correct: true,
+			reason: "exact match",
 			assistantTurns: 6,
 			providerRequestBytes: [200],
 			visibleToolResultBytes: 70,
@@ -240,7 +258,9 @@ test("summary reports per-condition medians and deltas without significance clai
 			case: "c",
 			condition: "code",
 			repetition: 1,
+			key: "code-1",
 			correct: true,
+			reason: "exact match",
 			assistantTurns: 2,
 			providerRequestBytes: [150],
 			visibleToolResultBytes: 30,
@@ -253,7 +273,9 @@ test("summary reports per-condition medians and deltas without significance clai
 			case: "c",
 			condition: "code",
 			repetition: 2,
+			key: "code-2",
 			correct: true,
+			reason: "exact match",
 			assistantTurns: 2,
 			providerRequestBytes: [250],
 			visibleToolResultBytes: 30,

@@ -49,7 +49,6 @@ export const TIMER_THEME = {
 } as Theme;
 
 export const LIMITS = {
-	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
 	maxOutputBytes: 51200,
 	maxOutputLines: 2000,

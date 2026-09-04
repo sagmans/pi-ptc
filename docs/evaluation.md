@@ -46,6 +46,33 @@ final `EVAL_RESULT {…}` JSON line.
 - **paged-read** creates a 6,000-line file with a unique target near the end;
   only `read` is active, forcing data-dependent offset pagination.
 
+## Terminal-Bench 2.1 pilot
+
+A separate 16-run matrix adds one adapted public task:
+
+```text
+2 models × 1 case × 4 conditions × 2 repetitions
+```
+
+The `large-scale-text-editing` case creates a deterministic CSV file with
+1,000,000 rows. The agent must transform the file with three distinct Vim
+macros that use fewer than 200 keystrokes. The active tools are `read`,
+`write`, and `bash`.
+
+The judge discards the agent's transformed file and creates the input again.
+It checks the script commands and macro definitions. Then it runs Vim and
+compares the output SHA-256 hash with a generated hash. No answer file exists
+when the agent runs.
+
+This case adapts the Terminal-Bench 2.1 task
+[`large-scale-text-editing`](https://github.com/harbor-framework/terminal-bench-2-1/tree/main/tasks/large-scale-text-editing).
+It does not use the upstream container or Harbor runner. Thus, its results are
+not official Terminal-Bench leaderboard results. See the
+[attribution and task digest](../eval/terminal-bench/NOTICE.md).
+
+The pilot requires Vim on `PATH`. The agent gets 20 minutes to finish the task.
+The judge gives Vim 10 minutes to transform the file.
+
 ## Metrics
 
 Per run: correctness, assistant turns, visible tool calls, ptc calls, native
@@ -64,15 +91,22 @@ reporting can lag, so overshoot is possible and recorded.
 ## Commands
 
 ```bash
-npm run eval:ptc:dry  # validate and print the matrix; zero provider calls
-npm run eval:ptc      # execute or resume the matrix
+npm run eval:ptc:dry                  # validate the 32-run core matrix
+npm run eval:ptc                      # run the core matrix
+npm run eval:ptc:terminal-bench:dry   # validate the 16-run pilot matrix
+npm run eval:ptc:terminal-bench       # run the pilot matrix
 ```
+
+The dry-run commands make zero provider calls.
+
+CAUTION: Run an evaluation only in a disposable, non-production workspace.
+The agent has user-equivalent host authority, and provider calls cost money.
 
 Runs persist under `.ptc-eval/run-<timestamp>/`: raw RPC JSONL, copied Pi
 session JSONL, per-run JSON (written atomically after each run for resume),
 `summary.json`, and `summary.md`. The directory is git-ignored; never commit
 sessions or reports. To resume, pass `--resume <run-directory>` to
-`eval/run.mjs`.
+`eval/run.ts`.
 
 ## Interpretation limits
 

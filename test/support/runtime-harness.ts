@@ -1,6 +1,5 @@
 import { SHIPPED_PTC_CONFIG } from "../../src/config.ts";
 
-export const ACTIVE_BINDING_TIMEOUT_MS = 1500;
 export const RUNTIME_TEST_TIMEOUT_MS = 1500;
 export const NEVER_SETTLING_DRAIN_TIMEOUT_MS = 30;
 export const NEVER_SETTLING_TEST_TIMEOUT_MS = RUNTIME_TEST_TIMEOUT_MS * 2;

@@ -11,5 +11,5 @@
 		"allowImportingTsExtensions": true,
 		"erasableSyntaxOnly": true
 	},
-	"include": ["index.ts", "src/**/*", "test/**/*", "eval/**/*.ts"]
+	"include": ["index.ts", "src/**/*", "test/**/*", "eval/**/*.ts", "scripts/**/*.ts"]
 }

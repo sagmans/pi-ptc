@@ -87,7 +87,6 @@ export const PTC_PARAMETERS = Type.Object({
 });
 
 export type PtcToolOptions = {
-	timeoutMs: number;
 	drainTimeoutMs?: number;
 	maxDispatches: number;
 	maxRenderDetailsBytes?: number;
@@ -228,7 +227,6 @@ export function createPtcTool(options: PtcToolOptions) {
 						functions: execution.bindings,
 					},
 					signal: abortSignal,
-					timeoutMs: options.timeoutMs,
 					drainTimeoutMs: options.drainTimeoutMs,
 					maxBindingCalls: options.maxDispatches,
 					maxOutputBytes: options.maxOutputBytes,
