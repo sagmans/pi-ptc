@@ -99,6 +99,25 @@ npm run eval:ptc:terminal-bench       # run the pilot matrix
 
 The dry-run commands make zero provider calls.
 
+## Heavy tool-use matrix
+
+A separate 16-run matrix measures total tokens, wall time, assistant turns, and
+visible tool calls with and without PTC on one tool-heavy task:
+
+```bash
+npm run eval:heavy:dry   # validate the 16-run heavy matrix
+npm run eval:heavy        # run the heavy matrix
+```
+
+The `transitive-ledger` case spreads 160 account files over `ledger/`; 65 are
+open and reachable from three seeds through counterparty edges (depth 7, with
+cycles, closed-account and missing-file decoys). Natively this needs dozens of
+data-dependent reads; under code presentation one program can traverse the same
+graph with model-hidden nested dispatches. The case is machine-generated with a
+fixed seed (`20260904`); per-run JSON already records `totalTokens`,
+`wallTimeMs`, `assistantTurns`, and `visibleToolCalls` with the
+ptc/native split, so the comparison needs no extra instrumentation.
+
 CAUTION: Run an evaluation only in a disposable, non-production workspace.
 The agent has user-equivalent host authority, and provider calls cost money.
 
