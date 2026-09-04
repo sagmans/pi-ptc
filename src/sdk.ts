@@ -5,24 +5,37 @@ import { renderSafeJsonStringLiteral } from "./json.ts";
 import { SCHEMA_SIGNATURE_FALLBACK, schemaToTypeScriptSignature } from "./schema-signature.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 
-const BINDING_SIGNATURES = Object.freeze({
-	bash: "{ command: string; timeout?: number }",
-	edit: "{ path: string; edits: { oldText: string; newText: string }[] }",
-	find: "{ pattern: string; path?: string; limit?: number }",
-	grep: "{ pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
-	ls: "{ path?: string; limit?: number }",
-	read: "{ path: string; offset?: number; limit?: number }",
-	write: "{ path: string; content: string }",
-} as const satisfies Record<CoreToolName, string>);
-const BINDING_RETURN_SIGNATURES = Object.freeze({
-	bash: "{ output: string; exitCode: number; [key: string]: JsonValue }",
-	edit: "{ ok: true; [key: string]: JsonValue }",
-	find: "{ text: string; [key: string]: JsonValue }",
-	grep: "{ text: string; [key: string]: JsonValue }",
-	ls: "{ text: string; [key: string]: JsonValue }",
-	read: "{ text: string; [key: string]: JsonValue }",
-	write: "{ ok: true; [key: string]: JsonValue }",
-} as const satisfies Record<CoreToolName, string>);
+const BINDING_CONTRACTS = Object.freeze({
+	bash: {
+		arguments: "{ command: string; timeout?: number }",
+		returns: "{ output: string; exitCode: number; [key: string]: JsonValue }",
+	},
+	edit: {
+		arguments: "{ path: string; edits: { oldText: string; newText: string }[] }",
+		returns: "{ ok: true; [key: string]: JsonValue }",
+	},
+	find: {
+		arguments: "{ pattern: string; path?: string; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	grep: {
+		arguments:
+			"{ pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	ls: {
+		arguments: "{ path?: string; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	read: {
+		arguments: "{ path: string; offset?: number; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	write: {
+		arguments: "{ path: string; content: string }",
+		returns: "{ ok: true; [key: string]: JsonValue }",
+	},
+} as const satisfies Record<CoreToolName, { arguments: string; returns: string }>);
 const GENERIC_RETURN_SIGNATURE = "CanonicalToolResult";
 
 const ACTIVE_SDK_HEADER = `tools:sdk
@@ -84,9 +97,10 @@ export function renderSdkPrompt(catalog: readonly ToolCatalogEntry[]): string {
 
 function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	if (isCoreToolName(entry.name)) {
+		const contract = BINDING_CONTRACTS[entry.name];
 		return {
 			name: entry.name,
-			line: `tools.${entry.name} arguments: ${BINDING_SIGNATURES[entry.name]}; returns: ${BINDING_RETURN_SIGNATURES[entry.name]}`,
+			line: `tools.${entry.name} arguments: ${contract.arguments}; returns: ${contract.returns}`,
 		};
 	}
 	let signature = SCHEMA_SIGNATURE_FALLBACK;
