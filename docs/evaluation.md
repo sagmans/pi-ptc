@@ -120,11 +120,12 @@ ptc/native split, so the comparison needs no extra instrumentation.
 
 ## Code-vs-absent matrix
 
-A focused 36-run matrix answers with/without-PTC directly: 9 model
-configurations × `transitive-ledger` × `absent`/`code` × 2 repetitions.
+A 72-run matrix compares all four tool conditions across 9 model
+configurations: 9 models × `transitive-ledger` ×
+`absent`/`native`/`both`/`code` × 2 repetitions.
 
 ```bash
-npm run eval:code-vs-absent:dry   # validate the 36-run matrix
+npm run eval:code-vs-absent:dry   # validate the 72-run matrix
 npm run eval:code-vs-absent       # run the matrix
 ```
 
