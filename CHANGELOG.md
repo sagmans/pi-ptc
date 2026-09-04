@@ -42,6 +42,7 @@ All notable changes are documented here. The format follows
 - Documented PTC tradeoffs against native batch calls and deterministic aggregation.
 - Clarified that direct Node.js operations bypass tool-specific gate and permission extensions.
 - Converted the evaluation harness from JavaScript plus handwritten declarations to Node-executed TypeScript, splitting case policy from session execution and co-locating the Terminal-Bench adapter with its attribution.
+- Converted the package smoke module to Node-executed TypeScript with its declaration removed.
 
 ### Security
 

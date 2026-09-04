@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 
-import { parseTarballArgument, validateTarballPath } from "../scripts/smoke-package.mjs";
+import { parseTarballArgument, validateTarballPath } from "../scripts/smoke-package.ts";
 
 const ABSOLUTE_TARBALL = "/tmp/sagmans-pi-ptc-0.1.0.tgz";
 const PACKAGE_NAME = "@sagmans/pi-ptc";
