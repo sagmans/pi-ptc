@@ -12,7 +12,7 @@ test("shipped limits come from config.json", () => {
 	assert.equal(SHIPPED_PTC_CONFIG.drainTimeoutMs, 5000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxOrphanedBindings, 100);
 	assert.equal(SHIPPED_PTC_CONFIG.maxParallelDispatches, 10);
-	assert.equal(SHIPPED_PTC_CONFIG.maxDispatches, 100);
+	assert.equal(SHIPPED_PTC_CONFIG.maxDispatches, 1000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxToolUpdatesPerDispatch, 100);
 	assert.equal(SHIPPED_PTC_CONFIG.maxRenderDetailsBytes, 2_000_000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxPersistedDetailsBytes, 3_000_000);

@@ -247,7 +247,7 @@ exhausted, PTC keeps a deterministic preview instead of a partial native result.
 Shipped limits live in [`config.json`](config.json). Defaults include:
 
 - 120-second program timeout;
-- 100 dispatches per program;
+- 1000 dispatches per program;
 - 100 progress updates per dispatch;
 - 10 parallel dispatches;
 - 128 MiB worker old-generation heap;
@@ -256,7 +256,7 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
 Output-limit failures report the measured byte or line count without echoing the
-rejected output. Only presentation has project and user overrides.
+rejected output. A trusted project `.pi/ptc.json` overrides `~/.pi/agent/ptc.json` for presentation and `maxDispatches`.
 
 ## Compatibility
 

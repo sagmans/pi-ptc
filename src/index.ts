@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	cyclePresentation,
+	loadMaxDispatches,
 	loadPresentation,
 	PRESENTATION_FILE_NAME,
 	parsePresentationArg,
@@ -49,6 +50,7 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	const installRuntimeCapture = options.installRuntimeCapture ?? installDefaultRuntimeCapture;
 	const shipped = SHIPPED_PTC_CONFIG;
 	const failureDetails = createFailureDetailsStore();
+	let maxDispatches = shipped.maxDispatches;
 	let transportTool: ReturnType<typeof createPtcTool> | undefined;
 	const lifecycle = createPtcLifecycle({
 		pi,
@@ -71,7 +73,9 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		transportTool = createPtcTool({
 			timeoutMs: shipped.timeoutMs,
 			drainTimeoutMs: shipped.drainTimeoutMs,
-			maxDispatches: shipped.maxDispatches,
+			get maxDispatches() {
+				return maxDispatches;
+			},
 			maxRenderDetailsBytes: shipped.maxRenderDetailsBytes,
 			maxPersistedDetailsBytes: shipped.maxPersistedDetailsBytes,
 			maxOutputBytes: shipped.maxOutputBytes,
@@ -108,6 +112,11 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 			projectFile: context.isProjectTrusted() ? paths.projectFile : undefined,
 			userFile: paths.userFile,
 			fallback: shipped.presentation,
+		});
+		maxDispatches = loadMaxDispatches({
+			projectFile: context.isProjectTrusted() ? paths.projectFile : undefined,
+			userFile: paths.userFile,
+			fallback: shipped.maxDispatches,
 		});
 		lifecycle.sessionStart(context, presentation);
 	});

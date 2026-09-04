@@ -225,7 +225,7 @@ test("runCode reports and drains a dangling fire-and-forget dispatch", async () 
 	assert.deepEqual(outcome.error, { kind: "dangling-dispatch" });
 });
 
-test("runCode uses the shipped maxDispatches default before invoking call 101", async () => {
+test("runCode uses the shipped maxDispatches default before the next call", async () => {
 	let bindingCalls = 0;
 	const outcome = await runCode({
 		program: `
