@@ -14,7 +14,6 @@
 	"conditions": ["absent", "code"],
 	"repetitions": 2,
 	"expectedRuns": 120,
-	"catalogDecoyCount": 24,
 	"maxCostUsd": 50,
 	"cases": ["scatter-gather", "cursor-walk", "noisy-ledger"]
 }

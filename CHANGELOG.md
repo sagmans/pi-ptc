@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- `native` and `both` presentations, the `/ptc` presentation command, project/user presentation files, and evaluation decoy tools. pi-ptc is code-only: when loaded the model sees exactly `ptc`. Evaluation conditions are `absent` and `code`.
+
 ### Added
 
 - Programmatic Tool Call presentations for all active Pi runtime tools.

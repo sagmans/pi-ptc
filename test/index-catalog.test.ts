@@ -292,12 +292,12 @@ test("addedToolNames updates logical state without exposing physical tools under
 
 test("activation publication failure terminalizes once and makes future runs inert", async () => {
 	const activationMessage = "activation publication failed";
-	let codePresentationWrites = 0;
+	let activationWrites = 0;
 	const harness = createFakePi(["activator"], ["activator", "dormant"], {
 		setActiveToolsError(names) {
 			if (names.length !== 1 || names[0] !== TRANSPORT_NAME) return undefined;
-			codePresentationWrites += 1;
-			return codePresentationWrites === 2 ? new Error(activationMessage) : undefined;
+			activationWrites += 1;
+			return activationWrites === 2 ? new Error(activationMessage) : undefined;
 		},
 	});
 	harness.registerRuntimeTool("activator", {

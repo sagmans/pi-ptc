@@ -24,8 +24,7 @@ The tools Pi and its extensions consider active. PTC preserves this set while
 changing model visibility.
 
 **Model-visible set**  
-The schemas sent to the model: `ptc` only for `code`, `ptc` plus the
-logical set for `both`, or the logical set for `native`.
+The schemas sent to the model: exactly `ptc`.
 
 **Catalog snapshot**  
 The fixed, sorted active-tool definitions used by one PTC execution for
@@ -102,7 +101,7 @@ A dispatch that drains parallel work and runs alone. Sequential Pi tools are
 exclusive; `bash`, `edit`, and `write` are exclusive fallbacks.
 
 **Presentation**  
-The tool-surface setting: `code`, `both`, or `native`.
+The model-visible tool surface, always exactly `ptc` when loaded.
 
 **Inert**  
 Fail-closed state where PTC does not own the tool surface and Pi keeps native

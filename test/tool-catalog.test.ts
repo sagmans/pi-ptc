@@ -1,7 +1,6 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 
-import type { Presentation } from "../src/config.ts";
 import {
 	installPiRuntimeCapturePatch,
 	type PiRuntimeCapture,
@@ -155,10 +154,8 @@ test("catalog snapshots logical active tools and resolves exact executable defin
 			[ALPHA_TOOL_NAME, alpha, alphaDefinition],
 		],
 	});
-	let presentation: Presentation = "code";
 	const catalog = createToolCatalog({
 		session: harness.adapter,
-		getPresentation: () => presentation,
 	});
 
 	try {
@@ -193,9 +190,6 @@ test("catalog snapshots logical active tools and resolves exact executable defin
 
 		assert.deepEqual(catalog.applyPhysical(), { missingTransport: false });
 		assert.deepEqual(harness.physical(), [PTC_TOOL_NAME]);
-		presentation = "both";
-		catalog.applyPhysical();
-		assert.deepEqual(harness.physical(), [ZETA_TOOL_NAME, ALPHA_TOOL_NAME, PTC_TOOL_NAME]);
 	} finally {
 		catalog.restore();
 		harness.teardownPatch();
@@ -221,7 +215,6 @@ test("virtual actions preserve hidden names through read-modify-write and refres
 	});
 	const catalog = createToolCatalog({
 		session: harness.adapter,
-		getPresentation: () => "code",
 	});
 	const runtime = harness.adapter.sharedRuntime;
 
@@ -296,7 +289,6 @@ test("failed refresh restores native logical state and invalidates the catalog",
 	const failures: ToolCatalogRefreshFailure[] = [];
 	const catalog = createToolCatalog({
 		session: harness.adapter,
-		getPresentation: () => "code",
 		onRefreshFailure(error) {
 			failures.push(error);
 		},
@@ -343,7 +335,6 @@ test("missing transport fails closed and restore returns native logical state an
 	const rawRuntime = harness.adapter.sharedRuntime;
 	const catalog = createToolCatalog({
 		session: harness.adapter,
-		getPresentation: () => "code",
 	});
 
 	assert.deepEqual(catalog.applyPhysical(), { missingTransport: true });

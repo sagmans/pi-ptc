@@ -1,4 +1,3 @@
-import type { Presentation } from "./config.ts";
 import type { ExtensionAPI, ExtensionContext } from "./host.ts";
 import type { FailureDetailsStore, PtcLifecycle } from "./ptc-tool-contract.ts";
 
@@ -21,16 +20,13 @@ export const BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX = 3;
 
 export type PtcLifecycleOptions = {
 	readonly pi: ExtensionAPI;
-	readonly initialPresentation: Presentation;
 	readonly maxParallelDispatches: number;
 	readonly failureDetails: FailureDetailsStore;
 	clearRenderSnapshots(): void;
 };
 
 export interface PtcLifecycleController extends PtcLifecycle {
-	readonly presentation: Presentation;
-	setPresentation(presentation: Presentation): void;
-	sessionStart(context: ExtensionContext, presentation: Presentation): void;
+	sessionStart(context: ExtensionContext): void;
 	apply(context: ExtensionContext): void;
 	requireActive(context: ExtensionContext): boolean;
 	markRuntimeEventReadiness(context: ExtensionContext): void;

@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 
-test("shipped presentation is code", () => {
-	assert.equal(SHIPPED_PTC_CONFIG.presentation, "code");
+test("shipped config is code-only without presentation selection", () => {
+	assert.equal(Object.hasOwn(SHIPPED_PTC_CONFIG, "presentation"), false);
 });
 
 test("shipped limits come from config.json", () => {

@@ -116,7 +116,6 @@ function createLeakGuardHarness(execute?: PiRuntimeTool["execute"]): {
 		events: { emit() {} },
 	};
 	installPtc(pi, {
-		resolvePaths: () => ({ projectFile: "/tmp/ptc-project.json", userFile: "/tmp/ptc-user.json" }),
 		installRuntimeCapture(installer) {
 			captureInstaller = installer;
 			return { compatible: true, teardown() {} };

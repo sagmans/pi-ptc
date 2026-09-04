@@ -1,5 +1,4 @@
 {
-	"presentation": "code",
 	"drainTimeoutMs": 5000,
 	"maxOrphanedBindings": 100,
 	"maxParallelDispatches": 10,

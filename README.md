@@ -4,8 +4,8 @@ Programmatic Tool Call for Pi. The model writes one TypeScript program against
 the tools active in the current Pi session. Nested results stay inside the
 program; only its captured logs and return value re-enter model context.
 
-The default `code` presentation exposes only `ptc` to the model. `both`
-exposes `ptc` and the active tools; `native` disables PTC.
+When loaded, pi-ptc exposes only `ptc` to the model. There are no other
+presentations: disabling the extension restores native tools.
 
 > PTC runs model-written code with user-equivalent authority. Its worker is
 > containment, not a sandbox. Tool-specific gate and permission extensions do
@@ -24,8 +24,8 @@ Aggregation is deterministic because normal code performs the transformation. Fo
 example, a program can read many files, select exact fields, sort them, and return
 one small JSON value without asking the model to summarize each tool response.
 
-The `code` presentation reduces the callable model-facing tool list to `ptc`; it
-does not remove tool awareness or all schema prompt cost. Generated binding
+Reducing the callable model-facing tool list to `ptc` does not remove tool
+awareness or all schema prompt cost. Generated binding
 signatures remain in the `ptc` description so the model can write valid calls.
 
 ## Requirements
@@ -124,7 +124,7 @@ const [pkg, config] = await Promise.all([
 ]);
 return {
   name: JSON.parse(pkg.text).name,
-  presentation: JSON.parse(config.text).presentation,
+  version: JSON.parse(pkg.text).version,
 };
 ```
 
@@ -188,23 +188,8 @@ temporary process-scoped directory.
 
 ## Presentation
 
-| Setting | Model-visible tools |
-|---|---|
-| `code` | `ptc` only |
-| `both` | `ptc` plus the logical active set |
-| `native` | Logical active set only |
-
-Set it with:
-
-```text
-/ptc on
-/ptc both
-/ptc off
-```
-
-With no argument, `/ptc` cycles through the three settings. A trusted project
-`.pi/ptc.json` overrides `~/.pi/agent/ptc.json`; the shipped default is
-`code`.
+pi-ptc is code-only: when loaded, the model sees exactly `ptc` and nothing
+else. Unloading the extension restores the logical active set.
 
 PTC preserves Pi's logical active-tool state while changing what the model sees.
 Tool refreshes and additive dynamic loading update later PTC runs. Each running
@@ -258,7 +243,7 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
 Output-limit failures report the measured byte or line count without echoing the
-rejected output. Only presentation has project and user overrides.
+rejected output.
 
 ## Compatibility
 

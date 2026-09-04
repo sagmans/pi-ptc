@@ -27,14 +27,12 @@ import {
 	type EventHandler,
 	REAL_CHARACTERIZATION_DIRECTORY_PREFIX,
 	REAL_INITIAL_OWNER_DIRECTORY_PREFIX,
-	tempPaths,
 } from "./support/index-harness.ts";
 
 test("installer patches capture before registering a tagged transport", () => {
 	const harness = createFakePi(["read", "bash", "mcp"]);
 	let patchInstalled = false;
 	installPtc(harness.pi, {
-		resolvePaths: tempPaths,
 		installRuntimeCapture(installer) {
 			assert.equal(
 				harness.pi.getAllTools().some((tool) => tool.name === TRANSPORT_NAME),
@@ -89,10 +87,6 @@ test("real Pi allowlist without ptc stays native and inert after bind session_st
 						},
 					});
 					installPtc(interceptedApi, {
-						resolvePaths: () => ({
-							projectFile: join(cwd, ".pi", "ptc.json"),
-							userFile: join(agentDir, "ptc.json"),
-						}),
 						installRuntimeCapture() {
 							patchInstallation = installPiRuntimeCapturePatch();
 							return patchInstallation;
@@ -194,10 +188,6 @@ test("real Pi initial competing owner deactivates only the auto-activated owned 
 				name: "pi-ptc",
 				factory(realPi) {
 					installPtc(realPi as unknown as ExtensionAPI, {
-						resolvePaths: () => ({
-							projectFile: join(cwd, ".pi", "ptc.json"),
-							userFile: join(agentDir, "ptc.json"),
-						}),
 						installRuntimeCapture() {
 							const installation = installPiRuntimeCapturePatch();
 							installations.push(installation);
