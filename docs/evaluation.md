@@ -118,12 +118,13 @@ ptc/native split, so the comparison needs no extra instrumentation.
 
 ## Code-vs-absent matrix
 
-A 36-run binary matrix compares code against absent across 9 model
-configurations: 9 models × `transitive-ledger` × `absent`/`code` × 2
-repetitions.
+A 48-run binary matrix compares code against absent across 12 model
+configurations: 12 models × `transitive-ledger` × `absent`/`code` × 2
+repetitions. It includes `openai-codex:gpt-6-astra` at `medium`, `high`, and
+`xhigh` thinking levels.
 
 ```bash
-npm run eval:code-vs-absent:dry   # validate the 36-run matrix
+npm run eval:code-vs-absent:dry   # validate the 48-run matrix
 npm run eval:code-vs-absent       # run the matrix
 ```
 
@@ -133,25 +134,26 @@ conditions. Model IDs must match
 
 ## Code-proof matrix
 
-A 120-run binary matrix built to justify code-only: 10 model
+A 156-run binary matrix built to justify code-only: 13 model
 configurations (including `xai/grok-4.6`) × three dramatic cases
 (`scatter-gather`, `cursor-walk`, `noisy-ledger`) × `absent`/`code` × 2
 repetitions. Each case is noise-padded to defeat bulk-dump shortcuts and
-force honest per-file work.
+force honest per-file work. The model set includes `openai-codex:gpt-6-astra`
+at `medium`, `high`, and `xhigh` thinking levels.
 
 ```bash
-npm run eval:proof:dry   # validate the 120-run matrix
+npm run eval:proof:dry   # validate the 156-run matrix
 npm run eval:proof       # run the matrix
 ```
 
 ## Counter-proof matrix
 
-A 120-run binary matrix built to attack PTC's structural weaknesses: the same
-10 model configurations × three counter-cases × `absent`/`code` × 2
+A 156-run binary matrix built to attack PTC's structural weaknesses: the same
+13 model configurations × three counter-cases × `absent`/`code` × 2
 repetitions.
 
 ```bash
-npm run eval:counter:dry   # validate the 120-run matrix
+npm run eval:counter:dry   # validate the 156-run matrix
 npm run eval:counter       # run the matrix
 ```
 
