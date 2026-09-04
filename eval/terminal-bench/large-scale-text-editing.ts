@@ -49,38 +49,48 @@ const FORBIDDEN_KEYSTROKE_PATTERNS = [
 	/:!\w/i,
 ];
 
-function assertRowCount(rowCount) {
+export type LargeScaleTextEditingResult = {
+	correct: boolean;
+	reason: string;
+	keystrokes?: number;
+};
+
+export type LargeScaleTextEditingValidation =
+	| { ok: false; reason: string }
+	| { ok: true; definitions: string[] };
+
+function assertRowCount(rowCount: number): void {
 	if (!Number.isSafeInteger(rowCount) || rowCount < 1) {
 		throw new Error("large-scale text editing row count must be a positive safe integer");
 	}
 }
 
-function rowValues(index) {
+function rowValues(index: number): [string, string, string] {
 	const [first, second, third] = ROW_VALUES[index % ROW_VALUES.length];
 	return [first + index, second + index, third + index];
 }
 
-function spaced(value, index) {
+function spaced(value: string, index: number): string {
 	return PADDING[index % PADDING.length] + value + PADDING[Math.floor(index / 2) % PADDING.length];
 }
 
-function inputRow(index) {
+function inputRow(index: number): string {
 	const [first, second, third] = rowValues(index);
 	return `${[spaced(first, index), spaced(second, index + 1), spaced(third, index + 2)].join(" , ")}\n`;
 }
 
-function expectedRow(index) {
+function expectedRow(index: number): string {
 	const [first, second, third] = rowValues(index);
 	return `${third.toUpperCase()};${second.toUpperCase()};${first.toUpperCase()};OK\n`;
 }
 
-function rows(start, end, render) {
-	const batch = [];
+function rows(start: number, end: number, render: (index: number) => string): string {
+	const batch: string[] = [];
 	for (let index = start; index < end; index += 1) batch.push(render(index));
 	return batch.join("");
 }
 
-async function writeInput(path, rowCount) {
+async function writeInput(path: string, rowCount: number): Promise<void> {
 	// Remove first because exclusive creation prevents a stale symlink from redirecting verifier writes.
 	await rm(path, { force: true });
 	const handle = await open(path, "wx");
@@ -94,23 +104,26 @@ async function writeInput(path, rowCount) {
 	}
 }
 
-export async function materializeLargeScaleTextEditing(directory, rowCount) {
+export async function materializeLargeScaleTextEditing(
+	directory: string,
+	rowCount: number,
+): Promise<void> {
 	assertRowCount(rowCount);
 	await mkdir(directory, { recursive: true });
 	await rm(join(directory, EXPECTED_FILE_NAME), { force: true });
 	await writeInput(join(directory, INPUT_FILE_NAME), rowCount);
 }
 
-function scriptLines(text) {
+function scriptLines(text: string): string[] {
 	return text
 		.split("\n")
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0 && !line.startsWith('"'));
 }
 
-export function validateLargeScaleTextEditingScript(text) {
-	const definitions = new Map();
-	const executions = new Set();
+export function validateLargeScaleTextEditingScript(text: string): LargeScaleTextEditingValidation {
+	const definitions = new Map<string, string>();
+	const executions = new Set<string>();
 	let hasExit = false;
 	for (const [index, line] of scriptLines(text).entries()) {
 		if (EXIT_COMMANDS.has(line)) {
@@ -137,10 +150,13 @@ export function validateLargeScaleTextEditingScript(text) {
 	if (REGISTER_NAMES.some((register) => !executions.has(register))) {
 		return { ok: false, reason: "must execute macros a, b, and c" };
 	}
-	return { ok: true, definitions: REGISTER_NAMES.map((register) => definitions.get(register)) };
+	return {
+		ok: true,
+		definitions: REGISTER_NAMES.map((register) => definitions.get(register) ?? ""),
+	};
 }
 
-function definitionInspectionScript(definitions) {
+function definitionInspectionScript(definitions: readonly string[]): string {
 	return [
 		...definitions,
 		"function! Count(reg) abort",
@@ -161,7 +177,10 @@ function definitionInspectionScript(definitions) {
 	].join("\n");
 }
 
-async function inspectDefinitions(definitions) {
+async function inspectDefinitions(definitions: readonly string[]): Promise<{
+	counts: number[];
+	registers: string[];
+}> {
 	const directory = await mkdtemp(join(tmpdir(), "pi-ptc-vim-definitions-"));
 	try {
 		const scriptPath = join(directory, DEFINITION_SCRIPT_FILE_NAME);
@@ -183,13 +202,13 @@ async function inspectDefinitions(definitions) {
 	}
 }
 
-async function hashFile(path) {
+async function hashFile(path: string): Promise<string> {
 	const hash = createHash("sha256");
 	for await (const chunk of createReadStream(path)) hash.update(chunk);
 	return hash.digest("hex");
 }
 
-function expectedHash(rowCount) {
+function expectedHash(rowCount: number): string {
 	const hash = createHash("sha256");
 	for (let start = 1; start <= rowCount; start += WRITE_BATCH_ROWS) {
 		const end = Math.min(start + WRITE_BATCH_ROWS, rowCount + 1);
@@ -198,15 +217,18 @@ function expectedHash(rowCount) {
 	return hash.digest("hex");
 }
 
-function failure(reason, keystrokes) {
+function failure(reason: string, keystrokes?: number): LargeScaleTextEditingResult {
 	return keystrokes === undefined
 		? { correct: false, reason }
 		: { correct: false, reason, keystrokes };
 }
 
-export async function judgeLargeScaleTextEditing(directory, rowCount) {
+export async function judgeLargeScaleTextEditing(
+	directory: string,
+	rowCount: number,
+): Promise<LargeScaleTextEditingResult> {
 	assertRowCount(rowCount);
-	let text;
+	let text: string;
 	try {
 		text = await readFile(join(directory, MACRO_FILE_NAME), "utf8");
 	} catch {
@@ -214,7 +236,7 @@ export async function judgeLargeScaleTextEditing(directory, rowCount) {
 	}
 	const validation = validateLargeScaleTextEditingScript(text);
 	if (!validation.ok) return failure(validation.reason);
-	let inspection;
+	let inspection: Awaited<ReturnType<typeof inspectDefinitions>>;
 	try {
 		inspection = await inspectDefinitions(validation.definitions);
 	} catch {
@@ -233,7 +255,10 @@ export async function judgeLargeScaleTextEditing(directory, rowCount) {
 		await execFileAsync(
 			VIM_COMMAND,
 			["-Nu", "NONE", "-n", "-Es", INPUT_FILE_NAME, "-S", MACRO_FILE_NAME],
-			{ cwd: directory, timeout: VIM_TIMEOUT_MS },
+			{
+				cwd: directory,
+				timeout: VIM_TIMEOUT_MS,
+			},
 		);
 	} catch {
 		return failure("Vim failed to apply the macro script", total);

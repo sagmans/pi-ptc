@@ -106,7 +106,7 @@ Runs persist under `.ptc-eval/run-<timestamp>/`: raw RPC JSONL, copied Pi
 session JSONL, per-run JSON (written atomically after each run for resume),
 `summary.json`, and `summary.md`. The directory is git-ignored; never commit
 sessions or reports. To resume, pass `--resume <run-directory>` to
-`eval/run.mjs`.
+`eval/run.ts`.
 
 ## Interpretation limits
 
