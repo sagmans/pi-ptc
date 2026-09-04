@@ -309,12 +309,12 @@ test("heavy tool-use configuration validates a 16-run single-case matrix", () =>
 	assert.equal(buildRunMatrix(config.value).length, 16);
 });
 
-test("code-vs-absent configuration validates a 36-run focused matrix", () => {
+test("code-vs-absent configuration validates a 72-run full matrix", () => {
 	const config = validateEvalConfig(loadConfig(CODE_VS_ABSENT_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
-	assert.deepEqual(config.value.conditions, ["absent", "code"]);
-	assert.equal(buildRunMatrix(config.value).length, 36);
-	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 36);
+	assert.deepEqual(config.value.conditions, ["absent", "native", "both", "code"]);
+	assert.equal(buildRunMatrix(config.value).length, 72);
+	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 72);
 });
 
 test("configuration rejects unknown, empty, and duplicated conditions", () => {
