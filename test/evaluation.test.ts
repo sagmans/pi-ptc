@@ -345,6 +345,41 @@ test("transitive-ledger materializes 160 accounts and judges the exact closure",
 	}
 });
 
+test("proof cases materialize their files and judge exact results", async () => {
+	const cases = [
+		{ name: "scatter-gather", prefix: "pi-ptc-eval-scatter-", directory: "shards", files: 40 },
+		{ name: "cursor-walk", prefix: "pi-ptc-eval-cursor-", directory: "pages", files: 61 },
+		{ name: "noisy-ledger", prefix: "pi-ptc-eval-noisy-", directory: "ledger", files: 100 },
+	];
+	for (const proofCase of cases) {
+		const directory = mkdtempSync(join(tmpdir(), proofCase.prefix));
+		try {
+			const definition = await loadCaseDefinition(proofCase.name, CASES_DIRECTORY);
+			assert.ok("expected" in definition);
+			const expected = definition.expected as Record<string, unknown>;
+			await materializeCase(definition, directory, "code");
+			assert.equal(readdirSync(join(directory, proofCase.directory)).length, proofCase.files);
+			const accepted = await judgeCaseResult(definition, `EVAL_RESULT ${JSON.stringify(expected)}`);
+			assert.equal(accepted.correct, true);
+			const wrong = await judgeCaseResult(definition, "EVAL_RESULT {}");
+			assert.equal(wrong.correct, false);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	}
+});
+
+test("code-proof configuration validates a 120-run matrix", () => {
+	const config = validateEvalConfig(
+		JSON.parse(readFileSync(new URL("../eval/config.code-proof.json", import.meta.url), "utf8")),
+	);
+	assert.deepEqual(config.errors, []);
+	if (config.ok) {
+		assert.equal(buildRunMatrix(config.value).length, 120);
+		assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 120);
+	}
+});
+
 test("argument parsing defaults to one job and validates the jobs flag", () => {
 	assert.equal(parseArguments(["--config", "c", "--dry-run"]).jobs, 1);
 	assert.equal(parseArguments(["--config", "c", "--run", "--jobs", "4"]).jobs, 4);

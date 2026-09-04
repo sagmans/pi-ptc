@@ -133,6 +133,19 @@ Conditions may be any non-empty unique subset of the four canonical
 conditions, so focused matrices need no placeholder arms. Model IDs must match
 `pi --list-models` exactly (for example `qwen3.8-max`, not `qwen-3.8`).
 
+## Code-proof matrix
+
+A 120-run binary matrix built to justify code-only: 10 model
+configurations (including `xai/grok-4.6`) × three dramatic cases
+(`scatter-gather`, `cursor-walk`, `noisy-ledger`) × `absent`/`code` × 2
+repetitions. Each case is noise-padded to defeat bulk-dump shortcuts and
+force honest per-file work.
+
+```bash
+npm run eval:proof:dry   # validate the 120-run matrix
+npm run eval:proof       # run the matrix
+```
+
 CAUTION: Run an evaluation only in a disposable, non-production workspace.
 The agent has user-equivalent host authority, and provider calls cost money.
 

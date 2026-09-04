@@ -25,6 +25,7 @@ All notable changes are documented here. The format follows
 - Added a 160-account transitive-ledger case with a 16-run heavy tool-use matrix for with/without-PTC comparison of tokens, wall time, turns, and tool calls.
 - Run evaluation cells concurrently with `--jobs N`; crashed cells record errors without killing siblings and resume retries exactly those cells.
 - Accept any non-empty unique condition subset in evaluation configs and add a 72-run four-condition matrix across nine model configurations.
+- Add scatter-gather, cursor-walk, and noisy-ledger cases plus a 120-run code-vs-absent proof matrix across ten model configurations including xAI Grok 4.6.
 
 ### Fixed
 
