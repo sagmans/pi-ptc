@@ -106,6 +106,7 @@ export const CONDITIONS: readonly EvalCondition[] = ["absent", "code"];
 const PTC_TOOL_NAME = "ptc";
 const DISPATCH_ENTRY_TYPE = "ptc-dispatch";
 const PROVIDER_BYTES_ENTRY_TYPE = "eval-provider-request-bytes";
+const CASE_SELECTION_ERROR = "case must match one of the configured cases";
 
 export function validateEvalConfig(config: unknown): ValidatedConfig {
 	const input = config as Partial<EvalConfig>;
@@ -157,13 +158,17 @@ export function runKey(run: EvalRun): string {
 	return `${run.model.provider}/${run.model.model}/${run.model.thinking}/${run.case}/${run.condition}/${run.repetition}`;
 }
 
-export function buildRunMatrix(config: EvalConfig): EvalRun[] {
+export function buildRunMatrix(config: EvalConfig, caseName?: string): EvalRun[] {
+	if (caseName !== undefined && !config.cases.includes(caseName)) {
+		throw new Error(`${CASE_SELECTION_ERROR}: ${JSON.stringify(config.cases)}`);
+	}
+	const cases = caseName === undefined ? config.cases : [caseName];
 	const runs: EvalRun[] = [];
 	for (let repetition = 1; repetition <= config.repetitions; repetition += 1) {
 		const conditions =
 			repetition % 2 === 1 ? [...config.conditions] : [...config.conditions].reverse();
 		for (const model of config.models) {
-			for (const caseName of config.cases) {
+			for (const caseName of cases) {
 				for (const condition of conditions) {
 					runs.push({ model, case: caseName, condition, repetition });
 				}

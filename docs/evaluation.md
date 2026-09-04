@@ -97,6 +97,28 @@ npm run eval:ptc:terminal-bench       # run the pilot matrix
 
 The dry-run commands make zero provider calls.
 
+## Select one case
+
+Pass `--case <name>` to select one exact case from the supplied configuration.
+Without this flag, the runner selects all configured cases. The flag works
+with `--dry-run`, `--run`, and `--resume`. Missing values, repeated flags, and
+names outside the configuration are rejected before execution.
+
+The runner validates the full configuration before selection. Keep its
+`expectedRuns` value unchanged. Models, conditions, repetitions, and the cost
+cap remain unchanged. No per-case configuration files are necessary.
+
+```bash
+npm run eval:counter:dry -- --case semantic-trail     # validate 52 runs
+npm run eval:counter -- --case single-lookup --jobs 4
+npm run eval:counter -- --case semantic-trail --jobs 4
+npm run eval:counter -- --case broken-trail --jobs 4
+```
+
+Each command selects 52 runs from the current counter-proof matrix. On resume,
+only selected pending cells run. The summary and cumulative cost still include
+all completed results in the resume directory, including other cases.
+
 ## Heavy tool-use matrix
 
 A separate 8-run matrix measures total tokens, wall time, assistant turns, and
