@@ -134,16 +134,33 @@ export function parsePresentationArg(arg: string): Presentation | "cycle" | unde
 	return undefined;
 }
 
-function readPresentationFile(file: string | undefined): Presentation | undefined {
-	if (!file) return undefined;
+type PersistedPtcSettings = {
+	presentation?: Presentation;
+	maxDispatches?: number;
+};
+
+function readSettingsFile(file: string | undefined): PersistedPtcSettings {
+	if (!file) return {};
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-		if (!isRecord(parsed)) return undefined;
-		if (typeof parsed.presentation !== "string") return undefined;
-		if (!PRESENTATIONS.has(parsed.presentation as Presentation)) return undefined;
-		return parsed.presentation as Presentation;
+		if (!isRecord(parsed)) return {};
+		const settings: PersistedPtcSettings = {};
+		if (
+			typeof parsed.presentation === "string" &&
+			PRESENTATIONS.has(parsed.presentation as Presentation)
+		) {
+			settings.presentation = parsed.presentation as Presentation;
+		}
+		if (
+			typeof parsed.maxDispatches === "number" &&
+			Number.isInteger(parsed.maxDispatches) &&
+			parsed.maxDispatches > 0
+		) {
+			settings.maxDispatches = parsed.maxDispatches;
+		}
+		return settings;
 	} catch {
-		return undefined;
+		return {};
 	}
 }
 
@@ -153,13 +170,32 @@ export function loadPresentation(input: {
 	fallback: Presentation;
 }): Presentation {
 	return (
-		readPresentationFile(input.projectFile) ??
-		readPresentationFile(input.userFile) ??
+		readSettingsFile(input.projectFile).presentation ??
+		readSettingsFile(input.userFile).presentation ??
+		input.fallback
+	);
+}
+
+export function loadMaxDispatches(input: {
+	projectFile?: string;
+	userFile?: string;
+	fallback: number;
+}): number {
+	return (
+		readSettingsFile(input.projectFile).maxDispatches ??
+		readSettingsFile(input.userFile).maxDispatches ??
 		input.fallback
 	);
 }
 
 export function savePresentation(file: string, presentation: Presentation): void {
 	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, `${JSON.stringify({ presentation }, null, "\t")}\n`);
+	let current: Record<string, unknown> = {};
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+		if (isRecord(parsed)) current = parsed;
+	} catch {
+		// Keep a presentation-only file when the existing document is unreadable.
+	}
+	writeFileSync(file, `${JSON.stringify({ ...current, presentation }, null, "\t")}\n`);
 }

@@ -4,7 +4,7 @@
 	"drainTimeoutMs": 5000,
 	"maxOrphanedBindings": 100,
 	"maxParallelDispatches": 10,
-	"maxDispatches": 100,
+	"maxDispatches": 1000,
 	"maxToolUpdatesPerDispatch": 100,
 	"maxRenderDetailsBytes": 2000000,
 	"maxPersistedDetailsBytes": 3000000,

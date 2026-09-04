@@ -1,10 +1,16 @@
 import { strict as assert } from "node:assert";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { loadPresentation, parsePresentationArg, savePresentation } from "../src/config.ts";
+import {
+	loadMaxDispatches,
+	loadPresentation,
+	parsePresentationArg,
+	SHIPPED_PTC_CONFIG,
+	savePresentation,
+} from "../src/config.ts";
 
 function tempFile(name: string): string {
 	return join(mkdtempSync(join(tmpdir(), "pi-ptc-")), name);
@@ -43,4 +49,56 @@ test("parsePresentationArg maps on both off and cycle", () => {
 	assert.equal(parsePresentationArg("off"), "native");
 	assert.equal(parsePresentationArg(""), "cycle");
 	assert.equal(parsePresentationArg("nope"), undefined);
+});
+
+test("project maxDispatches wins over user maxDispatches", () => {
+	const projectFile = tempFile("project.json");
+	const userFile = tempFile("user.json");
+	writeFileSync(projectFile, `${JSON.stringify({ maxDispatches: 7 }, null, "\t")}\n`);
+	writeFileSync(userFile, `${JSON.stringify({ maxDispatches: 3 }, null, "\t")}\n`);
+	assert.equal(
+		loadMaxDispatches({
+			projectFile,
+			userFile,
+			fallback: SHIPPED_PTC_CONFIG.maxDispatches,
+		}),
+		7,
+	);
+});
+
+test("user maxDispatches wins when project omits it", () => {
+	const projectFile = tempFile("project.json");
+	const userFile = tempFile("user.json");
+	savePresentation(projectFile, "both");
+	writeFileSync(userFile, `${JSON.stringify({ maxDispatches: 3 }, null, "\t")}\n`);
+	assert.equal(
+		loadMaxDispatches({
+			projectFile,
+			userFile,
+			fallback: SHIPPED_PTC_CONFIG.maxDispatches,
+		}),
+		3,
+	);
+});
+
+test("invalid maxDispatches values fall back", () => {
+	const projectFile = tempFile("bad.json");
+	writeFileSync(projectFile, `${JSON.stringify({ maxDispatches: 0 }, null, "\t")}\n`);
+	assert.equal(
+		loadMaxDispatches({ projectFile, fallback: SHIPPED_PTC_CONFIG.maxDispatches }),
+		SHIPPED_PTC_CONFIG.maxDispatches,
+	);
+});
+
+test("savePresentation keeps maxDispatches", () => {
+	const file = tempFile("ptc.json");
+	writeFileSync(
+		file,
+		`${JSON.stringify({ presentation: "native", maxDispatches: 7 }, null, "\t")}\n`,
+	);
+	savePresentation(file, "both");
+	assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), {
+		presentation: "both",
+		maxDispatches: 7,
+	});
 });
