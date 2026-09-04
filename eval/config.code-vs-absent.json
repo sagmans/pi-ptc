@@ -3,6 +3,9 @@
 		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "xhigh" },
 		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "high" },
 		{ "provider": "openai-codex", "model": "gpt-5.6-sol", "thinking": "medium" },
+		{ "provider": "openai-codex", "model": "gpt-6-astra", "thinking": "medium" },
+		{ "provider": "openai-codex", "model": "gpt-6-astra", "thinking": "high" },
+		{ "provider": "openai-codex", "model": "gpt-6-astra", "thinking": "xhigh" },
 		{ "provider": "zai", "model": "glm-5.3", "thinking": "max" },
 		{ "provider": "zai", "model": "glm-5.3-flash", "thinking": "max" },
 		{ "provider": "qwen-token-plan", "model": "qwen3.8-max", "thinking": "xhigh" },
@@ -12,7 +15,7 @@
 	],
 	"conditions": ["absent", "code"],
 	"repetitions": 2,
-	"expectedRuns": 36,
+	"expectedRuns": 48,
 	"maxCostUsd": 50,
 	"forbiddenProviders": ["anthropic"],
 	"cases": ["transitive-ledger"]

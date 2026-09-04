@@ -20,6 +20,14 @@ const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", im
 const HEAVY_CONFIG_PATH = new URL("../eval/config.heavy-tools.json", import.meta.url);
 const CODE_VS_ABSENT_CONFIG_PATH = new URL("../eval/config.code-vs-absent.json", import.meta.url);
 const COUNTER_PROOF_CONFIG_PATH = new URL("../eval/config.counter-proof.json", import.meta.url);
+const CODE_PROOF_CONFIG_PATH = new URL("../eval/config.code-proof.json", import.meta.url);
+const PROOF_RUNS = 156;
+const CODE_VS_ABSENT_RUNS = 48;
+const ASTRA_MODELS = ["medium", "high", "xhigh"].map((thinking) => ({
+	provider: "openai-codex",
+	model: "gpt-6-astra",
+	thinking,
+}));
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -296,12 +304,12 @@ test("heavy tool-use configuration validates an 8-run single-case matrix", () =>
 	assert.equal(buildRunMatrix(config.value).length, 8);
 });
 
-test("code-vs-absent configuration validates a 36-run binary matrix", () => {
+test("code-vs-absent configuration validates a 48-run binary matrix", () => {
 	const config = validateEvalConfig(loadConfig(CODE_VS_ABSENT_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.conditions, ["absent", "code"]);
-	assert.equal(buildRunMatrix(config.value).length, 36);
-	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 36);
+	assert.equal(buildRunMatrix(config.value).length, CODE_VS_ABSENT_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, CODE_VS_ABSENT_RUNS);
 });
 
 test("configuration rejects unknown, removed, empty, and duplicated conditions", () => {
@@ -361,24 +369,28 @@ test("proof cases materialize their files and judge exact results", async () => 
 	}
 });
 
-test("code-proof configuration validates a 120-run matrix", () => {
-	const config = validateEvalConfig(
-		JSON.parse(readFileSync(new URL("../eval/config.code-proof.json", import.meta.url), "utf8")),
-	);
+test("code-proof validates 156 runs and expanded matrices include all Astra levels", () => {
+	const config = validateEvalConfig(loadConfig(CODE_PROOF_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
-	if (config.ok) {
-		assert.equal(buildRunMatrix(config.value).length, 120);
-		assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 120);
+	assert.equal(buildRunMatrix(config.value).length, PROOF_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, PROOF_RUNS);
+	for (const path of [
+		CODE_PROOF_CONFIG_PATH,
+		COUNTER_PROOF_CONFIG_PATH,
+		CODE_VS_ABSENT_CONFIG_PATH,
+	]) {
+		const astra = loadConfig(path).models.filter((model) => model.model === ASTRA_MODELS[0].model);
+		assert.deepEqual(astra, ASTRA_MODELS);
 	}
 });
 
-test("counter-proof configuration validates a 120-run matrix", () => {
+test("counter-proof configuration validates a 156-run matrix", () => {
 	const config = validateEvalConfig(loadConfig(COUNTER_PROOF_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.cases, ["single-lookup", "semantic-trail", "broken-trail"]);
 	assert.deepEqual(config.value.conditions, ["absent", "code"]);
-	assert.equal(buildRunMatrix(config.value).length, 120);
-	assert.equal(new Set(buildRunMatrix(config.value).map((run) => runKey(run))).size, 120);
+	assert.equal(buildRunMatrix(config.value).length, PROOF_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, PROOF_RUNS);
 });
 
 test("argument parsing defaults to one job and validates the jobs flag", () => {

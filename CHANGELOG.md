@@ -42,6 +42,7 @@ All notable changes are documented here. The format follows
 
 ### Changed
 
+- Add `openai-codex:gpt-6-astra` at `medium`, `high`, and `xhigh` to the expanded evaluation matrices. Code-vs-absent has 48 runs. Proof and counter-proof each have 156 runs.
 - Omit duplicated `truncation.content` from canonical core `read` values; use `.text` for file content.
 - Expanded the original seven-core-tool design to the complete logical active set.
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.
