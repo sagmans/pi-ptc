@@ -24,12 +24,14 @@ const EVAL_OUTPUT_DIRECTORY = ".ptc-eval";
 const RUNS_DIRECTORY = "runs";
 const SUMMARY_JSON = "summary.json";
 const SUMMARY_MD = "summary.md";
+const CASE_FLAG = "--case";
 
 type RunOptions = {
 	config: string;
 	dryRun: boolean;
 	run: boolean;
 	resumeDirectory?: string;
+	caseName?: string;
 	jobs: number;
 };
 
@@ -48,6 +50,7 @@ export function parseArguments(argv: string[]): RunOptions {
 		dryRun: boolean;
 		run: boolean;
 		resumeDirectory?: string;
+		caseName?: string;
 		jobs?: number;
 	} = {
 		config: undefined,
@@ -60,14 +63,27 @@ export function parseArguments(argv: string[]): RunOptions {
 		const flag = argv[index];
 		if (flag === "--dry-run") options.dryRun = true;
 		else if (flag === "--run") options.run = true;
-		else if (flag === "--config" || flag === "--resume" || flag === "--jobs") {
+		else if (
+			flag === "--config" ||
+			flag === "--resume" ||
+			flag === "--jobs" ||
+			flag === CASE_FLAG
+		) {
 			const value = argv[index + 1];
-			if (typeof value !== "string" || value.startsWith("--")) {
+			if (
+				typeof value !== "string" ||
+				value.startsWith("--") ||
+				(flag === CASE_FLAG && value.trim().length === 0)
+			) {
 				throw new Error(`${flag} requires a value`);
 			}
 			if (flag === "--config") options.config = value;
 			else if (flag === "--resume") options.resumeDirectory = value;
-			else options.jobs = Number(value);
+			else if (flag === CASE_FLAG) {
+				if (options.caseName !== undefined)
+					throw new Error(`${CASE_FLAG} can be specified only once`);
+				options.caseName = value;
+			} else options.jobs = Number(value);
 			index += 1;
 		} else throw new Error(`unknown argument: ${flag}`);
 	}
@@ -84,14 +100,19 @@ export function parseArguments(argv: string[]): RunOptions {
 		dryRun: options.dryRun,
 		run: options.run,
 		resumeDirectory: options.resumeDirectory,
+		caseName: options.caseName,
 		jobs,
 	};
 }
 
-export async function buildDryRun(configValue: unknown, configPath: string | URL): Promise<DryRun> {
+export async function buildDryRun(
+	configValue: unknown,
+	configPath: string | URL,
+	caseName?: string,
+): Promise<DryRun> {
 	const config = validateEvalConfig(configValue);
 	if (!config.ok) throw new Error(`invalid evaluation config: ${config.errors.join("; ")}`);
-	const runs = buildRunMatrix(config.value).map((run) => ({ ...run, key: runKey(run) }));
+	const runs = buildRunMatrix(config.value, caseName).map((run) => ({ ...run, key: runKey(run) }));
 	return { configPath: String(configPath), runs, providerCalls: 0, costUsd: 0 };
 }
 
@@ -151,19 +172,20 @@ async function executeMatrix(options: RunOptions): Promise<void> {
 	const configValue = JSON.parse(await readFile(options.config, "utf8"));
 	const config = validateEvalConfig(configValue);
 	if (!config.ok) throw new Error(`invalid evaluation config: ${config.errors.join("; ")}`);
+	const matrix = buildRunMatrix(config.value, options.caseName);
 	const runDirectory =
 		options.resumeDirectory ??
 		join(EVAL_OUTPUT_DIRECTORY, `run-${new Date().toISOString().replace(/[:.]/g, "-")}`);
 	await mkdir(join(runDirectory, RUNS_DIRECTORY), { recursive: true });
 	const definitions = new Map();
-	for (const caseName of config.value.cases) {
+	for (const caseName of new Set(matrix.map((run) => run.case))) {
 		definitions.set(
 			caseName,
 			await loadCaseDefinition(caseName, join(options.config, "..", "cases")),
 		);
 	}
 	const completed = await loadCompletedRuns(runDirectory);
-	const pending = selectPendingRuns(buildRunMatrix(config.value), completed);
+	const pending = selectPendingRuns(matrix, completed);
 	const results: EvaluatedRun[] = [...completed.values()];
 	let observedCost = results.reduce((total, record) => total + (record.costUsd ?? 0), 0);
 	let budgetStopped = false;
@@ -244,7 +266,7 @@ async function main(): Promise<void> {
 	const options = parseArguments(process.argv.slice(2));
 	if (options.dryRun) {
 		const configValue = JSON.parse(await readFile(options.config, "utf8"));
-		const dry = await buildDryRun(configValue, options.config);
+		const dry = await buildDryRun(configValue, options.config, options.caseName);
 		console.log(
 			JSON.stringify(
 				{ runs: dry.runs.length, providerCalls: dry.providerCalls, costUsd: dry.costUsd },

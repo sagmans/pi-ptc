@@ -8,6 +8,7 @@ All notable changes are documented here. The format follows
 
 ### Added
 
+- Select one configured evaluation case with `--case <name>` for dry runs, execution, and resume without separate configuration files.
 - Counter-proof evaluation matrix attacking PTC's weak axes: atomic-task overhead (single-lookup), comprehension-per-hop navigation (semantic-trail), and error-driven recovery (broken-trail).
 
 ### Removed
