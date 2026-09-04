@@ -11,7 +11,19 @@ const TEST_PATH_PREFIX = "test/";
 const REJECTED_FIXTURE_LINES = 500;
 const REPOSITORY_ROOT = new URL("..", import.meta.url);
 const TEMPORARY_DIRECTORY_PREFIX = "pi-ptc-authored-lines-";
-const AUTHORED_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".json", ".mjs", ".mts", ".ts"]);
+const AUTHORED_EXTENSIONS = new Set([
+	".cjs",
+	".cts",
+	".js",
+	".json",
+	".mjs",
+	".mts",
+	".sh",
+	".toml",
+	".ts",
+	".yml",
+	".yaml",
+]);
 const EXCLUDED_DIRECTORIES = new Set([".git", ".npm", "coverage", "dist", "node_modules", "out"]);
 const EXCLUDED_PATHS = new Set(["package-lock.json"]);
 const EXCLUDED_DATA_PREFIXES = ["test/fixtures/"];
