@@ -8,6 +8,15 @@ All notable changes are documented here. The format follows
 
 ### Added
 
+- Select one configured evaluation case with `--case <name>` for dry runs, execution, and resume without separate configuration files.
+- Adaptive-retrieval evaluation cases for simple lookup, semantic navigation, and missing-link recovery.
+
+### Removed
+
+- `native` and `both` presentations, the `/ptc` presentation command, project/user presentation settings, and evaluation decoy tools. pi-ptc is code-only: when loaded the model sees exactly `ptc`. Evaluation conditions are `absent` and `code`.
+
+### Added
+
 - Programmatic Tool Call presentations for all active Pi runtime tools.
 - Verified Pi `0.84.3`, `0.84.4`, and `0.85.0` runtime capture with logical and model-visible tool virtualization.
 - Dynamic, schema-derived TypeScript bindings for built-in, SDK, extension, and adapter tools.
@@ -20,31 +29,44 @@ All notable changes are documented here. The format follows
 - Explicit `artifact` capture of regular files into session-owned storage with bounded references.
 - Automatic spill of oversized successful final results to `result.json` artifacts.
 - Real-Pi regression proving third-party tool_call/tool_result observers see nested `tools.read` calls.
-- Reproducible RPC evaluation harness measuring PTC against native tool calling with a 32-run matrix and best-effort cost cap.
+- RPC evidence collection for with/without-PTC comparisons, with a 16-run core matrix and a best-effort cost cap.
+- Adapted Terminal-Bench 2.1 pilot for a deterministic, one-million-row Vim transformation with workspace judging.
+- A 160-account transitive-ledger case with an 8-run graph-traversal smoke matrix.
+- Run evaluation cells concurrently with `--jobs N`; crashed cells record errors without killing siblings and resume retries exactly those cells.
+- Accept any non-empty unique subset of the supported evaluation conditions.
+- Structured-retrieval cases for aggregation, sequential dependencies, and filtering during graph traversal.
 
 ### Fixed
 
+- Lossless-JSON failures identify the exact rejected object or array path.
 - `maxOutputLines` now counts CRLF, CR, and LF sequences inside result string values before JSON escaping, so multiline results cannot bypass the limit.
 
 ### Changed
 
 - Raised the default nested-dispatch limit from 100 to 1000.
 - Trusted project and user `ptc.json` files can set `maxDispatches`.
+- Use one `eval:compare` entrypoint and neutral workload names for evaluation configurations. Old commands and configuration paths are removed. See the migration table in `docs/evaluation.md`.
+- Collect final answers and measured counters for manual, LLM-driven evaluation instead of automatic correctness judgments or comparative summaries. Summary files now index evidence. Historical records remain readable for resume.
+- Add `openai-codex:gpt-6-astra` at `medium`, `high`, and `xhigh` to expanded matrices. Graph traversal has 48 runs. Structured and adaptive retrieval each have 156 runs.
 - Omit duplicated `truncation.content` from canonical core `read` values; use `.text` for file content.
 - Expanded the original seven-core-tool design to the complete logical active set.
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.
 - Split private Pi compatibility, lifecycle, rendering, retention, worker protocol, and process-capacity ownership into focused modules.
 - Replaced copy-prone pseudo-calls with explicit argument-schema notation and executable SDK examples.
-- Added concise program, injected-binding, lossless-JSON, and retry guidance to the model SDK.
+- Added concise program, injected-binding, lossless-JSON, retry, and canonical return-shape guidance to the model SDK.
+- Removed the independent PTC program deadline so nested tools retain Pi-native timeout behavior.
 - Bootstrap unsupported Pi hosts before loading private-runtime-dependent implementation.
 - Prepared npm publication as `@sagmans/pi-ptc`.
 - Documented PTC tradeoffs against native batch calls and deterministic aggregation.
 - Clarified that direct Node.js operations bypass tool-specific gate and permission extensions.
+- Converted the evaluation harness from JavaScript plus handwritten declarations to Node-executed TypeScript, splitting case policy from session execution and co-locating the Terminal-Bench adapter with its attribution.
+- Converted the package smoke module to Node-executed TypeScript with its declaration removed.
+- Extended the authored-line ceiling gate to shell scripts, workflows, and TOML configuration.
 
 ### Security
 
 - Fail closed to native tools on runtime drift, missing transport, competing ownership, or rollback failure.
-- Bound worker time, memory, dispatches, per-dispatch updates, orphaned bindings, output, render data, and persisted details.
+- Bound worker memory, dispatches, per-dispatch updates, orphaned bindings, output, render data, and persisted details while preserving Pi-native tool timeouts and cancellation.
 - Reject oversized binding arguments and outer values inside the worker before host delivery.
 - Sanitize terminal controls, display arguments, results, images, and diagnostics without echoing rejected raw arguments.
 - Keep worker environment variables empty while documenting user-equivalent host authority.

@@ -2,13 +2,9 @@ import { join } from "node:path";
 
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
-	cyclePresentation,
 	loadMaxDispatches,
-	loadPresentation,
-	PRESENTATION_FILE_NAME,
-	parsePresentationArg,
+	SETTINGS_FILE_NAME,
 	SHIPPED_PTC_CONFIG,
-	savePresentation,
 	TRANSPORT_NAME,
 } from "./config.ts";
 import type { ExtensionAPI, ExtensionContext } from "./host.ts";
@@ -32,16 +28,14 @@ export type InstallPtcOptions = {
 	installRuntimeCapture?: RuntimeCaptureInstaller;
 };
 
-const PTC_COMMAND_USAGE = "Usage: /ptc [on|both|off]";
-
 function installDefaultRuntimeCapture(): PiRuntimeSharedPatchEnsure {
 	return ensureSharedPiRuntimeCapturePatch();
 }
 
 export function defaultPathResolver(cwd: string): { projectFile: string; userFile: string } {
 	return {
-		projectFile: join(cwd, CONFIG_DIR_NAME, PRESENTATION_FILE_NAME),
-		userFile: join(getAgentDir(), PRESENTATION_FILE_NAME),
+		projectFile: join(cwd, CONFIG_DIR_NAME, SETTINGS_FILE_NAME),
+		userFile: join(getAgentDir(), SETTINGS_FILE_NAME),
 	};
 }
 
@@ -54,7 +48,6 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 	let transportTool: ReturnType<typeof createPtcTool> | undefined;
 	const lifecycle = createPtcLifecycle({
 		pi,
-		initialPresentation: shipped.presentation,
 		maxParallelDispatches: shipped.maxParallelDispatches,
 		failureDetails,
 		clearRenderSnapshots() {
@@ -71,7 +64,6 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		lifecycle.capture({ compatible: false, diagnostic: patchInstallation.diagnostic });
 	} else {
 		transportTool = createPtcTool({
-			timeoutMs: shipped.timeoutMs,
 			drainTimeoutMs: shipped.drainTimeoutMs,
 			get maxDispatches() {
 				return maxDispatches;
@@ -85,40 +77,15 @@ export default function installPtc(pi: ExtensionAPI, options: InstallPtcOptions 
 		pi.registerTool(tagPtcToolDefinition(transportTool, runtimeInstaller));
 	}
 
-	pi.registerCommand("ptc", {
-		description: "Set PTC presentation: on, both, or off",
-		handler: (args: string, context: ExtensionContext) => {
-			if (!lifecycle.requireActive(context)) return;
-			const parsed = parsePresentationArg(args);
-			if (!parsed) {
-				context.ui.notify(PTC_COMMAND_USAGE, "error");
-				return;
-			}
-			const presentation = parsed === "cycle" ? cyclePresentation(lifecycle.presentation) : parsed;
-			lifecycle.setPresentation(presentation);
-			const paths = resolvePaths(context.cwd);
-			savePresentation(
-				context.isProjectTrusted() ? paths.projectFile : paths.userFile,
-				presentation,
-			);
-			lifecycle.apply(context);
-		},
-	});
-
 	pi.on("session_start", (_event, rawContext) => {
 		const context = rawContext as ExtensionContext;
 		const paths = resolvePaths(context.cwd);
-		const presentation = loadPresentation({
-			projectFile: context.isProjectTrusted() ? paths.projectFile : undefined,
-			userFile: paths.userFile,
-			fallback: shipped.presentation,
-		});
 		maxDispatches = loadMaxDispatches({
 			projectFile: context.isProjectTrusted() ? paths.projectFile : undefined,
 			userFile: paths.userFile,
 			fallback: shipped.maxDispatches,
 		});
-		lifecycle.sessionStart(context, presentation);
+		lifecycle.sessionStart(context);
 	});
 	pi.on("turn_start", (_event, rawContext) => {
 		const context = rawContext as ExtensionContext;

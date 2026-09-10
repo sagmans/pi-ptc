@@ -1,0 +1,325 @@
+{
+	"name": "transitive-ledger",
+	"description": "Traverse a 160-account counterparty graph from three seeds through open accounts only and aggregate an exact answer. Deterministic generator seed 20260904.",
+	"tools": ["read", "grep"],
+	"prompt": "The ledger/ directory in this workspace holds one .txt account file per account (acct-001.txt through acct-160.txt). Each file has three lines: line 1 is the account status, line 2 is an integer balance, line 3 is a space-separated list of counterparty account names (edges). An account is included only when its line 1 is exactly `open` AND it is reachable from the seed accounts acct-007, acct-042, or acct-133 by following counterparty edges through open accounts only. Closed accounts (any other first line) are excluded and their edges are not followed; edges naming files that do not exist are ignored; accounts unreachable from the seeds are excluded even when open. Use only the active tools for filesystem access; do not use Node or shell APIs. Compute the sorted list of included account base names (for example acct-007.txt) and the exact sum of their balances. Finish with exactly one line of the form 'EVAL_RESULT {\"names\":[...],\"sum\":N}'. Any other final line format is a failure.",
+	"files": [
+		{
+			"path": "ledger/acct-001.txt",
+			"content": "CLOSED\n832\nacct-022 acct-939 acct-111 acct-144\n"
+		},
+		{ "path": "ledger/acct-002.txt", "content": "open\n460\nacct-100 acct-944 acct-134\n" },
+		{
+			"path": "ledger/acct-003.txt",
+			"content": "open\n802\nacct-019 acct-136 acct-143 acct-149\n"
+		},
+		{ "path": "ledger/acct-004.txt", "content": "open\n505\nacct-086 acct-080\n" },
+		{ "path": "ledger/acct-005.txt", "content": "open\n457\nacct-047 acct-148\n" },
+		{
+			"path": "ledger/acct-006.txt",
+			"content": "reopen\n926\nacct-134 acct-110 acct-128 acct-045\n"
+		},
+		{ "path": "ledger/acct-007.txt", "content": "open\n746\nacct-033\n" },
+		{ "path": "ledger/acct-008.txt", "content": "open\n545\nacct-134\n" },
+		{ "path": "ledger/acct-009.txt", "content": "open?\n865\nacct-117 acct-085\n" },
+		{
+			"path": "ledger/acct-010.txt",
+			"content": "open?\n686\nacct-952 acct-046 acct-125 acct-028\n"
+		},
+		{ "path": "ledger/acct-011.txt", "content": "open\n509\nacct-116 acct-066\n" },
+		{ "path": "ledger/acct-012.txt", "content": "open\n358\nacct-110\n" },
+		{ "path": "ledger/acct-013.txt", "content": "open\n477\n\n" },
+		{ "path": "ledger/acct-014.txt", "content": "open\n835\nacct-130 acct-042 acct-085\n" },
+		{ "path": "ledger/acct-015.txt", "content": "open\n305\nacct-033 acct-124\n" },
+		{ "path": "ledger/acct-016.txt", "content": "open?\n275\nacct-077 acct-045 acct-010\n" },
+		{ "path": "ledger/acct-017.txt", "content": "open?\n465\nacct-957 acct-115 acct-005\n" },
+		{ "path": "ledger/acct-018.txt", "content": "Open\n617\nacct-043 acct-037 acct-018\n" },
+		{ "path": "ledger/acct-019.txt", "content": "open\n896\nacct-076 acct-905\n" },
+		{ "path": "ledger/acct-020.txt", "content": "reopen\n752\nacct-136 acct-018\n" },
+		{ "path": "ledger/acct-021.txt", "content": "open\n957\nacct-019\n" },
+		{ "path": "ledger/acct-022.txt", "content": "open\n982\nacct-060 acct-022\n" },
+		{ "path": "ledger/acct-023.txt", "content": "open\n439\nacct-149 acct-116 acct-020\n" },
+		{ "path": "ledger/acct-024.txt", "content": "closed\n354\nacct-087 acct-027 acct-064\n" },
+		{ "path": "ledger/acct-025.txt", "content": "open\n212\nacct-097 acct-065 acct-040\n" },
+		{ "path": "ledger/acct-026.txt", "content": "open\n427\nacct-154\n" },
+		{ "path": "ledger/acct-027.txt", "content": "open\n165\nacct-069\n" },
+		{
+			"path": "ledger/acct-028.txt",
+			"content": "open\n403\nacct-049 acct-111 acct-086 acct-043\n"
+		},
+		{ "path": "ledger/acct-029.txt", "content": "reopen\n300\nacct-029 acct-041\n" },
+		{ "path": "ledger/acct-030.txt", "content": "open\n868\nacct-104\n" },
+		{ "path": "ledger/acct-031.txt", "content": "open\n899\nacct-110 acct-083\n" },
+		{ "path": "ledger/acct-032.txt", "content": "open\n140\nacct-136 acct-142 acct-005\n" },
+		{ "path": "ledger/acct-033.txt", "content": "open\n552\nacct-062 acct-160\n" },
+		{ "path": "ledger/acct-034.txt", "content": "closed\n739\nacct-150 acct-086\n" },
+		{
+			"path": "ledger/acct-035.txt",
+			"content": "closed\n247\nacct-061 acct-049 acct-084 acct-006\n"
+		},
+		{ "path": "ledger/acct-036.txt", "content": "open\n330\nacct-034 acct-101\n" },
+		{
+			"path": "ledger/acct-037.txt",
+			"content": "closed\n753\nacct-122 acct-050 acct-077 acct-036\n"
+		},
+		{ "path": "ledger/acct-038.txt", "content": "open\n176\nacct-051 acct-111\n" },
+		{ "path": "ledger/acct-039.txt", "content": "open\n516\nacct-095\n" },
+		{ "path": "ledger/acct-040.txt", "content": "open\n795\n\n" },
+		{ "path": "ledger/acct-041.txt", "content": "open\n846\nacct-155 acct-105 acct-055\n" },
+		{ "path": "ledger/acct-042.txt", "content": "open\n381\nacct-154 acct-077 acct-070\n" },
+		{
+			"path": "ledger/acct-043.txt",
+			"content": "open\n404\nacct-084 acct-105 acct-117 acct-052\n"
+		},
+		{ "path": "ledger/acct-044.txt", "content": "open\n764\nacct-976 acct-953\n" },
+		{ "path": "ledger/acct-045.txt", "content": "opened\n321\nacct-124 acct-087\n" },
+		{ "path": "ledger/acct-046.txt", "content": "open\n229\nacct-073\n" },
+		{ "path": "ledger/acct-047.txt", "content": "open\n246\nacct-088 acct-128\n" },
+		{ "path": "ledger/acct-048.txt", "content": "open\n690\nacct-085 acct-104\n" },
+		{ "path": "ledger/acct-049.txt", "content": "open\n179\nacct-079 acct-079\n" },
+		{ "path": "ledger/acct-050.txt", "content": "open\n801\nacct-048\n" },
+		{ "path": "ledger/acct-051.txt", "content": "CLOSED\n861\nacct-135 acct-141\n" },
+		{ "path": "ledger/acct-052.txt", "content": "open\n334\n\n" },
+		{ "path": "ledger/acct-053.txt", "content": "open\n209\nacct-014 acct-134\n" },
+		{
+			"path": "ledger/acct-054.txt",
+			"content": "open?\n300\nacct-923 acct-030 acct-060 acct-039\n"
+		},
+		{ "path": "ledger/acct-055.txt", "content": "closed\n550\nacct-027 acct-096\n" },
+		{ "path": "ledger/acct-056.txt", "content": "closed\n496\nacct-112 acct-155 acct-142\n" },
+		{
+			"path": "ledger/acct-057.txt",
+			"content": "closed\n363\nacct-116 acct-130 acct-091 acct-017\n"
+		},
+		{ "path": "ledger/acct-058.txt", "content": "closed\n154\nacct-136 acct-085 acct-063\n" },
+		{ "path": "ledger/acct-059.txt", "content": "open\n524\nacct-039 acct-153\n" },
+		{ "path": "ledger/acct-060.txt", "content": "open\n468\nacct-080 acct-936\n" },
+		{
+			"path": "ledger/acct-061.txt",
+			"content": "reopen\n899\nacct-092 acct-040 acct-042 acct-081\n"
+		},
+		{ "path": "ledger/acct-062.txt", "content": "open\n799\nacct-089 acct-014 acct-012\n" },
+		{ "path": "ledger/acct-063.txt", "content": "opened\n846\nacct-033 acct-076 acct-079\n" },
+		{ "path": "ledger/acct-064.txt", "content": "open\n487\nacct-097\n" },
+		{ "path": "ledger/acct-065.txt", "content": "open?\n212\nacct-105 acct-045 acct-118\n" },
+		{ "path": "ledger/acct-066.txt", "content": "open\n808\nacct-155\n" },
+		{ "path": "ledger/acct-067.txt", "content": "open\n312\nacct-050\n" },
+		{ "path": "ledger/acct-068.txt", "content": "open\n433\nacct-023 acct-052\n" },
+		{ "path": "ledger/acct-069.txt", "content": "(open)\n606\nacct-154 acct-095 acct-096\n" },
+		{ "path": "ledger/acct-070.txt", "content": "open\n680\nacct-130 acct-013\n" },
+		{ "path": "ledger/acct-071.txt", "content": "opened\n600\nacct-091 acct-122 acct-143\n" },
+		{ "path": "ledger/acct-072.txt", "content": "open\n689\n\n" },
+		{ "path": "ledger/acct-073.txt", "content": "open\n943\nacct-105 acct-155\n" },
+		{ "path": "ledger/acct-074.txt", "content": "open\n165\nacct-127 acct-067\n" },
+		{ "path": "ledger/acct-075.txt", "content": "open\n573\nacct-125\n" },
+		{
+			"path": "ledger/acct-076.txt",
+			"content": "open\n344\nacct-118 acct-085 acct-029 acct-086\n"
+		},
+		{ "path": "ledger/acct-077.txt", "content": "open\n569\nacct-005 acct-105 acct-145\n" },
+		{ "path": "ledger/acct-078.txt", "content": "open?\n695\nacct-059 acct-106\n" },
+		{ "path": "ledger/acct-079.txt", "content": "open\n580\nacct-053 acct-101\n" },
+		{ "path": "ledger/acct-080.txt", "content": "CLOSED\n359\nacct-084 acct-036 acct-078\n" },
+		{
+			"path": "ledger/acct-081.txt",
+			"content": "closed\n152\nacct-025 acct-091 acct-052 acct-109\n"
+		},
+		{ "path": "ledger/acct-082.txt", "content": "open\n599\nacct-044\n" },
+		{ "path": "ledger/acct-083.txt", "content": "open\n622\nacct-125 acct-034 acct-068\n" },
+		{ "path": "ledger/acct-084.txt", "content": "open\n109\n\n" },
+		{
+			"path": "ledger/acct-085.txt",
+			"content": "open\n736\nacct-105 acct-084 acct-974 acct-097\n"
+		},
+		{ "path": "ledger/acct-086.txt", "content": "open\n903\n\n" },
+		{ "path": "ledger/acct-087.txt", "content": "open\n174\nacct-026 acct-056\n" },
+		{ "path": "ledger/acct-088.txt", "content": "open\n509\nacct-038\n" },
+		{ "path": "ledger/acct-089.txt", "content": "open\n966\nacct-043 acct-978\n" },
+		{ "path": "ledger/acct-090.txt", "content": "open\n171\nacct-160\n" },
+		{
+			"path": "ledger/acct-091.txt",
+			"content": "open?\n625\nacct-026 acct-110 acct-014 acct-013\n"
+		},
+		{ "path": "ledger/acct-092.txt", "content": "open\n705\nacct-111 acct-100\n" },
+		{ "path": "ledger/acct-093.txt", "content": "CLOSED\n163\nacct-135 acct-117\n" },
+		{
+			"path": "ledger/acct-094.txt",
+			"content": "open \n671\nacct-103 acct-155 acct-095 acct-142\n"
+		},
+		{ "path": "ledger/acct-095.txt", "content": "open\n417\nacct-088\n" },
+		{ "path": "ledger/acct-096.txt", "content": "open\n920\nacct-051 acct-103\n" },
+		{ "path": "ledger/acct-097.txt", "content": "open\n661\nacct-048\n" },
+		{ "path": "ledger/acct-098.txt", "content": "closed\n881\nacct-141 acct-002\n" },
+		{ "path": "ledger/acct-099.txt", "content": "(open)\n195\nacct-035 acct-103\n" },
+		{ "path": "ledger/acct-100.txt", "content": "open\n242\nacct-043 acct-088 acct-120\n" },
+		{ "path": "ledger/acct-101.txt", "content": "open\n590\nacct-116 acct-083 acct-096\n" },
+		{ "path": "ledger/acct-102.txt", "content": "open\n463\nacct-089 acct-953\n" },
+		{ "path": "ledger/acct-103.txt", "content": "open\n751\nacct-053 acct-082\n" },
+		{ "path": "ledger/acct-104.txt", "content": "open\n952\n\n" },
+		{ "path": "ledger/acct-105.txt", "content": "open\n429\n\n" },
+		{ "path": "ledger/acct-106.txt", "content": "Open\n663\nacct-143 acct-110\n" },
+		{
+			"path": "ledger/acct-107.txt",
+			"content": "open \n139\nacct-010 acct-015 acct-115 acct-128\n"
+		},
+		{
+			"path": "ledger/acct-108.txt",
+			"content": "open\n394\nacct-130 acct-066 acct-153 acct-943\n"
+		},
+		{
+			"path": "ledger/acct-109.txt",
+			"content": "closed\n455\nacct-081 acct-959 acct-010 acct-094\n"
+		},
+		{ "path": "ledger/acct-110.txt", "content": "open\n942\nacct-053 acct-082 acct-122\n" },
+		{ "path": "ledger/acct-111.txt", "content": "open\n448\nacct-041 acct-047 acct-003\n" },
+		{ "path": "ledger/acct-112.txt", "content": "open\n154\nacct-044 acct-093\n" },
+		{
+			"path": "ledger/acct-113.txt",
+			"content": "closed\n349\nacct-046 acct-041 acct-095 acct-005\n"
+		},
+		{ "path": "ledger/acct-114.txt", "content": "open\n990\nacct-067\n" },
+		{
+			"path": "ledger/acct-115.txt",
+			"content": "open \n911\nacct-970 acct-071 acct-094 acct-082\n"
+		},
+		{ "path": "ledger/acct-116.txt", "content": "open\n242\nacct-139\n" },
+		{ "path": "ledger/acct-117.txt", "content": "open\n854\nacct-051 acct-030\n" },
+		{ "path": "ledger/acct-118.txt", "content": "open\n878\nacct-155 acct-089\n" },
+		{ "path": "ledger/acct-119.txt", "content": "Open\n114\nacct-044 acct-048\n" },
+		{ "path": "ledger/acct-120.txt", "content": "open\n842\n\n" },
+		{ "path": "ledger/acct-121.txt", "content": "opened\n828\nacct-022 acct-127\n" },
+		{
+			"path": "ledger/acct-122.txt",
+			"content": "CLOSED\n434\nacct-030 acct-129 acct-055 acct-135\n"
+		},
+		{ "path": "ledger/acct-123.txt", "content": "open\n658\nacct-135 acct-130\n" },
+		{ "path": "ledger/acct-124.txt", "content": "opened\n341\nacct-005 acct-156\n" },
+		{ "path": "ledger/acct-125.txt", "content": "open\n272\nacct-073 acct-103 acct-022\n" },
+		{ "path": "ledger/acct-126.txt", "content": "open\n734\nacct-143\n" },
+		{ "path": "ledger/acct-127.txt", "content": "open?\n111\nacct-138 acct-067 acct-147\n" },
+		{ "path": "ledger/acct-128.txt", "content": "open\n369\n\n" },
+		{ "path": "ledger/acct-129.txt", "content": "open\n189\nacct-137 acct-004\n" },
+		{
+			"path": "ledger/acct-130.txt",
+			"content": "open\n902\nacct-155 acct-082 acct-123 acct-027\n"
+		},
+		{ "path": "ledger/acct-131.txt", "content": "open\n256\n\n" },
+		{ "path": "ledger/acct-132.txt", "content": "(open)\n952\nacct-022 acct-008\n" },
+		{ "path": "ledger/acct-133.txt", "content": "open\n467\nacct-032 acct-033 acct-057\n" },
+		{
+			"path": "ledger/acct-134.txt",
+			"content": "open\n419\nacct-105 acct-084 acct-045 acct-096\n"
+		},
+		{ "path": "ledger/acct-135.txt", "content": "opened\n868\nacct-067 acct-110 acct-088\n" },
+		{ "path": "ledger/acct-136.txt", "content": "open\n803\nacct-048\n" },
+		{ "path": "ledger/acct-137.txt", "content": "open\n571\n\n" },
+		{
+			"path": "ledger/acct-138.txt",
+			"content": "Open\n560\nacct-053 acct-960 acct-096 acct-152\n"
+		},
+		{ "path": "ledger/acct-139.txt", "content": "open\n315\nacct-088 acct-115 acct-927\n" },
+		{ "path": "ledger/acct-140.txt", "content": "opened\n911\nacct-144 acct-078 acct-051\n" },
+		{ "path": "ledger/acct-141.txt", "content": "open\n630\nacct-107 acct-077\n" },
+		{ "path": "ledger/acct-142.txt", "content": "open\n806\nacct-148 acct-986\n" },
+		{ "path": "ledger/acct-143.txt", "content": "open\n145\n\n" },
+		{ "path": "ledger/acct-144.txt", "content": "reopen\n422\nacct-142 acct-002 acct-001\n" },
+		{ "path": "ledger/acct-145.txt", "content": "open\n735\nacct-047\n" },
+		{ "path": "ledger/acct-146.txt", "content": "open\n920\nacct-139 acct-114 acct-033\n" },
+		{ "path": "ledger/acct-147.txt", "content": "open \n368\nacct-153 acct-147 acct-013\n" },
+		{ "path": "ledger/acct-148.txt", "content": "open\n283\nacct-069\n" },
+		{
+			"path": "ledger/acct-149.txt",
+			"content": "open\n835\nacct-048 acct-108 acct-118 acct-027\n"
+		},
+		{
+			"path": "ledger/acct-150.txt",
+			"content": "open\n625\nacct-085 acct-103 acct-075 acct-022\n"
+		},
+		{
+			"path": "ledger/acct-151.txt",
+			"content": "CLOSED\n476\nacct-147 acct-125 acct-007 acct-088\n"
+		},
+		{
+			"path": "ledger/acct-152.txt",
+			"content": "opened\n102\nacct-924 acct-097 acct-018 acct-075\n"
+		},
+		{ "path": "ledger/acct-153.txt", "content": "open\n651\nacct-947\n" },
+		{ "path": "ledger/acct-154.txt", "content": "open\n971\nacct-149 acct-083 acct-034\n" },
+		{ "path": "ledger/acct-155.txt", "content": "open\n428\nacct-009\n" },
+		{ "path": "ledger/acct-156.txt", "content": "open\n836\nacct-018 acct-150\n" },
+		{ "path": "ledger/acct-157.txt", "content": "open\n130\nacct-146 acct-052 acct-063\n" },
+		{ "path": "ledger/acct-158.txt", "content": "open\n413\nacct-135\n" },
+		{ "path": "ledger/acct-159.txt", "content": "opened\n726\nacct-048 acct-116\n" },
+		{ "path": "ledger/acct-160.txt", "content": "open\n379\nacct-076 acct-142 acct-088\n" }
+	],
+	"expected": {
+		"names": [
+			"acct-003.txt",
+			"acct-005.txt",
+			"acct-007.txt",
+			"acct-012.txt",
+			"acct-013.txt",
+			"acct-014.txt",
+			"acct-019.txt",
+			"acct-022.txt",
+			"acct-023.txt",
+			"acct-027.txt",
+			"acct-030.txt",
+			"acct-032.txt",
+			"acct-033.txt",
+			"acct-038.txt",
+			"acct-041.txt",
+			"acct-042.txt",
+			"acct-043.txt",
+			"acct-044.txt",
+			"acct-047.txt",
+			"acct-048.txt",
+			"acct-052.txt",
+			"acct-053.txt",
+			"acct-060.txt",
+			"acct-062.txt",
+			"acct-066.txt",
+			"acct-068.txt",
+			"acct-070.txt",
+			"acct-073.txt",
+			"acct-076.txt",
+			"acct-077.txt",
+			"acct-082.txt",
+			"acct-083.txt",
+			"acct-084.txt",
+			"acct-085.txt",
+			"acct-086.txt",
+			"acct-088.txt",
+			"acct-089.txt",
+			"acct-096.txt",
+			"acct-097.txt",
+			"acct-103.txt",
+			"acct-104.txt",
+			"acct-105.txt",
+			"acct-108.txt",
+			"acct-110.txt",
+			"acct-111.txt",
+			"acct-116.txt",
+			"acct-117.txt",
+			"acct-118.txt",
+			"acct-123.txt",
+			"acct-125.txt",
+			"acct-128.txt",
+			"acct-130.txt",
+			"acct-133.txt",
+			"acct-134.txt",
+			"acct-136.txt",
+			"acct-139.txt",
+			"acct-142.txt",
+			"acct-143.txt",
+			"acct-145.txt",
+			"acct-148.txt",
+			"acct-149.txt",
+			"acct-153.txt",
+			"acct-154.txt",
+			"acct-155.txt",
+			"acct-160.txt"
+		],
+		"sum": 38164
+	}
+}

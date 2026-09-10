@@ -85,7 +85,6 @@ export const MAX_FALLBACK_RENDER_BYTES = 1_024;
 export const DEEP_PROTOTYPE_LEVELS = 256;
 export const MAX_EXPECTED_PROTOTYPE_TRAPS = 64;
 export const LIMITS = {
-	timeoutMs: 2000,
 	maxDispatches: SHIPPED_PTC_CONFIG.maxDispatches,
 	maxOutputBytes: 51200,
 	maxOutputLines: 2000,

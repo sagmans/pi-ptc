@@ -1,4 +1,4 @@
-import { type Presentation, TRANSPORT_NAME } from "./config.ts";
+import { TRANSPORT_NAME } from "./config.ts";
 import type {
 	CapturedPiSession,
 	PiRuntimeActionsInstallation,
@@ -27,7 +27,6 @@ export type ToolCatalogRefreshFailure = {
 
 export type CreateToolCatalogOptions = {
 	session: CapturedPiSession;
-	getPresentation(): Presentation;
 	onRefreshFailure?(failure: ToolCatalogRefreshFailure): void;
 };
 
@@ -90,13 +89,11 @@ export function createToolCatalog(options: CreateToolCatalogOptions): ToolCatalo
 		logical: readonly string[],
 	): { tools: string[]; missingTransport: boolean } =>
 		resolveActiveTools({
-			presentation: options.getPresentation(),
 			logical,
 			registered: [...entriesByName.keys()],
 		});
 	const getVirtualActiveTools = (): string[] => {
-		const presentation = options.getPresentation();
-		if (presentation === "native" || !entriesByName.has(TRANSPORT_NAME)) {
+		if (!entriesByName.has(TRANSPORT_NAME)) {
 			return [...logicalActiveTools];
 		}
 		return [...logicalActiveTools, TRANSPORT_NAME];

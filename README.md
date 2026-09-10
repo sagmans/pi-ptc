@@ -4,8 +4,8 @@ Programmatic Tool Call for Pi. The model writes one TypeScript program against
 the tools active in the current Pi session. Nested results stay inside the
 program; only its captured logs and return value re-enter model context.
 
-The default `code` presentation exposes only `ptc` to the model. `both`
-exposes `ptc` and the active tools; `native` disables PTC.
+When loaded, pi-ptc exposes only `ptc` to the model. There are no other
+presentations: disabling the extension restores native tools.
 
 > PTC runs model-written code with user-equivalent authority. Its worker is
 > containment, not a sandbox. Tool-specific gate and permission extensions do
@@ -24,8 +24,8 @@ Aggregation is deterministic because normal code performs the transformation. Fo
 example, a program can read many files, select exact fields, sort them, and return
 one small JSON value without asking the model to summarize each tool response.
 
-The `code` presentation reduces the callable model-facing tool list to `ptc`; it
-does not remove tool awareness or all schema prompt cost. Generated binding
+Reducing the callable model-facing tool list to `ptc` does not remove tool
+awareness or all schema prompt cost. Generated binding
 signatures remain in the `ptc` description so the model can write valid calls.
 
 ## Requirements
@@ -81,7 +81,7 @@ uses a fixed snapshot of that list.
 The SDK displays schemas as reference notation, not as executable calls:
 
 ```text
-tools.read arguments: { path: string; offset?: number; limit?: number }
+tools.read arguments: { path: string; offset?: number; limit?: number }; returns: { text: string; [key: string]: JsonValue }
 ```
 
 Pass concrete values in program code:
@@ -124,7 +124,7 @@ const [pkg, config] = await Promise.all([
 ]);
 return {
   name: JSON.parse(pkg.text).name,
-  presentation: JSON.parse(config.text).presentation,
+  version: JSON.parse(pkg.text).version,
 };
 ```
 
@@ -151,8 +151,9 @@ try {
 ```
 
 Uncaught PTC failures contain a stable code, cause, resolution, and retry
-safety. The agent uses this information to submit a corrected call. PTC does
-not rewrite programs or retry calls automatically.
+safety. Lossless-JSON failures also identify the exact rejected path, such as
+`$.result.rows[0].value`. The agent uses this information to submit a corrected
+call. PTC does not rewrite programs or retry calls automatically.
 
 Adapter authorization remains adapter-owned when a program uses an adapter
 binding. Direct Node.js operations do not use adapter policy. PTC does not
@@ -187,23 +188,8 @@ temporary process-scoped directory.
 
 ## Presentation
 
-| Setting | Model-visible tools |
-|---|---|
-| `code` | `ptc` only |
-| `both` | `ptc` plus the logical active set |
-| `native` | Logical active set only |
-
-Set it with:
-
-```text
-/ptc on
-/ptc both
-/ptc off
-```
-
-With no argument, `/ptc` cycles through the three settings. A trusted project
-`.pi/ptc.json` overrides `~/.pi/agent/ptc.json`; the shipped default is
-`code`.
+pi-ptc is code-only: when loaded, the model sees exactly `ptc` and nothing
+else. Unloading the extension restores the logical active set.
 
 PTC preserves Pi's logical active-tool state while changing what the model sees.
 Tool refreshes and additive dynamic loading update later PTC runs. Each running
@@ -223,7 +209,9 @@ Each `ptc` call:
 6. Sends only `{ logs, result? }` to model context.
 
 Tools honor their Pi `executionMode`. Without one, `bash`, `edit`, and
-`write` run exclusively; other tools may run in parallel.
+`write` run exclusively; other tools may run in parallel. PTC sets no
+program-wide deadline. Nested tools keep their own timeout behavior, and Pi or
+user cancellation aborts the worker and active nested tools.
 
 The worker has an empty environment, but the program retains ambient Node.js
 authority. It can access files, processes, and networks without a `tools.*` call.
@@ -246,7 +234,6 @@ exhausted, PTC keeps a deterministic preview instead of a partial native result.
 
 Shipped limits live in [`config.json`](config.json). Defaults include:
 
-- 120-second program timeout;
 - 1000 dispatches per program;
 - 100 progress updates per dispatch;
 - 10 parallel dispatches;
@@ -256,7 +243,8 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 - 2,000,000-byte render and 3,000,000-byte persistence budgets.
 
 Output-limit failures report the measured byte or line count without echoing the
-rejected output. A trusted project `.pi/ptc.json` overrides `~/.pi/agent/ptc.json` for presentation and `maxDispatches`.
+rejected output. A trusted project `.pi/ptc.json` overrides `~/.pi/agent/ptc.json`
+for `maxDispatches`.
 
 ## Compatibility
 
@@ -294,8 +282,10 @@ npm run verify
 npm run test:bun
 ```
 
-The PTC evaluation harness and its methodology live in
-[`docs/evaluation.md`](docs/evaluation.md).
+Compare with and without pi-ptc across behavior cases through `npm run eval:compare`.
+The harness collects raw evidence and measured counters. Humans and LLMs assess
+accuracy, compare all metrics, and analyze results. See the
+[suites, commands, and review workflow](docs/evaluation.md).
 
 `npm run verify` runs formatting, type checks, and Node tests.
 `npm run test:bun` covers the shipped Pi/Bun worker and renderer bindings.

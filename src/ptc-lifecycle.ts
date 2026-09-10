@@ -53,7 +53,6 @@ import {
 import { createToolExecutor, isNestedPtcToolCall } from "./tool-executor.ts";
 
 export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleController {
-	let presentation = options.initialPresentation;
 	let catalog: ToolCatalog | undefined;
 	let capturedSession: CapturedPiSession | undefined;
 	let eventFinalizers: PiRuntimeEventFinalizersInstallation | undefined;
@@ -169,24 +168,16 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 		try {
 			const resolved = catalog?.applyPhysical();
 			if (resolved?.missingTransport) {
-				presentation = "native";
 				context.ui.notify(MISSING_TRANSPORT_MESSAGE, "warning");
 			}
-			context.ui.setStatus(STATUS_KEY, `ptc: ${presentation}`);
+			context.ui.setStatus(STATUS_KEY, "ptc: code");
 		} catch (error) {
 			becomeCapturedRuntimeInert(error, context);
 		}
 	};
 	const controller: PtcLifecycleController = {
-		get presentation() {
-			return presentation;
-		},
-		setPresentation(value) {
-			presentation = value;
-		},
-		sessionStart(context, value) {
+		sessionStart(context) {
 			lastContext = context;
-			presentation = value;
 			if (!requireNoCompetingOwner(context)) return;
 			if (inertMessage) {
 				reportInert(context);
@@ -242,7 +233,6 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 			try {
 				catalog = createToolCatalog({
 					session,
-					getPresentation: () => presentation,
 					onRefreshFailure: (failure) => becomeRefreshFailureInert(failure, lastContext),
 				});
 				eventFinalizers = session.installRuntimeEventFinalizers({
@@ -342,7 +332,7 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 			if (typeof event?.toolCallId === "string" && isNestedPtcToolCall(event.toolCallId)) {
 				return result;
 			}
-			if (isBlockingToolCallResult(result) || presentation !== "code") return result;
+			if (isBlockingToolCallResult(result)) return result;
 			if (typeof event?.toolName !== "string") return result;
 			try {
 				return catalog?.getLogicalActiveTools().includes(event.toolName)
@@ -355,7 +345,7 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 		},
 		finalizeBeforeAgentStart(args, result, rawContext) {
 			const context = rawContext as ExtensionContext;
-			if (!requireNoCompetingOwner(context) || !hasActiveCatalog() || presentation === "native") {
+			if (!requireNoCompetingOwner(context) || !hasActiveCatalog()) {
 				if (inertMessage) reportInert(context);
 				return result;
 			}
@@ -377,12 +367,10 @@ export function createPtcLifecycle(options: PtcLifecycleOptions): PtcLifecycleCo
 						? originalPrompt
 						: "";
 			let systemPrompt = `${effectivePrompt}\n\n${sdkPrompt}`;
-			if (presentation === "code") {
-				const promptOptions = args[BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX] as
-					| { skills?: SkillPromptInput[] }
-					| undefined;
-				systemPrompt += renderSkillsPrompt(promptOptions?.skills ?? []);
-			}
+			const promptOptions = args[BEFORE_AGENT_START_OPTIONS_ARGUMENT_INDEX] as
+				| { skills?: SkillPromptInput[] }
+				| undefined;
+			systemPrompt += renderSkillsPrompt(promptOptions?.skills ?? []);
 			return aggregate ? { ...aggregate, systemPrompt } : { systemPrompt };
 		},
 	};

@@ -3,12 +3,12 @@ import test from "node:test";
 
 import { SHIPPED_PTC_CONFIG } from "../src/config.ts";
 
-test("shipped presentation is code", () => {
-	assert.equal(SHIPPED_PTC_CONFIG.presentation, "code");
+test("shipped config is code-only without presentation selection", () => {
+	assert.equal(Object.hasOwn(SHIPPED_PTC_CONFIG, "presentation"), false);
 });
 
 test("shipped limits come from config.json", () => {
-	assert.equal(SHIPPED_PTC_CONFIG.timeoutMs, 120000);
+	assert.equal(Object.hasOwn(SHIPPED_PTC_CONFIG, "timeoutMs"), false);
 	assert.equal(SHIPPED_PTC_CONFIG.drainTimeoutMs, 5000);
 	assert.equal(SHIPPED_PTC_CONFIG.maxOrphanedBindings, 100);
 	assert.equal(SHIPPED_PTC_CONFIG.maxParallelDispatches, 10);

@@ -46,7 +46,6 @@ test("runCode calls host bindings and returns their JSON value", async () => {
 				echo: async (args) => args,
 			},
 		},
-		timeoutMs: 1500,
 	});
 	assert.deepEqual(outcome, { logs: [], result: { n: 3 } });
 });
@@ -92,12 +91,32 @@ test("runCode identifies invalid binding arguments before dispatch", async () =>
 		},
 	});
 	assert.equal(bindingCalls, 0);
-	assert.equal(outcome.error?.kind, "binding-arguments-json");
+	assert.deepEqual(outcome.error, {
+		kind: "binding-arguments-json",
+		toolName: "echo",
+		message: "value at $.when is not lossless JSON: object must be a plain object or dense array",
+	});
+});
+
+test("runCode classifies unreadable binding arguments before dispatch", async () => {
+	const outcome = await runCode({
+		program:
+			'const source = Object.defineProperty({}, "blocked", { enumerable: true, get() { throw new Error("private"); } }); return await tools.echo(source);',
+		bindings: { functions: { echo: async (args) => args } },
+	});
+	assert.deepEqual(outcome.error, {
+		kind: "binding-arguments-json",
+		toolName: "echo",
+		message: "value at $.blocked is not lossless JSON: property could not be read",
+	});
 });
 
 test("runCode identifies invalid final program results", async () => {
 	const outcome = await runCode({ program: "return { missing: undefined };" });
-	assert.equal(outcome.error?.kind, "program-result-json");
+	assert.deepEqual(outcome.error, {
+		kind: "program-result-json",
+		message: "value at $.missing is not lossless JSON: undefined is unsupported",
+	});
 });
 
 test("runCode treats invalid host binding results as retry-unsafe delivery failures", async () => {
@@ -112,7 +131,7 @@ test("runCode treats invalid host binding results as retry-unsafe delivery failu
 	assert.deepEqual(outcome.error, {
 		kind: "result-delivery",
 		toolName: "bad_result",
-		message: "value is not lossless JSON: undefined is unsupported",
+		message: "value at $.missing is not lossless JSON: undefined is unsupported",
 	});
 });
 

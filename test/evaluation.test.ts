@@ -1,20 +1,41 @@
 import { strict as assert } from "node:assert";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { judgeCaseResult, loadCaseDefinition, materializeCase } from "../eval/case-runner.mjs";
+import { judgeCaseResult, loadCaseDefinition, materializeCase } from "../eval/case-definition.ts";
 import {
 	buildRunMatrix,
 	extractMetricsFromSession,
+	runKey,
 	shouldAbortInflight,
 	startGateAllowsRun,
-	summarizeRuns,
 	validateEvalConfig,
-} from "../eval/metrics.mjs";
-import { buildDryRun } from "../eval/run.mjs";
+} from "../eval/metrics.ts";
+import { buildDryRun, loadCompletedRuns, parseArguments, selectPendingRuns } from "../eval/run.ts";
 
-const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
+const CONFIG_PATH = new URL("../eval/config.core.json", import.meta.url);
+const TEXT_EDITING_CONFIG_PATH = new URL("../eval/config.text-editing.json", import.meta.url);
+const GRAPH_TRAVERSAL_SMOKE_CONFIG_PATH = new URL(
+	"../eval/config.graph-traversal-smoke.json",
+	import.meta.url,
+);
+const GRAPH_TRAVERSAL_CONFIG_PATH = new URL("../eval/config.graph-traversal.json", import.meta.url);
+const ADAPTIVE_RETRIEVAL_CONFIG_PATH = new URL(
+	"../eval/config.adaptive-retrieval.json",
+	import.meta.url,
+);
+const STRUCTURED_RETRIEVAL_CONFIG_PATH = new URL(
+	"../eval/config.structured-retrieval.json",
+	import.meta.url,
+);
+const RETRIEVAL_RUNS = 156;
+const GRAPH_TRAVERSAL_RUNS = 48;
+const ASTRA_MODELS = ["medium", "high", "xhigh"].map((thinking) => ({
+	provider: "openai-codex",
+	model: "gpt-6-astra",
+	thinking,
+}));
 const CASES_DIRECTORY = new URL("../eval/cases/", import.meta.url);
 
 type TestConfig = {
@@ -24,19 +45,18 @@ type TestConfig = {
 	expectedRuns: number;
 	maxCostUsd: number;
 	forbiddenProviders: string[];
-	catalogDecoyCount: number;
 	cases: string[];
 };
 
-function loadConfig(): TestConfig {
-	return JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as TestConfig;
+function loadConfig(path = CONFIG_PATH): TestConfig {
+	return JSON.parse(readFileSync(path, "utf8")) as TestConfig;
 }
 
 test("evaluation configuration validates the exact approved matrix", () => {
 	const config = validateEvalConfig(loadConfig());
 	assert.deepEqual(config.errors, []);
 	const runs = buildRunMatrix(config.value);
-	assert.equal(runs.length, 32);
+	assert.equal(runs.length, 16);
 	assert.equal(
 		new Set(
 			runs.map(
@@ -44,8 +64,20 @@ test("evaluation configuration validates the exact approved matrix", () => {
 					`${run.model.provider}/${run.model.model}/${run.case}/${run.condition}/${run.repetition}`,
 			),
 		).size,
-		32,
+		16,
 	);
+});
+
+test("Terminal-Bench pilot configuration isolates one case in an 8-run matrix", async () => {
+	const config = validateEvalConfig(loadConfig(TEXT_EDITING_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.equal(buildRunMatrix(config.value).length, 8);
+	assert.deepEqual(config.value.cases, ["large-scale-text-editing"]);
+	const definition = await loadCaseDefinition("large-scale-text-editing", CASES_DIRECTORY);
+	assert.equal(definition.judge, "large-scale-text-editing");
+	if (definition.judge !== "large-scale-text-editing") assert.fail("unexpected case judge");
+	assert.equal(definition.rowCount, 1_000_000);
+	assert.equal(definition.settleTimeoutMs, 1_200_000);
 });
 
 test("configuration rejects duplicates, negative limits, and forbidden providers", () => {
@@ -79,28 +111,24 @@ test("repetition two reverses condition order to reduce ordering bias", () => {
 	const runs = buildRunMatrix(validateEvalConfig(loadConfig()).value);
 	const first = runs.filter((run) => run.repetition === 1).map((run) => run.condition);
 	const second = runs.filter((run) => run.repetition === 2).map((run) => run.condition);
-	assert.deepEqual(first.slice(0, 4), ["absent", "native", "both", "code"]);
-	assert.deepEqual(second.slice(0, 4), ["code", "both", "native", "absent"]);
-	assert.notDeepEqual(first.slice(0, 4), second.slice(0, 4));
+	assert.deepEqual(first.slice(0, 2), ["absent", "code"]);
+	assert.deepEqual(second.slice(0, 2), ["code", "absent"]);
+	assert.notDeepEqual(first.slice(0, 2), second.slice(0, 2));
 });
 
 test("cases materialize deterministic workspaces and judge exact results", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-case-"));
 	try {
 		const definition = await loadCaseDefinition("dependent-reads", CASES_DIRECTORY);
+		assert.ok("expected" in definition);
 		await materializeCase(definition, directory, "code");
 		const names = readdirSync(join(directory, "records")).sort();
 		assert.equal(
 			names.length,
 			definition.files.filter((f) => f.path.startsWith("records/")).length,
 		);
-		assert.equal(existsSync(join(directory, ".pi", "ptc.json")), true);
-		assert.equal(
-			JSON.parse(readFileSync(join(directory, ".pi", "ptc.json"), "utf8")).presentation,
-			"code",
-		);
 
-		const accepted = judgeCaseResult(
+		const accepted = await judgeCaseResult(
 			definition,
 			`noise
 EVAL_RESULT ${JSON.stringify(definition.expected)}
@@ -108,13 +136,13 @@ trailing prose`,
 		);
 		assert.equal(accepted.correct, true);
 
-		const wrongSum = judgeCaseResult(
+		const wrongSum = await judgeCaseResult(
 			definition,
 			`EVAL_RESULT ${JSON.stringify({ ...definition.expected, sum: 1 })}`,
 		);
 		assert.equal(wrongSum.correct, false);
 
-		const malformed = judgeCaseResult(definition, "no marker at all");
+		const malformed = await judgeCaseResult(definition, "no marker at all");
 		assert.equal(malformed.correct, false);
 		assert.match(malformed.reason, /EVAL_RESULT/);
 	} finally {
@@ -126,7 +154,7 @@ test("paged-read exposes only read and requires pagination", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-paged-"));
 	try {
 		const definition = await loadCaseDefinition("paged-read", CASES_DIRECTORY);
-		await materializeCase(definition, directory, "native");
+		await materializeCase(definition, directory, "code");
 		assert.deepEqual(definition.tools, ["read"]);
 		const payloadLine = definition.files[0].content
 			.split("\n")
@@ -207,72 +235,145 @@ test("budget gate never starts a run at or above the cap", () => {
 	assert.equal(shouldAbortInflight(30, 19.9, 50), false);
 });
 
-test("summary reports per-condition medians and deltas without significance claims", () => {
-	const summary = summarizeRuns([
-		{
-			model: "m",
-			case: "c",
-			condition: "absent",
-			repetition: 1,
-			correct: true,
-			assistantTurns: 4,
-			providerRequestBytes: [100],
-			visibleToolResultBytes: 50,
-			costUsd: 1,
-			wallTimeMs: 10,
-			totalTokens: 100,
-		},
-		{
-			model: "m",
-			case: "c",
-			condition: "absent",
-			repetition: 2,
-			correct: true,
-			assistantTurns: 6,
-			providerRequestBytes: [200],
-			visibleToolResultBytes: 70,
-			costUsd: 2,
-			wallTimeMs: 30,
-			totalTokens: 300,
-		},
-		{
-			model: "m",
-			case: "c",
-			condition: "code",
-			repetition: 1,
-			correct: true,
-			assistantTurns: 2,
-			providerRequestBytes: [150],
-			visibleToolResultBytes: 30,
-			costUsd: 1.5,
-			wallTimeMs: 20,
-			totalTokens: 200,
-		},
-		{
-			model: "m",
-			case: "c",
-			condition: "code",
-			repetition: 2,
-			correct: true,
-			assistantTurns: 2,
-			providerRequestBytes: [250],
-			visibleToolResultBytes: 30,
-			costUsd: 1.5,
-			wallTimeMs: 20,
-			totalTokens: 200,
-		},
-	]);
-	assert.equal(summary.conditions.absent.medianAssistantTurns, 5);
-	assert.equal(summary.conditions.code.medianAssistantTurns, 2);
-	assert.equal(summary.conditions.code.deltaAssistantTurnsVsAbsent, -3);
-	const codeRepetitions = summary.conditions.code?.repetitions as unknown[];
-	assert.equal(codeRepetitions.length, 2);
+test("graph-traversal-smoke configuration validates an 8-run single-case matrix", () => {
+	const config = validateEvalConfig(loadConfig(GRAPH_TRAVERSAL_SMOKE_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.deepEqual(config.value.cases, ["transitive-ledger"]);
+	assert.equal(buildRunMatrix(config.value).length, 8);
 });
 
-test("dry run emits 32 unique descriptors with zero cost and no provider calls", async () => {
+test("graph-traversal configuration validates a 48-run binary matrix", () => {
+	const config = validateEvalConfig(loadConfig(GRAPH_TRAVERSAL_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.deepEqual(config.value.conditions, ["absent", "code"]);
+	assert.equal(buildRunMatrix(config.value).length, GRAPH_TRAVERSAL_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, GRAPH_TRAVERSAL_RUNS);
+});
+
+test("configuration rejects unknown, removed, empty, and duplicated conditions", () => {
+	const base = loadConfig();
+	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "nope"] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "native"] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: ["absent", "both"] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: [] }).ok, false);
+	assert.equal(validateEvalConfig({ ...base, conditions: ["code", "code"] }).ok, false);
+});
+
+test("transitive-ledger materializes 160 accounts and judges the exact closure", async () => {
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-ledger-"));
+	try {
+		const definition = await loadCaseDefinition("transitive-ledger", CASES_DIRECTORY);
+		assert.ok("expected" in definition);
+		const expected = definition.expected as { names: string[]; sum: number };
+		await materializeCase(definition, directory, "code");
+		assert.equal(readdirSync(join(directory, "ledger")).length, 160);
+		assert.equal(expected.names.length, 65);
+		const accepted = await judgeCaseResult(definition, `EVAL_RESULT ${JSON.stringify(expected)}`);
+		assert.equal(accepted.correct, true);
+		const wrongSum = await judgeCaseResult(
+			definition,
+			`EVAL_RESULT ${JSON.stringify({ ...expected, sum: 0 })}`,
+		);
+		assert.equal(wrongSum.correct, false);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("retrieval cases materialize their files and judge exact results", async () => {
+	const cases = [
+		{ name: "scatter-gather", prefix: "pi-ptc-eval-scatter-", directory: "shards", files: 40 },
+		{ name: "cursor-walk", prefix: "pi-ptc-eval-cursor-", directory: "pages", files: 61 },
+		{ name: "noisy-ledger", prefix: "pi-ptc-eval-noisy-", directory: "ledger", files: 100 },
+		{ name: "single-lookup", prefix: "pi-ptc-eval-lookup-", directory: "docs", files: 12 },
+		{ name: "semantic-trail", prefix: "pi-ptc-eval-semtrail-", directory: "trail", files: 25 },
+		{ name: "broken-trail", prefix: "pi-ptc-eval-broken-", directory: "fix", files: 30 },
+	];
+	for (const retrievalCase of cases) {
+		const directory = mkdtempSync(join(tmpdir(), retrievalCase.prefix));
+		try {
+			const definition = await loadCaseDefinition(retrievalCase.name, CASES_DIRECTORY);
+			assert.ok("expected" in definition);
+			const expected = definition.expected as Record<string, unknown>;
+			await materializeCase(definition, directory, "code");
+			assert.equal(
+				readdirSync(join(directory, retrievalCase.directory)).length,
+				retrievalCase.files,
+			);
+			const accepted = await judgeCaseResult(definition, `EVAL_RESULT ${JSON.stringify(expected)}`);
+			assert.equal(accepted.correct, true);
+			const wrong = await judgeCaseResult(definition, "EVAL_RESULT {}");
+			assert.equal(wrong.correct, false);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	}
+});
+
+test("structured-retrieval validates 156 runs and expanded matrices include all Astra levels", () => {
+	const config = validateEvalConfig(loadConfig(STRUCTURED_RETRIEVAL_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.equal(buildRunMatrix(config.value).length, RETRIEVAL_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, RETRIEVAL_RUNS);
+	for (const path of [
+		STRUCTURED_RETRIEVAL_CONFIG_PATH,
+		ADAPTIVE_RETRIEVAL_CONFIG_PATH,
+		GRAPH_TRAVERSAL_CONFIG_PATH,
+	]) {
+		const astra = loadConfig(path).models.filter((model) => model.model === ASTRA_MODELS[0].model);
+		assert.deepEqual(astra, ASTRA_MODELS);
+	}
+});
+
+test("adaptive-retrieval configuration validates a 156-run matrix", () => {
+	const config = validateEvalConfig(loadConfig(ADAPTIVE_RETRIEVAL_CONFIG_PATH));
+	assert.deepEqual(config.errors, []);
+	assert.deepEqual(config.value.cases, ["single-lookup", "semantic-trail", "broken-trail"]);
+	assert.deepEqual(config.value.conditions, ["absent", "code"]);
+	assert.equal(buildRunMatrix(config.value).length, RETRIEVAL_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, RETRIEVAL_RUNS);
+});
+
+test("argument parsing defaults to one job and validates the jobs flag", () => {
+	assert.equal(parseArguments(["--config", "c", "--dry-run"]).jobs, 1);
+	assert.equal(parseArguments(["--config", "c", "--run", "--jobs", "4"]).jobs, 4);
+	for (const bad of ["0", "-2", "1.5", "many"]) {
+		assert.throws(() => parseArguments(["--config", "c", "--run", "--jobs", bad]), /--jobs/);
+	}
+});
+
+test("pending selection skips completed cells and error records resume", async () => {
+	const matrix = buildRunMatrix(validateEvalConfig(loadConfig()).value);
+	const pending = selectPendingRuns(matrix, new Set([runKey(matrix[0])]));
+	assert.equal(pending.length, matrix.length - 1);
+	assert.equal(
+		pending.some((run) => runKey(run) === runKey(matrix[0])),
+		false,
+	);
+
+	const directory = mkdtempSync(join(tmpdir(), "pi-ptc-eval-resume-"));
+	try {
+		mkdirSync(join(directory, "runs"));
+		writeFileSync(
+			join(directory, "runs", "done.json"),
+			JSON.stringify({ key: "done", correct: true }),
+		);
+		writeFileSync(
+			join(directory, "runs", "crashed.error.json"),
+			JSON.stringify({ key: "crashed" }),
+		);
+		writeFileSync(join(directory, "runs", "trace.rpc.jsonl"), "{}\n");
+		const loaded = await loadCompletedRuns(directory);
+		assert.deepEqual([...loaded.keys()], ["done"]);
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
+});
+
+test("dry run emits 16 unique descriptors with zero cost and no provider calls", async () => {
 	const dry = await buildDryRun(loadConfig(), CONFIG_PATH);
-	assert.equal(dry.runs.length, 32);
-	assert.equal(new Set(dry.runs.map((run) => run.key)).size, 32);
+	assert.equal(dry.runs.length, 16);
+	assert.equal(new Set(dry.runs.map((run) => run.key)).size, 16);
 	assert.equal(dry.providerCalls, 0);
 	assert.equal(dry.costUsd, 0);
 });

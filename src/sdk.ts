@@ -1,22 +1,42 @@
 // Prompt SDK is the model-facing contract. Keep it lexicographic and byte-stable.
 
 import { type CoreToolName, isCoreToolName } from "./config.ts";
-import {
-	renderSafeJsonStringLiteral,
-	SCHEMA_SIGNATURE_FALLBACK,
-	schemaToTypeScriptSignature,
-} from "./schema-signature.ts";
+import { renderSafeJsonStringLiteral } from "./json.ts";
+import { SCHEMA_SIGNATURE_FALLBACK, schemaToTypeScriptSignature } from "./schema-signature.ts";
 import type { ToolCatalogEntry } from "./tool-catalog.ts";
 
-const BINDING_SIGNATURES = Object.freeze({
-	bash: "{ command: string; timeout?: number }",
-	edit: "{ path: string; edits: { oldText: string; newText: string }[] }",
-	find: "{ pattern: string; path?: string; limit?: number }",
-	grep: "{ pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
-	ls: "{ path?: string; limit?: number }",
-	read: "{ path: string; offset?: number; limit?: number }",
-	write: "{ path: string; content: string }",
-} as const satisfies Record<CoreToolName, string>);
+const BINDING_CONTRACTS = Object.freeze({
+	bash: {
+		arguments: "{ command: string; timeout?: number }",
+		returns: "{ output: string; exitCode: number; [key: string]: JsonValue }",
+	},
+	edit: {
+		arguments: "{ path: string; edits: { oldText: string; newText: string }[] }",
+		returns: "{ ok: true; [key: string]: JsonValue }",
+	},
+	find: {
+		arguments: "{ pattern: string; path?: string; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	grep: {
+		arguments:
+			"{ pattern: string; path?: string; glob?: string; ignoreCase?: boolean; literal?: boolean; context?: number; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	ls: {
+		arguments: "{ path?: string; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	read: {
+		arguments: "{ path: string; offset?: number; limit?: number }",
+		returns: "{ text: string; [key: string]: JsonValue }",
+	},
+	write: {
+		arguments: "{ path: string; content: string }",
+		returns: "{ ok: true; [key: string]: JsonValue }",
+	},
+} as const satisfies Record<CoreToolName, { arguments: string; returns: string }>);
+const GENERIC_RETURN_SIGNATURE = "CanonicalToolResult";
 
 const ACTIVE_SDK_HEADER = `tools:sdk
 Call active runtime tools only from a ptc program. tools is injected; do not import it.
@@ -27,6 +47,8 @@ Binding arguments and returned results must be lossless JSON: null, booleans, fi
 Omit undefined fields or replace them with null. Convert BigInt, Date, Map, Set, class instances, and other values before crossing a boundary.
 Await every dispatch. Use Promise.all only for independent calls. Project large results before returning them.
 Successful bindings resolve to canonical JSON. Failed tool calls reject ToolCallError(toolName, message).
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+type CanonicalToolResult = { text: string; content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[]; details?: JsonValue; usage?: JsonValue };
 ToolResultDeliveryError means execution may have succeeded; retryUnsafe is true because retry may repeat effects.
 Keep logs and return values concise; intermediate binding values stay model-hidden.
 await artifact({ path, name?, mimeType? }) captures an existing regular file into session-owned storage and returns { kind: "ptc-artifact", id, name, mimeType, bytes, path }; relative paths resolve from the session cwd.
@@ -75,9 +97,10 @@ export function renderSdkPrompt(catalog: readonly ToolCatalogEntry[]): string {
 
 function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	if (isCoreToolName(entry.name)) {
+		const contract = BINDING_CONTRACTS[entry.name];
 		return {
 			name: entry.name,
-			line: `tools.${entry.name} arguments: ${BINDING_SIGNATURES[entry.name]}`,
+			line: `tools.${entry.name} arguments: ${contract.arguments}; returns: ${contract.returns}`,
 		};
 	}
 	let signature = SCHEMA_SIGNATURE_FALLBACK;
@@ -87,7 +110,10 @@ function renderCatalogToolLine(entry: ToolCatalogEntry): SdkToolLine {
 	const reference = ASCII_IDENTIFIER_PATTERN.test(entry.name)
 		? `tools.${entry.name}`
 		: `tools[${renderSafeJsonStringLiteral(entry.name)}]`;
-	return { name: entry.name, line: `${reference} arguments: ${signature}` };
+	return {
+		name: entry.name,
+		line: `${reference} arguments: ${signature}; returns: ${GENERIC_RETURN_SIGNATURE}`,
+	};
 }
 
 function compareToolLines(left: SdkToolLine, right: SdkToolLine): number {

@@ -307,3 +307,74 @@ test("shutdown, reload capture, and incompatibility revoke stale production exec
 	assert.equal(harness.notifications.filter((message) => /_toolRegistry/.test(message)).length, 1);
 	assert.equal(harness.statuses.filter((status) => status === "ptc: inert").length, 1);
 });
+
+test("execution renderers remain fixed across mutation and concurrent production runs", async () => {
+	let releaseFirst!: () => void;
+	const firstGate = new Promise<void>((resolve) => {
+		releaseFirst = resolve;
+	});
+	let markFirstStarted!: () => void;
+	const firstStarted = new Promise<void>((resolve) => {
+		markFirstStarted = resolve;
+	});
+	const firstExecutable: PiRuntimeTool = {
+		parameters: Type.Object({}),
+		async execute() {
+			markFirstStarted();
+			await firstGate;
+			return { content: [{ type: "text", text: "first result" }] };
+		},
+	};
+	const secondExecutable: PiRuntimeTool = {
+		parameters: Type.Object({}),
+		async execute() {
+			return { content: [{ type: "text", text: "second result" }] };
+		},
+	};
+	const definition = (marker: string) => ({
+		name: VISUAL_RUNTIME_TOOL_NAME,
+		renderCall: () => new Text(marker, 0, 0),
+	});
+	const harness = createFakePi([VISUAL_RUNTIME_TOOL_NAME]);
+	harness.registerRuntimeTool(
+		VISUAL_RUNTIME_TOOL_NAME,
+		firstExecutable,
+		definition("first renderer"),
+	);
+	installHarness(harness);
+	startAndCapture(harness);
+	const tool = harness.tools.get(TRANSPORT_NAME);
+	assert.ok(tool);
+	const execute = (toolCallId: string) =>
+		tool.execute(
+			toolCallId,
+			{
+				code: `return await tools.${VISUAL_RUNTIME_TOOL_NAME}({});`,
+				description: `run ${toolCallId}`,
+			},
+			undefined,
+			undefined,
+			harness.ctx,
+		);
+
+	const firstPending = execute("renderer-first");
+	await firstStarted;
+	harness.registerRuntimeTool(
+		VISUAL_RUNTIME_TOOL_NAME,
+		secondExecutable,
+		definition("second renderer"),
+	);
+	const secondResult = await execute("renderer-second");
+	harness.pi.setActiveTools([]);
+	releaseFirst();
+	const firstResult = await firstPending;
+
+	assert.match(renderToolResult(tool, firstResult, "renderer-first"), /first renderer/);
+	assert.doesNotMatch(
+		renderToolResult(tool, firstResult, "renderer-first-copy"),
+		/second renderer/,
+	);
+	assert.match(renderToolResult(tool, secondResult, "renderer-second"), /second renderer/);
+	assert.doesNotMatch(JSON.stringify(firstResult.details), /first renderer|second renderer/);
+	assert.doesNotMatch(JSON.stringify(secondResult.details), /first renderer|second renderer/);
+});

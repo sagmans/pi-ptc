@@ -27,7 +27,6 @@ import {
 	COMPETING_TOOL_NAME,
 	type EventHandler,
 	REAL_LATE_OWNER_DIRECTORY_PREFIX,
-	tempPaths,
 } from "./support/index-harness.ts";
 
 test("tagged private-shape incompatibility deactivates the owned ptc before catalog capture", async () => {
@@ -97,7 +96,6 @@ test("tagged private-shape incompatibility deactivates the owned ptc before cata
 		events: { emit() {} },
 	};
 	installPtc(pi, {
-		resolvePaths: tempPaths,
 		installRuntimeCapture() {
 			installation = installPiRuntimeCapturePatch({
 				agentSession: ShapeDriftSession,
@@ -184,10 +182,6 @@ test("real Pi late owner before ptc readiness restores native state without SDK 
 						},
 					});
 					installPtc(interceptedApi, {
-						resolvePaths: () => ({
-							projectFile: join(cwd, ".pi", "ptc.json"),
-							userFile: join(agentDir, "ptc.json"),
-						}),
 						installRuntimeCapture(installer) {
 							const capturePiRuntime = installer.capturePiRuntime.bind(installer);
 							installer.capturePiRuntime = (capture) => {

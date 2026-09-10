@@ -1,0 +1,17 @@
+{
+	"name": "large-scale-text-editing",
+	"description": "Transform one million CSV rows with three constrained Vim macros.",
+	"judge": "large-scale-text-editing",
+	"rowCount": 1000000,
+	"settleTimeoutMs": 1200000,
+	"tools": ["read", "write", "bash"],
+	"prompt": "The workspace contains input.csv with 1,000,000 rows and three comma-separated fields per row.\n\nTransform the file in place. Remove surrounding whitespace, reverse the fields, uppercase the text, replace commas with semicolons, and append ;OK. For example, '  alpha1  ,    BeTa1   ,  GaMmA1  ' becomes 'GAMMA1;BETA1;ALPHA1;OK'.\n\nRequirements:\n- Create apply_macros.vim.\n- Define three distinct, non-empty Vim macros in registers a, b, and c with call setreg.\n- Keep the total macro length below 200 keystrokes.\n- Run each macro across the file with :%normal! @a, :%normal! @b, and :%normal! @c.\n- End the script with :wq or :x.\n- Apart from comments, use only the three setreg calls, the three %normal calls, and the exit command.\n- Do not use Vim shell commands, file reads, sourced scripts, other files, or Vim scripting languages.\n- Use only active tools for filesystem and command access. Do not use Node filesystem or process APIs.\n- Run Vim to transform input.csv before you finish.\n\nThe final answer can be brief. A fresh verifier run of apply_macros.vim against regenerated input determines correctness.",
+	"files": [],
+	"provenance": {
+		"suite": "Terminal-Bench 2.1",
+		"task": "large-scale-text-editing",
+		"source": "https://github.com/harbor-framework/terminal-bench-2-1/tree/main/tasks/large-scale-text-editing",
+		"digest": "sha256:1f1cddc3df15e452fe2d3c6928f6b1e5b5330a7ae67cab373a0d089ea7d334a2",
+		"license": "Apache-2.0"
+	}
+}
