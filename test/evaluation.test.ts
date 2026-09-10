@@ -10,19 +10,27 @@ import {
 	runKey,
 	shouldAbortInflight,
 	startGateAllowsRun,
-	summarizeRuns,
 	validateEvalConfig,
 } from "../eval/metrics.ts";
 import { buildDryRun, loadCompletedRuns, parseArguments, selectPendingRuns } from "../eval/run.ts";
 
-const CONFIG_PATH = new URL("../eval/config.json", import.meta.url);
-const PILOT_CONFIG_PATH = new URL("../eval/config.terminal-bench-pilot.json", import.meta.url);
-const HEAVY_CONFIG_PATH = new URL("../eval/config.heavy-tools.json", import.meta.url);
-const CODE_VS_ABSENT_CONFIG_PATH = new URL("../eval/config.code-vs-absent.json", import.meta.url);
-const COUNTER_PROOF_CONFIG_PATH = new URL("../eval/config.counter-proof.json", import.meta.url);
-const CODE_PROOF_CONFIG_PATH = new URL("../eval/config.code-proof.json", import.meta.url);
-const PROOF_RUNS = 156;
-const CODE_VS_ABSENT_RUNS = 48;
+const CONFIG_PATH = new URL("../eval/config.core.json", import.meta.url);
+const TEXT_EDITING_CONFIG_PATH = new URL("../eval/config.text-editing.json", import.meta.url);
+const GRAPH_TRAVERSAL_SMOKE_CONFIG_PATH = new URL(
+	"../eval/config.graph-traversal-smoke.json",
+	import.meta.url,
+);
+const GRAPH_TRAVERSAL_CONFIG_PATH = new URL("../eval/config.graph-traversal.json", import.meta.url);
+const ADAPTIVE_RETRIEVAL_CONFIG_PATH = new URL(
+	"../eval/config.adaptive-retrieval.json",
+	import.meta.url,
+);
+const STRUCTURED_RETRIEVAL_CONFIG_PATH = new URL(
+	"../eval/config.structured-retrieval.json",
+	import.meta.url,
+);
+const RETRIEVAL_RUNS = 156;
+const GRAPH_TRAVERSAL_RUNS = 48;
 const ASTRA_MODELS = ["medium", "high", "xhigh"].map((thinking) => ({
 	provider: "openai-codex",
 	model: "gpt-6-astra",
@@ -61,7 +69,7 @@ test("evaluation configuration validates the exact approved matrix", () => {
 });
 
 test("Terminal-Bench pilot configuration isolates one case in an 8-run matrix", async () => {
-	const config = validateEvalConfig(loadConfig(PILOT_CONFIG_PATH));
+	const config = validateEvalConfig(loadConfig(TEXT_EDITING_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.equal(buildRunMatrix(config.value).length, 8);
 	assert.deepEqual(config.value.cases, ["large-scale-text-editing"]);
@@ -227,89 +235,19 @@ test("budget gate never starts a run at or above the cap", () => {
 	assert.equal(shouldAbortInflight(30, 19.9, 50), false);
 });
 
-test("summary reports per-condition medians and deltas without significance claims", () => {
-	const summary = summarizeRuns([
-		{
-			model: "m",
-			case: "c",
-			condition: "absent",
-			repetition: 1,
-			key: "absent-1",
-			correct: true,
-			reason: "exact match",
-			assistantTurns: 4,
-			providerRequestBytes: [100],
-			visibleToolResultBytes: 50,
-			costUsd: 1,
-			wallTimeMs: 10,
-			totalTokens: 100,
-		},
-		{
-			model: "m",
-			case: "c",
-			condition: "absent",
-			repetition: 2,
-			key: "absent-2",
-			correct: true,
-			reason: "exact match",
-			assistantTurns: 6,
-			providerRequestBytes: [200],
-			visibleToolResultBytes: 70,
-			costUsd: 2,
-			wallTimeMs: 30,
-			totalTokens: 300,
-		},
-		{
-			model: "m",
-			case: "c",
-			condition: "code",
-			repetition: 1,
-			key: "code-1",
-			correct: true,
-			reason: "exact match",
-			assistantTurns: 2,
-			providerRequestBytes: [150],
-			visibleToolResultBytes: 30,
-			costUsd: 1.5,
-			wallTimeMs: 20,
-			totalTokens: 200,
-		},
-		{
-			model: "m",
-			case: "c",
-			condition: "code",
-			repetition: 2,
-			key: "code-2",
-			correct: true,
-			reason: "exact match",
-			assistantTurns: 2,
-			providerRequestBytes: [250],
-			visibleToolResultBytes: 30,
-			costUsd: 1.5,
-			wallTimeMs: 20,
-			totalTokens: 200,
-		},
-	]);
-	assert.equal(summary.conditions.absent.medianAssistantTurns, 5);
-	assert.equal(summary.conditions.code.medianAssistantTurns, 2);
-	assert.equal(summary.conditions.code.deltaAssistantTurnsVsAbsent, -3);
-	const codeRepetitions = summary.conditions.code?.repetitions as unknown[];
-	assert.equal(codeRepetitions.length, 2);
-});
-
-test("heavy tool-use configuration validates an 8-run single-case matrix", () => {
-	const config = validateEvalConfig(loadConfig(HEAVY_CONFIG_PATH));
+test("graph-traversal-smoke configuration validates an 8-run single-case matrix", () => {
+	const config = validateEvalConfig(loadConfig(GRAPH_TRAVERSAL_SMOKE_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.cases, ["transitive-ledger"]);
 	assert.equal(buildRunMatrix(config.value).length, 8);
 });
 
-test("code-vs-absent configuration validates a 48-run binary matrix", () => {
-	const config = validateEvalConfig(loadConfig(CODE_VS_ABSENT_CONFIG_PATH));
+test("graph-traversal configuration validates a 48-run binary matrix", () => {
+	const config = validateEvalConfig(loadConfig(GRAPH_TRAVERSAL_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.conditions, ["absent", "code"]);
-	assert.equal(buildRunMatrix(config.value).length, CODE_VS_ABSENT_RUNS);
-	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, CODE_VS_ABSENT_RUNS);
+	assert.equal(buildRunMatrix(config.value).length, GRAPH_TRAVERSAL_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, GRAPH_TRAVERSAL_RUNS);
 });
 
 test("configuration rejects unknown, removed, empty, and duplicated conditions", () => {
@@ -342,7 +280,7 @@ test("transitive-ledger materializes 160 accounts and judges the exact closure",
 	}
 });
 
-test("proof cases materialize their files and judge exact results", async () => {
+test("retrieval cases materialize their files and judge exact results", async () => {
 	const cases = [
 		{ name: "scatter-gather", prefix: "pi-ptc-eval-scatter-", directory: "shards", files: 40 },
 		{ name: "cursor-walk", prefix: "pi-ptc-eval-cursor-", directory: "pages", files: 61 },
@@ -351,14 +289,17 @@ test("proof cases materialize their files and judge exact results", async () => 
 		{ name: "semantic-trail", prefix: "pi-ptc-eval-semtrail-", directory: "trail", files: 25 },
 		{ name: "broken-trail", prefix: "pi-ptc-eval-broken-", directory: "fix", files: 30 },
 	];
-	for (const proofCase of cases) {
-		const directory = mkdtempSync(join(tmpdir(), proofCase.prefix));
+	for (const retrievalCase of cases) {
+		const directory = mkdtempSync(join(tmpdir(), retrievalCase.prefix));
 		try {
-			const definition = await loadCaseDefinition(proofCase.name, CASES_DIRECTORY);
+			const definition = await loadCaseDefinition(retrievalCase.name, CASES_DIRECTORY);
 			assert.ok("expected" in definition);
 			const expected = definition.expected as Record<string, unknown>;
 			await materializeCase(definition, directory, "code");
-			assert.equal(readdirSync(join(directory, proofCase.directory)).length, proofCase.files);
+			assert.equal(
+				readdirSync(join(directory, retrievalCase.directory)).length,
+				retrievalCase.files,
+			);
 			const accepted = await judgeCaseResult(definition, `EVAL_RESULT ${JSON.stringify(expected)}`);
 			assert.equal(accepted.correct, true);
 			const wrong = await judgeCaseResult(definition, "EVAL_RESULT {}");
@@ -369,28 +310,28 @@ test("proof cases materialize their files and judge exact results", async () => 
 	}
 });
 
-test("code-proof validates 156 runs and expanded matrices include all Astra levels", () => {
-	const config = validateEvalConfig(loadConfig(CODE_PROOF_CONFIG_PATH));
+test("structured-retrieval validates 156 runs and expanded matrices include all Astra levels", () => {
+	const config = validateEvalConfig(loadConfig(STRUCTURED_RETRIEVAL_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
-	assert.equal(buildRunMatrix(config.value).length, PROOF_RUNS);
-	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, PROOF_RUNS);
+	assert.equal(buildRunMatrix(config.value).length, RETRIEVAL_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, RETRIEVAL_RUNS);
 	for (const path of [
-		CODE_PROOF_CONFIG_PATH,
-		COUNTER_PROOF_CONFIG_PATH,
-		CODE_VS_ABSENT_CONFIG_PATH,
+		STRUCTURED_RETRIEVAL_CONFIG_PATH,
+		ADAPTIVE_RETRIEVAL_CONFIG_PATH,
+		GRAPH_TRAVERSAL_CONFIG_PATH,
 	]) {
 		const astra = loadConfig(path).models.filter((model) => model.model === ASTRA_MODELS[0].model);
 		assert.deepEqual(astra, ASTRA_MODELS);
 	}
 });
 
-test("counter-proof configuration validates a 156-run matrix", () => {
-	const config = validateEvalConfig(loadConfig(COUNTER_PROOF_CONFIG_PATH));
+test("adaptive-retrieval configuration validates a 156-run matrix", () => {
+	const config = validateEvalConfig(loadConfig(ADAPTIVE_RETRIEVAL_CONFIG_PATH));
 	assert.deepEqual(config.errors, []);
 	assert.deepEqual(config.value.cases, ["single-lookup", "semantic-trail", "broken-trail"]);
 	assert.deepEqual(config.value.conditions, ["absent", "code"]);
-	assert.equal(buildRunMatrix(config.value).length, PROOF_RUNS);
-	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, PROOF_RUNS);
+	assert.equal(buildRunMatrix(config.value).length, RETRIEVAL_RUNS);
+	assert.equal(new Set(buildRunMatrix(config.value).map(runKey)).size, RETRIEVAL_RUNS);
 });
 
 test("argument parsing defaults to one job and validates the jobs flag", () => {

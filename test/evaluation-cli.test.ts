@@ -9,7 +9,9 @@ import { promisify } from "node:util";
 import { type EvalConfig, runKey } from "../eval/metrics.ts";
 import { buildDryRun, parseArguments, selectPendingRuns } from "../eval/run.ts";
 
-const CONFIG_PATH = fileURLToPath(new URL("../eval/config.counter-proof.json", import.meta.url));
+const CONFIG_PATH = fileURLToPath(
+	new URL("../eval/config.adaptive-retrieval.json", import.meta.url),
+);
 const RUNNER_PATH = fileURLToPath(new URL("../eval/run.ts", import.meta.url));
 const CASE_NAME = "semantic-trail";
 const OTHER_CASE_NAME = "unavailable-case";
@@ -173,6 +175,13 @@ test("case-filtered execution loads only selected definitions and retains resume
 		const summary = JSON.parse(readFileSync(join(resumePath, SUMMARY_FILE), "utf8"));
 		assert.equal(summary.completed, 1);
 		assert.equal(summary.totalCostUsd, config.maxCostUsd);
+		assert.deepEqual(summary.runKeys, [OTHER_CASE_NAME]);
+		assert.equal(Object.hasOwn(summary, "conditions"), false);
+		assert.equal(Object.hasOwn(summary, "failures"), false);
+		const legacy = JSON.parse(
+			readFileSync(join(resumePath, RUNS_DIRECTORY, COMPLETED_FILE), "utf8"),
+		);
+		assert.equal(legacy.correct, true);
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

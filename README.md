@@ -282,8 +282,10 @@ npm run verify
 npm run test:bun
 ```
 
-The PTC evaluation harness, its core matrix, and its adapted Terminal-Bench 2.1
-pilot live in [`docs/evaluation.md`](docs/evaluation.md).
+Compare with and without pi-ptc across behavior cases through `npm run eval:compare`.
+The harness collects raw evidence and measured counters. Humans and LLMs assess
+accuracy, compare all metrics, and analyze results. See the
+[suites, commands, and review workflow](docs/evaluation.md).
 
 `npm run verify` runs formatting, type checks, and Node tests.
 `npm run test:bun` covers the shipped Pi/Bun worker and renderer bindings.

@@ -8,14 +8,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadCaseDefinition } from "./case-definition.ts";
 import {
+	buildEvidenceIndex,
 	buildRunMatrix,
+	type CollectedRun,
 	type EvalRun,
-	type EvaluatedRun,
-	type RunSummary,
+	type EvidenceIndex,
 	runKey,
 	shouldAbortInflight,
 	startGateAllowsRun,
-	summarizeRuns,
 	validateEvalConfig,
 } from "./metrics.ts";
 import { executeRun } from "./session-runner.ts";
@@ -123,15 +123,15 @@ export function selectPendingRuns(
 	return matrix.filter((run) => !completed.has(runKey(run)));
 }
 
-export async function loadCompletedRuns(runDirectory: string): Promise<Map<string, EvaluatedRun>> {
-	const completed = new Map<string, EvaluatedRun>();
+export async function loadCompletedRuns(runDirectory: string): Promise<Map<string, CollectedRun>> {
+	const completed = new Map<string, CollectedRun>();
 	const directory = join(runDirectory, RUNS_DIRECTORY);
 	try {
 		for (const name of await readdir(directory)) {
 			// Error records mark crashed cells for resume; they are not results.
 			if (name.endsWith(ERROR_RECORD_SUFFIX)) continue;
 			if (!name.endsWith(".json") || name.startsWith(".")) continue;
-			const record = JSON.parse(await readFile(join(directory, name), "utf8")) as EvaluatedRun;
+			const record = JSON.parse(await readFile(join(directory, name), "utf8")) as CollectedRun;
 			if (record?.key) completed.set(record.key, record);
 		}
 	} catch {
@@ -146,25 +146,23 @@ async function writeAtomic(path: string, contents: string): Promise<void> {
 	await rename(temporary, path);
 }
 
-function renderSummaryMarkdown(summary: RunSummary): string {
+function renderEvidenceIndexMarkdown(summary: EvidenceIndex): string {
 	const lines = [
-		"# PTC evaluation summary",
+		"# With/without pi-ptc evidence",
 		"",
-		`Completed runs: ${summary.completed}`,
+		`Collected runs: ${summary.completed}`,
 		`Observed cost: ${summary.totalCostUsd.toFixed(2)} USD`,
 		`Note: ${summary.note}`,
 		"",
-		"| Condition | Runs | Correct | Median turns | Median request bytes | Median result bytes | Median tokens | Median cost |",
-		"|---|---|---|---|---|---|---|---|",
+		"Inspect runs/*.error.json and budgetAborted fields for incomplete executions.",
+		"",
+		"## Run records",
+		"",
 	];
-	for (const [condition, value] of Object.entries(summary.conditions)) {
-		lines.push(
-			`| ${condition} | ${value.count} | ${value.correct} | ${value.medianAssistantTurns} | ${value.medianProviderRequestBytes} | ${value.medianVisibleToolResultBytes} | ${value.medianTotalTokens} | ${value.medianCostUsd.toFixed(3)} |`,
-		);
+	for (const key of summary.runKeys) {
+		const file = encodeURIComponent(key.replaceAll("/", "_"));
+		lines.push(`- [${key}](runs/${file}.json)`);
 	}
-	lines.push("", "## Failures", "");
-	if (summary.failures.length === 0) lines.push("None.");
-	for (const failure of summary.failures) lines.push(`- ${failure.key}: ${failure.reason}`);
 	return `${lines.join("\n")}\n`;
 }
 
@@ -186,7 +184,7 @@ async function executeMatrix(options: RunOptions): Promise<void> {
 	}
 	const completed = await loadCompletedRuns(runDirectory);
 	const pending = selectPendingRuns(matrix, completed);
-	const results: EvaluatedRun[] = [...completed.values()];
+	const results: CollectedRun[] = [...completed.values()];
 	let observedCost = results.reduce((total, record) => total + (record.costUsd ?? 0), 0);
 	let budgetStopped = false;
 	// Cells mutate only their own workspace, session directory, RPC log, and
@@ -221,7 +219,7 @@ async function executeMatrix(options: RunOptions): Promise<void> {
 			results.push(record);
 			observedCost += record.costUsd ?? 0;
 			console.log(
-				`finished ${key} (correct: ${record.correct}, cost: ${(record.costUsd ?? 0).toFixed(4)} USD)`,
+				`finished ${key} (cost: ${(record.costUsd ?? 0).toFixed(4)} USD; awaiting manual review)`,
 			);
 		} catch (error) {
 			await writeAtomic(
@@ -256,9 +254,9 @@ async function executeMatrix(options: RunOptions): Promise<void> {
 		);
 	}
 	await Promise.all(workers);
-	const summary = summarizeRuns(results);
+	const summary = buildEvidenceIndex(results);
 	await writeAtomic(join(runDirectory, SUMMARY_JSON), JSON.stringify(summary, null, "\t"));
-	await writeAtomic(join(runDirectory, SUMMARY_MD), renderSummaryMarkdown(summary));
+	await writeAtomic(join(runDirectory, SUMMARY_MD), renderEvidenceIndexMarkdown(summary));
 	console.log(`run directory: ${runDirectory}`);
 }
 

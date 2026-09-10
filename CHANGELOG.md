@@ -9,7 +9,7 @@ All notable changes are documented here. The format follows
 ### Added
 
 - Select one configured evaluation case with `--case <name>` for dry runs, execution, and resume without separate configuration files.
-- Counter-proof evaluation matrix attacking PTC's weak axes: atomic-task overhead (single-lookup), comprehension-per-hop navigation (semantic-trail), and error-driven recovery (broken-trail).
+- Adaptive-retrieval evaluation cases for simple lookup, semantic navigation, and missing-link recovery.
 
 ### Removed
 
@@ -29,12 +29,12 @@ All notable changes are documented here. The format follows
 - Explicit `artifact` capture of regular files into session-owned storage with bounded references.
 - Automatic spill of oversized successful final results to `result.json` artifacts.
 - Real-Pi regression proving third-party tool_call/tool_result observers see nested `tools.read` calls.
-- Reproducible RPC evaluation harness measuring PTC against native tool calling with a 32-run matrix and best-effort cost cap.
+- RPC evidence collection for with/without-PTC comparisons, with a 16-run core matrix and a best-effort cost cap.
 - Adapted Terminal-Bench 2.1 pilot for a deterministic, one-million-row Vim transformation with workspace judging.
-- Added a 160-account transitive-ledger case with a 16-run heavy tool-use matrix for with/without-PTC comparison of tokens, wall time, turns, and tool calls.
+- A 160-account transitive-ledger case with an 8-run graph-traversal smoke matrix.
 - Run evaluation cells concurrently with `--jobs N`; crashed cells record errors without killing siblings and resume retries exactly those cells.
-- Accept any non-empty unique condition subset in evaluation configs and add a 72-run four-condition matrix across nine model configurations.
-- Add scatter-gather, cursor-walk, and noisy-ledger cases plus a 120-run code-vs-absent proof matrix across ten model configurations including xAI Grok 4.6.
+- Accept any non-empty unique subset of the supported evaluation conditions.
+- Structured-retrieval cases for aggregation, sequential dependencies, and filtering during graph traversal.
 
 ### Fixed
 
@@ -45,7 +45,9 @@ All notable changes are documented here. The format follows
 
 - Raised the default nested-dispatch limit from 100 to 1000.
 - Trusted project and user `ptc.json` files can set `maxDispatches`.
-- Add `openai-codex:gpt-6-astra` at `medium`, `high`, and `xhigh` to the expanded evaluation matrices. Code-vs-absent has 48 runs. Proof and counter-proof each have 156 runs.
+- Use one `eval:compare` entrypoint and neutral workload names for evaluation configurations. Old commands and configuration paths are removed. See the migration table in `docs/evaluation.md`.
+- Collect final answers and measured counters for manual, LLM-driven evaluation instead of automatic correctness judgments or comparative summaries. Summary files now index evidence. Historical records remain readable for resume.
+- Add `openai-codex:gpt-6-astra` at `medium`, `high`, and `xhigh` to expanded matrices. Graph traversal has 48 runs. Structured and adaptive retrieval each have 156 runs.
 - Omit duplicated `truncation.content` from canonical core `read` values; use `.text` for file content.
 - Expanded the original seven-core-tool design to the complete logical active set.
 - Fixed each running program to one immutable execution lease; refreshes apply to later runs.

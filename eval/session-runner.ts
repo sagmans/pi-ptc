@@ -3,7 +3,7 @@
 import { copyFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type CaseDefinition, judgeCaseResult, materializeCase } from "./case-definition.ts";
+import { type CaseDefinition, materializeCase } from "./case-definition.ts";
 import {
 	type EvalCondition,
 	type EvalRun,
@@ -13,7 +13,6 @@ import {
 	type SessionStats,
 } from "./metrics.ts";
 import { PiRpcClient } from "./rpc-client.ts";
-import type { LargeScaleTextEditingResult } from "./terminal-bench/large-scale-text-editing.ts";
 
 const PTC_ENTRY_PATH = fileURLToPath(new URL("../index.ts", import.meta.url));
 const OBSERVER_PATH = fileURLToPath(new URL("./observer.ts", import.meta.url));
@@ -24,8 +23,9 @@ export type EvalRunResult = {
 	case: string;
 	condition: EvalCondition;
 	repetition: number;
-} & LargeScaleTextEditingResult &
-	SessionMetrics & {
+} & SessionMetrics & {
+		finalText: string;
+		caseDefinitionPath?: string;
 		wallTimeMs: number;
 		budgetAborted: boolean;
 		sessionFile?: string;
@@ -111,7 +111,6 @@ export async function executeRun({
 		entries: entriesResponse.entries,
 		stats,
 	});
-	const judged = await judgeCaseResult(definition, lastText?.text, workspaceDirectory);
 	await writeFile(
 		rpcLogPath,
 		`${client.events.map((event) => JSON.stringify(event)).join("\n")}\n`,
@@ -133,7 +132,8 @@ export async function executeRun({
 		case: run.case,
 		condition: run.condition,
 		repetition: run.repetition,
-		...judged,
+		finalText: lastText?.text ?? "",
+		caseDefinitionPath: definition.path,
 		...metrics,
 		wallTimeMs,
 		budgetAborted,

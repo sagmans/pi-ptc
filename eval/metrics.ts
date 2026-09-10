@@ -69,31 +69,17 @@ export type SessionMetrics = {
 	strategy: "ptc" | "native" | "mixed" | "none";
 };
 
-export type SummaryRow = {
-	count: number;
-	correct: number;
-	medianAssistantTurns: number;
-	medianProviderRequestBytes: number;
-	medianVisibleToolResultBytes: number;
-	medianTotalTokens: number;
-	medianCostUsd: number;
-	[key: string]: unknown;
-};
-
-export type RunSummary = {
+export type EvidenceIndex = {
 	completed: number;
 	totalCostUsd: number;
-	failures: Array<{ key: string; reason: string }>;
-	conditions: Record<string, SummaryRow>;
+	runKeys: string[];
 	note: string;
 };
 
-export type EvaluatedRun = {
+export type CollectedRun = {
 	key: string;
 	condition: EvalCondition;
 	repetition: number;
-	correct: boolean;
-	reason: string;
 	assistantTurns: number;
 	providerRequestBytes: number[];
 	visibleToolResultBytes: number;
@@ -103,6 +89,8 @@ export type EvaluatedRun = {
 } & Record<string, unknown>;
 
 export const CONDITIONS: readonly EvalCondition[] = ["absent", "code"];
+const REVIEW_NOTE =
+	"Evaluation, comparison, and analysis are manual and LLM-driven. Counters are measurements, not verdicts.";
 const PTC_TOOL_NAME = "ptc";
 const DISPATCH_ENTRY_TYPE = "ptc-dispatch";
 const PROVIDER_BYTES_ENTRY_TYPE = "eval-provider-request-bytes";
@@ -272,61 +260,11 @@ export function shouldAbortInflight(
 	return observedCostUsd + currentRunCostUsd >= maxCostUsd;
 }
 
-function median(values: number[]): number {
-	const sorted = [...values].sort((left, right) => left - right);
-	const middle = Math.floor(sorted.length / 2);
-	return sorted.length === 0
-		? 0
-		: sorted.length % 2 === 1
-			? sorted[middle]
-			: (sorted[middle - 1] + sorted[middle]) / 2;
-}
-
-function conditionSummary(runs: readonly EvaluatedRun[]): SummaryRow {
-	return {
-		count: runs.length,
-		correct: runs.filter((run) => run.correct).length,
-		medianAssistantTurns: median(runs.map((run) => run.assistantTurns)),
-		medianProviderRequestBytes: median(
-			runs.map((run) => run.providerRequestBytes.reduce((a, b) => a + b, 0)),
-		),
-		medianVisibleToolResultBytes: median(runs.map((run) => run.visibleToolResultBytes)),
-		medianTotalTokens: median(runs.map((run) => run.totalTokens)),
-		medianCostUsd: median(runs.map((run) => run.costUsd)),
-		medianWallTimeMs: median(runs.map((run) => run.wallTimeMs)),
-		repetitions: runs.map((run) => ({
-			repetition: run.repetition,
-			correct: run.correct,
-			assistantTurns: run.assistantTurns,
-		})),
-	};
-}
-
-export function summarizeRuns(runs: readonly EvaluatedRun[]): RunSummary {
-	const conditions: Record<string, SummaryRow> = {};
-	for (const condition of CONDITIONS) {
-		const matching = runs.filter((run) => run.condition === condition);
-		if (matching.length === 0) continue;
-		const summary: SummaryRow = conditionSummary(matching);
-		const absent = conditions.absent;
-		if (absent) {
-			summary.deltaAssistantTurnsVsAbsent =
-				summary.medianAssistantTurns - absent.medianAssistantTurns;
-			summary.deltaProviderRequestBytesVsAbsent =
-				summary.medianProviderRequestBytes - absent.medianProviderRequestBytes;
-			summary.deltaVisibleToolResultBytesVsAbsent =
-				summary.medianVisibleToolResultBytes - absent.medianVisibleToolResultBytes;
-		}
-		conditions[condition] = summary;
-	}
-	// Two repetitions cannot support statistical significance claims.
+export function buildEvidenceIndex(runs: readonly CollectedRun[]): EvidenceIndex {
 	return {
 		completed: runs.length,
 		totalCostUsd: runs.reduce((total, run) => total + run.costUsd, 0),
-		failures: runs
-			.filter((run) => !run.correct)
-			.map((run) => ({ key: run.key, reason: run.reason })),
-		conditions,
-		note: "Two repetitions per cell; report deltas descriptively only.",
+		runKeys: runs.map((run) => run.key),
+		note: REVIEW_NOTE,
 	};
 }
