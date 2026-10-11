@@ -1,18 +1,98 @@
 # pi-ptc
 
-Programmatic Tool Call for Pi. The model writes one TypeScript program against
-the tools active in the current Pi session. Nested results stay inside the
-program; only its captured logs and return value re-enter model context.
+> [!WARNING]
+> **Deprecated and archived.** pi-ptc is superseded by Pi's built-in
+> [`codemode`](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/codemode.md) tool. Codemode shipped in Pi
+> [0.99.0](https://github.com/earendil-works/pi/releases/tag/v0.99.0)
+> (2026-09-29) and is part of Pi 1.x
+> ([1.0.0](https://github.com/earendil-works/pi/releases/tag/v1.0.0)). pi-ptc only
+> supports Pi 0.84.3, 0.84.4, and 0.85.0 and stays inert on newer Pi. It gets no
+> further fixes or releases. Use codemode instead.
 
-The default `code` presentation exposes only `ptc` to the model. `both`
-exposes `ptc` and the active tools; `native` disables PTC.
+pi-ptc was a Programmatic Tool Call extension for Pi. The model wrote one program
+against the active Pi tools, nested results stayed inside the program, and only
+the program's logs and return value reached the model. Pi's `codemode` does the
+same thing natively.
+
+## Migrate to Pi codemode
+
+1. Remove pi-ptc using the source you installed it from (`pi list` shows it):
+
+   ```bash
+   pi remove /absolute/path/to/pi-ptc
+   ```
+
+   Then delete `~/.pi/agent/ptc.json` and any project `.pi/ptc.json`. Pi does not read them.
+
+2. Update Pi to 1.x and turn on codemode next to the default tools in
+   `~/.pi/agent/settings.json` or a project's `.pi/settings.json`
+   ([Enable codemode](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/cli.md#enable-codemode)):
+
+   ```json
+   {
+     "defaultTools": ["+codemode"]
+   }
+   ```
+
+   For one run on Pi 1.1.0 or later: `pi --tools +codemode`.
+
+3. Pick the presentation that matches your old `/ptc` setting
+   ([settings: Tools](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/settings.md#tools)):
+
+   | pi-ptc | Pi codemode |
+   |---|---|
+   | `presentation: "code"` (`/ptc on`, the default) | `"codemode": { "mode": "only" }`: only `codemode` is declared and the other tools are called through scripts |
+   | `presentation: "both"` (`/ptc both`) | `"codemode": { "mode": "on" }` (Pi's default): tools stay declared and are also callable from scripts |
+   | `presentation: "native"` (`/ptc off`) | Leave codemode out of `defaultTools`, or remove it with `"-codemode"` |
+   | `~/.pi/agent/ptc.json`, trusted `.pi/ptc.json` | `~/.pi/agent/settings.json`, project `.pi/settings.json` |
+   | `timeoutMs` (120 s default) | Per script: `// @options: {"timeout_ms": 60000}` on the first line. There is no global setting, and no deadline by default |
+   | `maxOutputBytes` / `maxOutputLines` | Per script: `max_output_tokens` (default 10000). Longer output is truncated and the full text is written to a temp file |
+   | Binding signatures in the system prompt | `codemode.inlineBudget` (default 3000 estimated tokens), plus `searchTools()`, `describeTool()`, `describeNamespace()`, and `ALL_TOOLS` |
+   | `tools.<name>(args)` | `tools.<name>(args)`. Non-identifier characters become `_`, for example `tools.mcp__dev_radius__search` |
+   | `console`, return value | `console.*`, `text()`, `image()`, `return` |
+   | `ToolCallError` / `ToolResultDeliveryError` | A failed tool call rejects with an `Error` carrying the tool's error text; use `Promise.allSettled()` |
+
+### What codemode does differently
+
+The comparison below uses the Pi 1.1.0
+[codemode reference](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/codemode.md),
+[extension tool docs](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/docs/extensions.md) and
+[changelog](https://github.com/earendil-works/pi/blob/v1.1.0/packages/coding-agent/CHANGELOG.md).
+
+- **Same:** nested tool calls go through argument validation and the `tool_call` / `tool_result`
+  handlers like model-issued calls. They emit `tool_execution_*` events with
+  `parentToolCallId`, and their intermediate results never reach the model.
+- **Stricter:** scripts run in a QuickJS sandbox with no Node APIs, file system, network, or
+  timers. pi-ptc's worker had ambient Node.js authority.
+- **Added in codemode:** `store()`/`load()` keep state across calls, `models.classify()` and
+  `models.generateImages()` run non-LLM models, MCP servers are built in, and `image()` adds image output.
+
+Gaps, where pi-ptc behaviour has no documented codemode equivalent:
+
+- **Language:** scripts are JavaScript only. pi-ptc type-stripped erasable TypeScript.
+- **`artifact()`:** codemode has no way to copy an arbitrary file into session-owned storage
+  and return a bounded reference. It does write truncated output and images to temp files.
+- **Global limits:** codemode has no setting for a dispatch cap (pi-ptc: `maxDispatches`,
+  1000), a parallel-dispatch cap (pi-ptc: 10), or a global timeout. Its documented limits are
+  256 MB VM memory and the output caps above.
+- **Lossless-JSON contract:** pi-ptc required lossless JSON across bindings and in results.
+  Codemode adds non-string values as JSON and does not document an equivalent check.
+- **Nested-call display:** pi-ptc rendered one TUI row per nested dispatch with each tool's own
+  renderer. Codemode keeps a bounded `nestedCalls` record (at most 256 calls, no results) on its
+  tool result. Its per-call TUI rendering is not documented, so it is unclear whether it matches.
+
+## Historical documentation
+
+What follows describes pi-ptc 0.1.0 on Pi 0.84.3–0.85.0 and is kept for reference only.
+Open work such as the evaluation in
+[#7](https://github.com/sagmans/pi-ptc/pull/7) will not continue.
 
 > PTC runs model-written code with user-equivalent authority. Its worker is
 > containment, not a sandbox. Tool-specific gate and permission extensions do
 > not constrain direct Node.js operations inside a PTC program. Only nested
 > `tools.*` calls pass through captured Pi tool hooks.
 
-## When it helps
+### When it helps
 
 Use native batch calls for independent tool work. PTC adds value when later calls
 depend on earlier results, or when intermediate results are too large to return to
@@ -28,7 +108,7 @@ The `code` presentation reduces the callable model-facing tool list to `ptc`; it
 does not remove tool awareness or all schema prompt cost. Generated binding
 signatures remain in the `ptc` description so the model can write valid calls.
 
-## Requirements
+### Requirements
 
 - Node `>=24.20.0`
 - Pi `0.84.3`, `0.84.4`, or `0.85.0`
@@ -39,27 +119,7 @@ or TypeBox-dependent implementation. An unsupported host stays native without
 registering PTC; runtime shape drift after supported-host loading reports
 `ptc: inert`. Future Pi versions require verification before joining the allowlist.
 
-## Install
-
-npm package after the first release:
-
-```bash
-pi install npm:@sagmans/pi-ptc
-```
-
-Local checkout:
-
-```bash
-pi install /absolute/path/to/pi-ptc
-```
-
-One-off test:
-
-```bash
-pi -e /absolute/path/to/pi-ptc
-```
-
-## Usage
+### Usage
 
 The model calls `ptc` with two required arguments:
 
@@ -158,7 +218,7 @@ Adapter authorization remains adapter-owned when a program uses an adapter
 binding. Direct Node.js operations do not use adapter policy. PTC does not
 perform OAuth on the program's behalf.
 
-## Artifacts
+### Artifacts
 
 `artifact` captures an existing regular file into session-owned storage and
 returns a small bounded reference instead of file content:
@@ -185,7 +245,7 @@ Persistent sessions store artifacts beside the session file in a
 `<session-file>.artifacts` sidecar directory. Ephemeral sessions use a
 temporary process-scoped directory.
 
-## Presentation
+### Presentation
 
 | Setting | Model-visible tools |
 |---|---|
@@ -211,38 +271,7 @@ program uses an immutable execution lease with fixed catalog, dispatch, and
 renderer capabilities. Tools announced during a run become available only to a
 later run.
 
-## Execution
-
-Each `ptc` call:
-
-1. Type-strips erasable TypeScript and starts a fresh worker.
-2. Exposes bindings from the active-tool snapshot.
-3. Validates arguments and runs captured Pi before/after tool hooks.
-4. Emits Pi tool execution start, update, and end events.
-5. Returns lossless JSON to the program.
-6. Sends only `{ logs, result? }` to model context.
-
-Tools honor their Pi `executionMode`. Without one, `bash`, `edit`, and
-`write` run exclusively; other tools may run in parallel.
-
-The worker has an empty environment, but the program retains ambient Node.js
-authority. It can access files, processes, and networks without a `tools.*` call.
-Nested tools retain their normal Pi behavior and operating-system authority.
-
-## Display
-
-PTC hides its outer shell and renders one row per nested dispatch. It reuses Pi's
-built-in renderers and captures extension tool renderers for that execution.
-Missing or failing renderers fall back to bounded text.
-
-Display arguments, results, images, diagnostics, and persisted details are
-sanitized and bounded. Raw custom-renderer attachments require the exact details
-object identity within one transport instance and are revoked on lifecycle
-clear; only renderer definitions permit bounded call-ID restoration.
-Versioned details restore rows after session resume. When a retention budget is
-exhausted, PTC keeps a deterministic preview instead of a partial native result.
-
-## Limits
+### Limits
 
 Shipped limits live in [`config.json`](config.json). Defaults include:
 
@@ -257,47 +286,3 @@ Shipped limits live in [`config.json`](config.json). Defaults include:
 
 Output-limit failures report the measured byte or line count without echoing the
 rejected output. A trusted project `.pi/ptc.json` overrides `~/.pi/agent/ptc.json` for presentation and `maxDispatches`.
-
-## Compatibility
-
-Active built-in, SDK, extension, and adapter-provided tools—including MCP
-adapter tools—are eligible for PTC. Selection is schema-derived, not a fixed
-name allowlist. Inactive registered tools remain unavailable. If a tool
-activates additional registered tools, later PTC runs can use them.
-
-`pi-fabric`, `pi-retype`, and other transports registered as
-`fabric_exec`, `retype`, or `execute_tools` compete for the same tool
-surface. PTC stays inert when one is present.
-
-Third-party Pi extensions keep observing nested tool traffic. A
-`pi.on("tool_call")` and `pi.on("tool_result")` pair observes every
-`tools.read` executed inside a PTC program, exactly once per dispatch, while
-direct Node filesystem calls in the same program emit no Pi tool hooks:
-
-```ts
-pi.on("tool_call", (event) => {
-  if (event.toolName === "read") {
-    auditTrail.push(event.input.path); // observed for tools.read inside PTC
-  }
-});
-```
-
-Mixed physical copies of the Pi patch and adapter can coexist during reload.
-Downgrading the complete extension lifecycle requires restarting Pi; hot
-rollback to an older lifecycle in the same process is not supported.
-
-## Development
-
-```bash
-npm ci --ignore-scripts
-npm run verify
-npm run test:bun
-```
-
-The PTC evaluation harness and its methodology live in
-[`docs/evaluation.md`](docs/evaluation.md).
-
-`npm run verify` runs formatting, type checks, and Node tests.
-`npm run test:bun` covers the shipped Pi/Bun worker and renderer bindings.
-
-Maintainers must follow [`RELEASE.md`](RELEASE.md). The linked CLI-only setup automates npm bootstrap, GitHub approval controls, trusted publishing, hardening, and verification.
