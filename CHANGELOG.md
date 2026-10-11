@@ -6,6 +6,10 @@ All notable changes are documented here. The format follows
 
 ## [Unreleased]
 
+### Deprecated
+
+- pi-ptc is deprecated and the repository will be archived. Pi's built-in `codemode` tool (Pi 0.99.0 and later, including 1.x) supersedes it. The README now leads with the notice, a migration guide with the `/ptc` → `codemode.mode` mapping, the known gaps, and links to Pi's codemode docs and changelog. The earlier documentation is kept as historical reference.
+
 ### Added
 
 - Programmatic Tool Call presentations for all active Pi runtime tools.
